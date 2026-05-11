@@ -1,2 +1,6 @@
 /.env
 /dev-ml-448206-13edf23d9494.json
+venv
+.pytest_cache
+__pycache__
+*.pyc
