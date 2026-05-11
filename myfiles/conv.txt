@@ -1,0 +1,226 @@
+Architecture Quant Trading — Sentiment + TCG + XGBoost
+Résumé de conversation — Mai 2026
+
+1. OBJECTIF
+Construire un modèle de trading quantitatif hybride combinant :
+
+Features de sentiment sur les news économiques
+Graphe causal temporel (TCG) avec decay
+Détection de régime de marché
+XGBoost par régime comme modèle de décision final
+
+
+2. GRAPH RAG CAUSAL — PRINCIPE
+Concept
+Associer des entités (Trump, COVID, Fed...) à des impacts marchés historiques,
+et propager ces associations par analogie structurelle.
+Exemple :
+
+COVID → sell-off SPX -34%
+H5N1 est_similaire_à COVID × 0.71
+→ H5N1 détecté → signal baisse modulé par similarité
+
+Structure du graphe
+
+Nœuds : acteurs, concepts, assets, événements
+Arêtes : relations causales pondérées + datées
+Poids : base_weight × decay(t) × condition_score
+
+Analogie structurelle
+score = 0.4 × similarité_ontologique
++ 0.4 × similarité_embedding
++ 0.2 × similarité_contextuelle
+
+3. TEMPORAL CAUSAL GRAPH (TCG)
+Principe du decay
+Les relations causales s'affaiblissent dans le temps sans rappel similaire.
+weight(t) = base_weight × exp(-ln(2) × dt / half_life)
+Reinforcement
+Quand un événement similaire arrive, l'arête est réactivée :
+new_weight = weight_decayed + similarity × 0.3
+Régime de marché conditionne le decay
+RégimeVIXHalf-lifeComportementBull< 1560jOubli rapideTransition15-30180jInstableBear> 30365jMémoire longueCrisis> 50730jCicatrice durable
+Même relation COVID→crash :
+
+Régime bull  (2021) : weight = 0.001 (quasi morte)
+Régime bear  (2022) : weight = 0.24  (encore active)
+Régime crise        : weight = 0.48  (bien présente)
+
+Feedback loop
+VIX monte → decay ralentit → algos réagissent plus fort → VIX monte encore
+
+4. ARCHITECTURES ALTERNATIVES
+1. Temporal Causal Graph (TCG) — recommandé
+
+Causalité Pearl (do-calculus) avec DoWhy
+Distingue corrélation vs causalité
+Permet raisonnement conditionnel ("sans lockdown → quel impact ?")
+
+2. Event-Driven SSM (Mamba-style)
+
+Marché = état continu perturbé par événements discrets
+Apprend les poids end-to-end
+~5ms latence
+
+3. LLM World Model
+
+Fine-tuning sur historique news + returns
+Outputs probabilistes (distributions, pas points estimates)
+Excellent pour black swans
+~800ms latence → stack "System 2"
+
+Architecture cible
+
+Événement connu + rapide  → TCG (causalité explicite)
+Signal continu temps réel → SSM (performance pure)
+Événement rare / ambigu   → World Model (raisonnement)
+
+
+5. DÉTECTION DE RÉGIME
+Phase 1 MVP — Règles expert
+pythonif vix > 50:              regime = "crisis"
+elif vix > 30 and slope < 0: regime = "bear"
+elif vix < 15 and slope > 0: regime = "bull"
+else:                     regime = "transition"
+Phase 2 Production — HMM + règles combinés
+
+hmmlearn : 4 états cachés = 4 régimes
+Output probabiliste : [0.1 bull, 0.4 trans, 0.4 bear, 0.1 crisis]
+Weighted half-life = sum(proba_i × halflife_i)
+Règles expert overrides si VIX > 50 (signal fort)
+
+
+6. PIPELINE DAILY — MISE À JOUR
+Fréquences
+
+TICK (ms)    : decay pré-calculé, latence ~5ms
+DAILY (21h30): recalcul complet decay + régime + reinforcement
+WEEKLY       : recalibration des half-lives eux-mêmes
+
+Batch quotidien (10 minutes)
+
+Fetch régime (VIX)
+Fetch news + prix 300 stocks
+NLP → NER + FinBERT
+TCG update → decay recalculé
+Features générées
+XGBoost[régime].predict()
+Signal J+1 exporté
+
+
+7. FEATURES POUR XGBOOST
+Sentiment (depuis TCG)
+
+sentiment_weighted   = score × influence_entité × decay(t)
+sentiment_ema_1h     = ewma(sentiment, span=1h)
+sentiment_ema_24h    = ewma(sentiment, span=24h)
+sentiment_zscore     = zscore(sentiment[-60j])
+sentiment_change     = sentiment_t - sentiment_t-5
+graph_resonance      = sum(poids arêtes actives)
+novelty_score        = 1 - similarité(news, historique)
+
+Techniques
+
+momentum_20d, momentum_60d
+volatility_20d
+rsi_14, macd, distance_200MA
+
+Fondamentales
+
+earnings_surprise
+pe_ratio_zscore
+revision_estimates
+
+Régime
+
+regime_encoded       = {bull:0, transit:1, bear:2, crisis:3}
+regime_duration_days
+regime_confidence    = proba HMM max
+weighted_halflife    = sum(proba_i × halflife_i)
+
+
+8. MODÈLE DE DÉCISION
+Architecture : XGBoost par régime
+
+1 modèle entraîné sur périodes bull
+1 modèle entraîné sur périodes transition
+1 modèle entraîné sur périodes bear/crisis
+Router = régime_detector → active le bon modèle
+
+Paramètres anti-overfit
+
+max_depth        = 3
+n_estimators     = 100
+learning_rate    = 0.05
+min_child_weight = 50
+subsample        = 0.8
+
+Validation walk-forward strict
+
+Expanding window (jamais full history)
+Half-lives calibrées sur passé uniquement
+IS Sharpe vs OOS Sharpe : ratio < 2x sinon overfit
+
+
+9. DONNÉES ET COÛTS
+Stratégie
+
+Phase bulk (1 mois) : Finnhub premium ~$50
+→ 5-7 ans historique prix + news + sentiment
+→ stocké localement, jamais re-téléchargé
+Phase prod ($0/mois) : sources gratuites fiables
+
+Sources gratuites prod
+
+Finnhub free    : 60 calls/min, news + EOD 300 stocks
+GDELT           : news géopolitiques (Trump, pandémies)
+FRED API        : macro officiel (taux, inflation, VIX)
+RSS Fed/BCE/BLS : déclarations banques centrales
+
+Batch daily 300 stocks
+
+~600 calls/jour sur 86 400 possibles (1% du quota)
+Durée : ~10 minutes à 21h30
+
+⚠️ Point licence Finnhub
+
+Free tier = usage personnel / non-commercial
+Trading live avec capital réel = zone grise
+Action : lire finnhub.io/terms + email support@finnhub.io
+Si usage commercial → plan $50/mois obligatoire
+
+
+10. STACK TECHNIQUE
+ComposantOutilDonnéesFinnhub + GDELT + FREDNERspaCySentimentFinBERT (HuggingFace)Graphe causalNetworkX + DoWhyCausal discoveryTigramite (PCMCI)RégimehmmlearnFeaturesPandas + PolarsModèleXGBoost + SHAPBacktestVectorBTSchedulerAPSchedulerStockageParquet localInfra GPUInstance personnelle (gb10)
+
+11. CE QUI EXISTE SUR GITHUB
+Disponible
+
+Sentiment + XGBoost + backtest : oui (projets portfolio)
+Régime HMM : oui (recherche académique)
+Causal graph basique : oui (Tigramite, DoWhy)
+Paper arXiv 2025 : FinBERT + XGBoost + GDELT + expanding window
+→ Sharpe OOS 4-5 sur FX, valide l'approche de base
+
+Original dans ce projet
+
+TCG + decay conditionné par régime : NON existant
+Analogie structurelle (H5N1 → COVID) : NON existant
+Half-life adaptatif par régime : NON existant
+Pipeline intégré complet : NON existant
+
+
+12. RÉSUMÉ FINANCIER
+PhaseCoûtBulk historique$50 one-shotProduction mensuelle$0/moisTotal année 1~$50Total année 2+$0
+
+13. PROCHAINES ÉTAPES
+
+Lire CGU Finnhub + clarifier usage commercial
+Télécharger bulk historique (1 mois Finnhub)
+Construire graphe causal initial (annotation manuelle)
+Implémenter decay engine + régime rules expert
+Pipeline NLP → features
+Walk-forward backtest XGBoost unique (MVP)
+Valider alpha avec SHAP
+Ajouter XGBoost par régime si alpha confirmé
+Passer en prod daily batch ($0/mois)
