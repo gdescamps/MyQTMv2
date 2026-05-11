@@ -1,0 +1,10 @@
+[core]
+    remote = gb10
+    autostage = true
+[cache]
+    dir = ../../../dvc-cache
+    shared = group
+    type = copy
+['remote "gb10"']
+    url = ssh://gb10/dvc
+
