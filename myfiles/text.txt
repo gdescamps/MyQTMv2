@@ -33,31 +33,33 @@ myfiles/etf_univers.md
 
 -------------------------------------------
 
-ecrire dans 
-myfiles/etf_strategy.md
 
-une nouvelle stratégie d'un modèle quantitatif.
-Dédié aux ETF.
+en t'inspirant d'une conversation precedente 
+myfiles/etf_strategy.txt
+ecrire une nouvelle stratégie d'un modèle quantitatif dédié aux ETF.
+myfiles/etf_plan.md
+
+une nouvelle stratégie d'un modèle quantitatif.Dédié aux ETF.
 Parmi les ETF listés dans l'univers,
+myfiles/etf_univers.md
 
 Dans ce répertoire ./MyQTM
 Il y a un modèle quantitatif basé sur des actions américaines.
 Je veux reprendre quelques concepts dans le modèle quantitatif dédié aux ETF.
 
-Je veux reprendre également des éléments de myfiles/etf.md
-
 Au niveau de la stratégie ETF, je veux plutôt une répartition du portefeuille sur l'univers
 En fonction de la phase de marché.
 
-Le modèle doit se baser sur récupération des données historiques via un compte FMP.
-Payant  sur un mois.
-
+Le modèle doit se baser sur la récupération des données historiques complete via un compte FMP.
+Payant sur un mois.
 Puis le suivi journalier en production peut se faire avec le compte gratuit 250 appels par jour.
 
-Dans ce modèle ETF, Le modèle ETF est basé sur une approche data.
-On ajoute des features qui a priori on pouvoir prédictif.
-Puis un modèle XGBoost Entraîner sur des intervalles permet d'analyser, sur les différents intervalles indépendants, l'importance de prédiction de chaque feature.
-Qui permet de sélectionner pour le modèle final un sous-ensemble de features débruités.
+Ce modèle ETF est basé sur une approche data.
+On ajoute des features qui a priori on un pouvoir prédictif.
+Puis un modèle XGBoost entraîne sur des intervalles permet d'analyser, 
+sur les différents intervalles indépendants, 
+l'importance de prédiction de chaque feature.
+ce qui permet de sélectionner pour le modèle final un sous-ensemble de features débruités.
 Ce qui est fait dans le modèle quantitatif ./MyQTM
 
 Je veux des features : 
@@ -84,11 +86,27 @@ Comme ce qui est fait dans le modèle quantitatif ./MyQTM Mais adapté aux ETF.
 Je veux des features qui montrent les mouvements des capitaux des institutionnels (smart money)
 Je vais vous expliquer comment on extrait ces features à partir des infos de FMP.
 
+Faire une proposition pour définir la sortie du modèle XGBoost
+Une sortie qui permettra de définir la répartition de l'univers ETF
+L'arbitrage peut être réalisé quotidiennement (daily)
 
-
+Est-ce qu'on garde le même formalisme que le modèle quantitatif sur les actions américaines 
+dans ./MyQTM 
+Ou est-ce qu'il y a mieux à faire pour gérer le portefeuille ETF ?
 
 -------------------------------------------
 
+dans myfiles/etf_plan.md
+Dans le plan établir un ordre de priorité dans les features a extraire
+en terme de retour sur investissement sur le potentiel predictif.
 
+-------------------------------------------
 
+Extraire les données au même format .csv que dans le modèle quantitatif spécialisé sur les actions américaines.
+./MyQTM 
+Utiliser le meme format pour les nom de fichier de donnée
+Organiser l'extraction de toutes les données nécessaires pour exécuter le plan.
+myfiles/etf_plan.md en utilisant FMP
+
+-------------------------------------------
 
