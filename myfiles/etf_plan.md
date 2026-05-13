@@ -350,56 +350,62 @@ y[etf_i] = ret_20d[etf_i] - mean(ret_20d[all_universe])
 # Les poids ne sont jamais des labels — ils émergent du softmax sur les scores.
 ```
 
-### Sortie du modèle : score → poids
+### Deux fonctions indépendantes : rotation + exposition
+
+Le modèle final combine deux calculs séparés qui répondent à deux questions distinctes :
+
+```
+XGBoost(X)          →  score par ETF        "quelle ROTATION à l'intérieur d'un bloc ?"
+sigmoid(vix, hy)    →  budget_régime        "COMBIEN investir en equity vs défensif ?"
+```
 
 ```python
-# XGBoost.predict() → score continu par ETF
-#        ↓
-# softmax(scores / temperature)  → probabilités
-#        ↓
-# × budget_régime  → poids finaux
+# ── Fonction 1 : XGBoost ──────────────────────────────────────────────────
+# Répond : parmi les ETF equity, lequel surperforme ?
+#          parmi les défensifs, lequel ?
+scores = xgboost.predict(X)   # score continu par ETF, toutes classes d'actifs
 
-def scores_to_weights(scores: dict, vix: float, hy_spread_z60: float) -> dict:
-    # 1. Clamp scores négatifs à 0 (pas de short sur ETF)
-    scores_pos = {k: max(0, v) for k, v in scores.items()}
+# ── Fonction 2 : budget_régime (sigmoid) ─────────────────────────────────
+# Répond : quelle fraction du capital on risque aujourd'hui ?
+# Indépendant de XGBoost — protection du capital avant tout
+danger        = sigmoid(p1 * vix + p2 * hy_spread_z60 + p3)  # [0, 1]
+equity_budget = equity_max * (1 - danger)   # ex. vix=60 → danger≈0.9 → 9% equity
 
-    # 2. Budget equity dérivé des variables macro brutes (pas de HMM)
-    #    → règle simple, optimisée par CMA-ES
-    danger = sigmoid(p1 * vix + p2 * hy_spread_z60 + p3)   # [0, 1]
-    equity_budget    = equity_max * (1 - danger)             # ex. 0.10 à 0.90
-    defensive_budget = 1.0 - equity_budget - cash_min
+# ── Combinaison finale ────────────────────────────────────────────────────
+equity_etfs    = [e for e in scores if e.section in ("geo", "sector_us", "thematic")]
+defensive_etfs = [e for e in scores if e.section in ("bond", "commodity")]
 
-    # 3. Softmax à l'intérieur de chaque bloc
-    equity_etfs    = [e for e in scores_pos if e.section in ("geo", "sector_us", "thematic")]
-    defensive_etfs = [e for e in scores_pos if e.section in ("bond", "commodity")]
-    w_equity    = softmax(scores_pos[equity_etfs],    temperature) * equity_budget
-    w_defensive = softmax(scores_pos[defensive_etfs], temperature) * defensive_budget
-
-    return {**w_equity, **w_defensive}
-
-# CMA-ES optimise : p1, p2, p3, equity_max, cash_min, temperature, ...
-# → apprend les seuils optimaux de vix et hy_spread pour réduire l'exposition
+w_equity    = softmax(scores[equity_etfs],    temperature) * equity_budget
+w_defensive = softmax(scores[defensive_etfs], temperature) * (1 - equity_budget - cash_min)
+# cash implicite = 1 - Σw
 ```
+
+**Pourquoi séparer ?**
+Si XGBoost gérait les deux, il pourrait allouer 90% equity même en crise
+(il optimise la rotation relative, pas l'exposition globale).
+Le sigmoid est un **disjoncteur macro** : VIX explose → exposition réduite
+indépendamment de ce que XGBoost pense de la rotation.
 
 ### Optimisation des paramètres — CMA-ES adapté
 
+CMA-ES optimise conjointement les deux fonctions (comme MyQTM `search_params.py`) :
+
 ```python
-# CMA-ES optimise (comme MyQTM search_params.py) :
-#   - seuil de changement de poids (évite le churning)
-#   - facteur de concentration (nombre effectif de positions)
-#   - allocation equity_budget par régime (affinement)
-#
-# Paramètres à optimiser (9 comme MyQTM) :
 INIT_SPACE = [
-    Real(0.01, 0.50, name="min_weight_change"),    # seuil pour passer un ordre
-    Real(0.05, 0.40, name="max_single_weight"),    # concentration max par ETF
-    Real(0.50, 0.95, name="equity_budget_bull"),
-    Real(0.20, 0.65, name="equity_budget_trans"),
-    Real(0.05, 0.35, name="equity_budget_bear"),
-    Real(0.00, 0.15, name="equity_budget_crisis"),
-    Real(0.10, 0.50, name="defensive_min_bear"),
-    Real(0.00, 0.20, name="cash_min"),
-    Real(1.0,  3.0,  name="softmax_temperature"),  # concentration du softmax
+    # budget_régime (sigmoid)
+    Real(-0.10, 0.00, name="p1_vix"),           # sensibilité au VIX
+    Real(-0.50, 0.00, name="p2_hy_spread"),     # sensibilité au HY spread
+    Real(-2.0,  2.0,  name="p3_bias"),          # biais du sigmoid
+    Real(0.60,  0.95, name="equity_max"),        # exposition max en bull
+    Real(0.00,  0.20, name="cash_min"),          # cash minimum garanti
+
+    # softmax XGBoost
+    Real(0.5,   3.0,  name="temperature"),       # concentration des poids
+    Real(0.05,  0.40, name="max_single_weight"), # cap par ETF
+
+    # gestion des ordres
+    Real(0.01,  0.10, name="min_weight_change"), # seuil pour passer un ordre
+    Real(0.10,  0.50, name="defensive_min"),     # défensif minimum si danger > 0.5
 ]
 ```
 
