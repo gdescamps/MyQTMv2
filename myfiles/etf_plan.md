@@ -476,6 +476,44 @@ Le démarrage est donc **conditionnel aux conditions macro du jour J** :
 - Bon timing (VIX bas) → allocation complète en 1 jour, 1 seule session d'ordres
 - Mauvais timing (VIX haut) → exposition progressive au fur et à mesure que le VIX baisse
 
+### Rééquilibrage dynamique (fonctionnement normal)
+
+En fonctionnement normal, deux sources génèrent des ordres chaque soir :
+
+```python
+# Source 1 : dérive naturelle des prix (profit-taking automatique)
+#   ETF monte → poids actuel dépasse le poids cible → VENDRE le surplus
+#   ETF baisse → poids actuel sous le poids cible   → ACHETER le manque
+
+poids_actuel[etf] = valeur_position[etf] / valeur_portefeuille_total
+
+# Source 2 : changement de signal XGBoost
+#   Nouveau score → nouveau poids cible → delta à exécuter
+
+# Filtre anti-churning : seuil calibré par CMA-ES (~3-5%)
+for etf in universe:
+    delta = poids_cible[etf] - poids_actuel[etf]
+    if abs(delta) > min_weight_change:
+        ordre(etf, delta)   # + acheter, - vendre
+    # sinon : HOLD — la dérive est trop faible vs frais Boursorama (0.22%)
+```
+
+**Exemple concret :**
+```
+Jour J   : CSP1 poids cible = 25%, poids actuel = 25% → rien
+Jour J+10: CSP1 monte +8%  → poids actuel = 27%
+           poids cible inchangé = 25%
+           delta = -2%  → si > min_weight_change → VENDRE 2% de CSP1
+           → profit-taking automatique ✅
+
+Jour J+10: sigmoid(vix↑) → equity_budget réduit de 85% à 60%
+           tous les poids equity cibles baissent proportionnellement
+           → ordres de vente générés sur tout le bloc equity ✅
+```
+
+**Le `min_weight_change` est le seul frein aux ordres** — CMA-ES l'optimise
+pour que le gain espéré du rééquilibrage dépasse toujours les frais de vente (~0.22%).
+
 ### Signal daily (chaque soir)
 
 ```
