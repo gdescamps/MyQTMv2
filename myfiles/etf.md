@@ -106,26 +106,17 @@ Il faut utiliser les équivalents UCITS cotés en EUR sur Euronext.
 | IGLN.AS | iShares Physical Gold ETC                         | ❌ frais| GLD ⚠️   | Risk-off / inflation | +45%      | +154%      |
 | SXRS.DE | iShares Diversified Commodity Swap (DE)           | ✅ PEA  | SXRS.DE  | Commodités larges    | +37%      | +82%       |
 | RING    | iShares Gold Producers ETF USD Acc                | ✅      | RING ⚠️  | Or minier / levier or| +117%     | +174%      |
-| GLDU.AS | L&G Gold Mining ETF                               | ❌ frais| GLDU.AS  | Or minier / levier or| +106%     | +158%      |
 | IOGP.AS | iShares Oil & Gas Explr&Prod ETF USD Acc          | ✅      | IEO ⚠️   | Pétrole E&P          | +33%      | +122%      |
-| OIL.PA  | Lyxor Crude Oil ETF                               | ❌ frais| OIL.PA   | Pétrole spot         | +14%      | +13%       |
-| LVO.PA  | Lyxor S&P 500 VIX Futures ETF                     | ❌ frais| UVXY ⚠️  | Volatilité / hedge   | —         | —          |
 
 > **Or physique (IGLN)** : non couvert dans FMP → proxy GLD (SPDR Gold, corrélation >0.99).
 > **SXRS.DE** : seule commodité zéro frais + éligible PEA, couverte directement dans FMP.
 > **RING / GLDU** : mines d'or = levier sur l'or (~1.5-2x), plus volatil que l'or physique.
-> **LVO.PA** : produit complexe à décroissance temporelle — UVXY ne convient pas comme proxy de signal.
 
 ### ETN Crypto (disponibles depuis mars 2025 sur Boursobank)
 
 | Ticker   | Nom exact Boursorama                         | 0%frais | FMP      | Actif    | Perf 1 an | Perf 5 ans |
 |----------|----------------------------------------------|:-------:|:--------:|----------|:---------:|:----------:|
 | IBTC.AS  | iShares Physical Bitcoin ETP USD Acc         | ❌ frais| IBIT ⚠️  | Bitcoin  | +55%      | N/D        |
-| CBTC.AS  | CoinShares Physical Bitcoin USD Acc          | ❌ frais| IBIT ⚠️  | Bitcoin  | +55%      | N/D        |
-| CETH.AS  | CoinShares Physical Ethereum USD Acc         | ❌ frais| ETHA ⚠️  | Ethereum | -35%      | N/D        |
-| CSOL.AS  | CoinShares Physical Solana USD Acc           | ❌ frais| —        | Solana   | -40%      | N/D        |
-| CADA.AS  | CoinShares Physical Cardano USD Acc          | ❌ frais| —        | ADA      | -50%      | N/D        |
-| CXRP.AS  | CoinShares Physical XRP USD Acc              | ❌ frais| —        | XRP      | +180%     | N/D        |
 
 > **CTO uniquement** : ETN adossés à du crypto physique en custody (UCITS-like, MiFID II compliant).
 > **Lancés mars 2025** : pas de historique 5 ans. Perf 1 an ≈ performance du sous-jacent crypto.
