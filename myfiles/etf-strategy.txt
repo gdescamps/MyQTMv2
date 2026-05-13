@@ -1,0 +1,376 @@
+# Résumé Stratégie ETF Quantitative
+Extrait de conversation — Mai 2026
+
+---
+
+## 1. POURQUOI LES ETF PLUTÔT QUE LES ACTIONS
+
+```
+Avantages ETF pour le quant :
+  ✅ Diversification intégrée → moins de bruit
+  ✅ Pas de risque idiosyncratique (fraude, faillite)
+  ✅ Très liquides → faibles coûts de transaction
+  ✅ Représentent directement les régimes macro
+  ✅ 20-30 ETF couvrent tout l'univers
+  ✅ Moins d'overfitting (30 assets vs 300)
+  ✅ Sharpe plus stable OOS
+  ✅ 60 calls/jour Finnhub free (vs 600 pour 300 actions)
+```
+
+---
+
+## 2. UNIVERS ETF — ÉQUIVALENTS UCITS SUR BOURSORAMA
+
+### Contrainte réglementaire
+Les ETF US (SPY, QQQ...) sont interdits aux particuliers européens
+depuis MiFID II / PRIIPs (absence de DIC européen).
+→ Il faut utiliser les équivalents UCITS cotés sur Euronext.
+
+### Equity géographique
+| Ticker | Nom | PEA | Boursomarkets |
+|--------|-----|-----|---------------|
+| CSP1   | iShares Core S&P 500 UCITS | ✅ | ✅ |
+| CNX1   | iShares Nasdaq 100 UCITS | ✅ | ✅ |
+| IWDA   | iShares Core MSCI World UCITS | ✅ | ✅ |
+| AEEM   | Amundi MSCI Emerging Markets | ❌ | CTO |
+| FXC    | iShares China Large Cap UCITS | ❌ | CTO |
+| IQQ2   | iShares Russell 2000 UCITS | ⚠️ | CTO |
+
+### Secteurs US — iShares S&P 500 sectoriels
+| Ticker | Secteur | PEA | Enveloppe |
+|--------|---------|-----|-----------|
+| IUFS   | Financials | ⚠️ | CTO |
+| IUES   | Energie | ⚠️ | CTO |
+| IUIT   | Tech | ⚠️ | CTO |
+| IUHC   | Santé | ⚠️ | CTO |
+| IUII   | Industriels | ⚠️ | CTO |
+| IUCS   | Conso défensive | ⚠️ | CTO |
+| IUCD   | Conso cyclique | ⚠️ | CTO |
+
+### Obligations — CTO uniquement
+| Ticker | Nom | Enveloppe |
+|--------|-----|-----------|
+| DTLA   | iShares USD Treasury Bond 20+yr | CTO |
+| IBTA   | iShares USD Treasury Bond 7-10yr | CTO |
+| IHYU   | iShares USD High Yield Corp Bond | CTO |
+| LQDE   | iShares USD Corp Bond | CTO |
+| ITPS   | iShares USD TIPS | CTO |
+
+### Commodités — CTO uniquement
+| Ticker | Nom | Enveloppe |
+|--------|-----|-----------|
+| IGLN   | iShares Physical Gold ETC | CTO |
+| OIL    | Lyxor S&P GSCI Crude Oil | CTO |
+| ICOM   | iShares Diversified Commodity | CTO |
+
+### Volatilité / Alternatif
+| Ticker | Nom | Enveloppe | Note |
+|--------|-----|-----------|------|
+| LVO    | Lyxor S&P 500 VIX Futures | CTO | ⚠️ produit complexe |
+| IUSD   | Invesco USD Dollar UCITS | CTO | exposition $ sans frais change |
+
+### ETN Crypto (depuis mars 2025)
+| Actif | Émetteur | Enveloppe |
+|-------|---------|-----------|
+| Bitcoin | iShares + CoinShares | CTO |
+| Ethereum | CoinShares (staked) | CTO |
+| Solana | CoinShares (staked) | CTO |
+
+---
+
+## 3. ENVELOPPES FISCALES
+
+```
+PEA (Plan d'Épargne en Actions) :
+  → ETF actions uniquement
+  → Plus-values exonérées d'impôt après 5 ans
+    (seulement 17.2% prélèvements sociaux)
+  → Plafond 150 000€ de versements
+  → Priorité pour CSP1, CNX1, IWDA
+
+CTO (Compte Titres Ordinaire) :
+  → Tout : bonds, or, pétrole, crypto, VIX
+  → PFU 30% sur les gains
+  → Pas de plafond
+
+Règle :
+  PEA → ETF equity (avantage fiscal)
+  CTO → tout le reste
+```
+
+---
+
+## 4. BOURSOBANK — FRAIS ET CONDITIONS
+
+### Boursomarkets
+Programme partenaires iShares/Amundi/Lyxor :
+- Achat ≥ 500€ → 0€ de courtage ✅
+- Achat < 500€ → tarif standard
+- Vente → tarif standard (~0.22% profil Trader)
+- Disponible uniquement sur Euronext Paris/Amsterdam
+
+### Calcul frais pour 15 trades/mois
+```
+15 ventes × 1000€ × 0.22% = 33€/mois
+TER ETF annuel             = ~0.20%/an
+Coût total mensuel         = ~0.18% ✅ très acceptable
+```
+
+### Workflow opérationnel
+```
+Pipeline tourne chaque soir automatiquement
+→ signal généré à 21h30
+→ notification le matin
+→ ordre passé manuellement (2 min sur l'app)
+→ ~15 ordres/mois maximum
+```
+
+### Protection du capital
+```
+Cash > 100K€ : risque au-delà garantie FGDR ⚠️
+ETF en PEA/CTO : titres ségrégués du bilan
+                 de Boursobank → protégés ✅
+                 même en cas de faillite bancaire
+
+ETF > fonds euros au-delà de 100K€ car :
+  ✅ Titres ségrégués (vs bilan assureur)
+  ✅ Diversification mondiale
+  ✅ Rendement historique ~9.5%/an
+  ✅ Pas de loi Sapin 2 (blocage rachats impossible)
+  ✅ Liquidité permanente
+```
+
+---
+
+## 5. DONNÉES ETF DISPONIBLES SUR FMP
+
+### Spécifique aux ETF (vs actions)
+```
+✅ Holdings complets (liste actions + poids)
+✅ Répartition sectorielle
+✅ Répartition géographique
+✅ AUM + expense ratio
+✅ Détenteurs institutionnels
+✅ Exposition inverse (quel ETF détient une action)
+✅ Date de listing (inception date)
+```
+
+### Pas disponible sur ETF (contrairement aux actions)
+```
+❌ Earnings / bilan comptable
+❌ Insider transactions
+❌ Price targets d'analystes (directs)
+❌ Earnings transcripts
+```
+
+### Palmarès ETF via FMP
+```python
+# Equivalent du palmarès Boursorama
+GET /stable/stock-screener?isEtf=true&exchange=EURONEXT
+GET /stable/market-biggest-gainers
+GET /stable/market-biggest-losers
+GET /stable/sector-performance
+# → 2-3 calls/jour ✅ quasi gratuit
+```
+
+---
+
+## 6. FEATURES SPÉCIFIQUES AUX ETF
+
+### Sentiment synthétique sur composants
+```python
+# Pas de notes analystes directes sur les ETF
+# → on construit un score synthétique
+
+etf_analyst_score = sum(
+    holdings[i]["weight"] × analyst_score(holdings[i]["symbol"])
+    for i in top_20_holdings
+)
+# → agrège les notes des 20 principales actions
+#   pondérées par leur poids dans l'ETF
+```
+
+### Rotation sectorielle — signal précoce
+```python
+# Changement de composition = signal avant le prix
+rotation_signal = etf_sector_weight_t - etf_sector_weight_t_30j
+# Si XLK perd du poids dans SPY → rotation défensive
+```
+
+### Momentum relatif entre ETF
+```python
+features_rotation = {
+    "equity_vs_bonds":   returns_csp1_20d - returns_dtla_20d,
+    "tech_vs_value":     returns_cnx1_20d - returns_iufs_20d,
+    "cyclical_vs_def":   returns_iucd_20d - returns_iucs_20d,
+    "us_vs_em":          returns_csp1_20d - returns_aeem_20d,
+}
+```
+
+---
+
+## 7. VIX — SIGNAL CONTRARIAN CLÉ
+
+### Propriété fondamentale
+```
+Le VIX est mean-reverting par nature :
+  dVIX = κ(θ - VIX)dt + σ√VIX dW
+  θ = moyenne long terme (~20)
+  → plus le VIX est élevé, plus la force de rappel est forte
+  → il est mathématiquement OBLIGÉ de retomber
+
+Plafonds historiques :
+  COVID mars 2020   : 85 ← record absolu
+  Lehman 2008       : 80
+  Trump tariffs 2025: ~60
+```
+
+### Pattern empirique : pic VIX → rally equity
+```
+VIX peak → bottom equity → rally
+
+COVID :  VIX 85 → SPY bottom J+1  → SPY +60% en 6 mois
+Lehman : VIX 80 → SPY bottom J+150 → SPY +65% en 12 mois
+Brexit : VIX 48 → SPY bottom J0    → SPY +20% en 3 mois
+
+Probabilité historique de rally 90j
+après VIX > 40 en déclin : ~72%
+```
+
+### Les 4 confirmateurs du retournement
+```python
+recovery_signal = {
+    "vix_declining":      vix < vix_5d_max * 0.90,    # ← VIX baisse
+    "fear_declining":     putcall < putcall_5d_avg,    # ← panique se calme
+    "credit_healing":     hy_spread < hy_spread_5d,   # ← crédit normalise
+    "breadth_recovering": pct_above_200ma > 25,        # ← base s'élargit
+}
+# 1/4 → trop tôt
+# 2/4 → signal modéré
+# 3/4 → signal fort ✅ (~85%)
+# 4/4 → signal très fort ✅✅ (~90%)
+```
+
+### Sources gratuites pour ces confirmateurs
+```
+VIX              → FRED (VIXCLS) ✅
+Put/Call ratio   → CBOE gratuit  ✅
+HY spread        → FRED (BAMLH0A0HYM2) ✅
+Breadth S&P 500  → calcul depuis FMP ✅
+```
+
+---
+
+## 8. CYCLE DE MARCHÉ ET FLUX INSTITUTIONNELS
+
+### Le cycle complet avec confirmation sémantique
+```
+J-7 à J-3 : News macro sémantique (NLP)
+             "Fed pivot", "whatever it takes"
+             → signal le plus précoce
+
+J-2 à J0  : Flux institutionnels bougent
+             rotation TLT → CSP1 observable
+             → confirmation
+
+J0        : VIX peak puis déclin
+             → validation
+
+J+1 à J+30: Prix des ETF suivent
+             → exécution
+```
+
+### Rotation des flux par phase
+```
+PANIQUE :
+  → achètent TLT, DTLA (bonds)
+  → achètent IGLN (or)
+  → fuient vers monétaires
+  → vendent CSP1, CNX1
+
+STABILISATION :
+  → flux ralentissent
+  → smart money achète discrètement
+
+RECOVERY :
+  → vendent TLT → achètent CSP1
+  → vendent IGLN → achètent cycliques
+  → HY spread se resserre
+
+BULL :
+  → pleinement investis équity
+  → retail suit le mouvement
+```
+
+### Fiabilité par combinaison de signaux
+```
+News sémantique seule  : 60%  (J-5)
+Flux institutionnels   : 72%  (J-2)
+VIX declining          : 72%  (J0)
+News + flux            : 82%  (J-3)
+News + flux + VIX      : 89%  (J-1)
+```
+
+---
+
+## 9. SYMBOLES BOURSORAMA
+
+### Règle de construction automatique
+```python
+def ticker_to_boursorama(ticker, exchange="PAR"):
+    prefixes = {
+        "PAR": "1rT",   # Euronext Paris
+        "AMS": "1rT",   # Euronext Amsterdam
+        "XET": "1zT",   # Xetra
+    }
+    return f"{prefixes[exchange]}{ticker}"
+
+# CSP1 → 1rTCSP1
+# IWDA → 1rTIWDA
+# DTLA → 1rTDTLA
+```
+
+### Vérification disponibilité via FMP
+```python
+GET /v3/search?query=CSP1&exchange=EURONEXT
+# → confirme disponibilité + exchange exact
+```
+
+---
+
+## 10. COÛTS DONNÉES ETF
+
+```
+FMP bulk historique  : $19-50 one-shot (1 mois)
+FMP free daily       : ~10-15 calls/jour ✅
+Finnhub free         : prix EOD + news ✅
+FRED API             : VIX, HY spread, macro ✅
+GDELT                : news géopolitiques ✅
+CBOE                 : Put/Call ratio ✅
+
+Total récurrent : $0/mois ✅
+```
+
+---
+
+## 11. AVANTAGES DE LA STRATÉGIE ETF VS ACTIONS
+
+```
+Pour notre architecture TCG + XGBoost :
+
+Graphe causal :
+  → relations macro plus stables sur ETF
+  → "Fed hausse taux → DTLA baisse" = durable
+  → moins de bruit que "CEO démissionne → stock bouge"
+
+Features :
+  → momentum relatif entre ETF = rotation signal
+  → composition ETF = signal précoce de rotation
+  → VIX + flux + sémantique = cycle complet
+
+Opérationnel :
+  → 60 calls/jour Finnhub (vs 600 pour 300 actions)
+  → backtest moins bruité
+  → exécution : ~15 ordres/mois sur Boursobank
+  → coût total : $50 one-shot + $0/mois ✅
+```
