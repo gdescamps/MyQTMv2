@@ -297,33 +297,46 @@ feature_importance = mean_importance / (std_importance ** mean_std_power)
 # Paramètre TS_SIZE = 6 (fenêtres glissantes de 6 mois)
 ```
 
-### Sortie du modèle : vecteur de poids
+### Supervision des labels
 
 ```python
-def scores_to_weights(scores: dict, regime: str) -> dict:
-    """
-    Convertit les scores XGBoost en poids de portefeuille.
+# Label = performance relative future (continu, pas de seuil binaire)
+# Entraînement par régime séparé — 3 horizons différents
 
-    Contraintes par régime :
-      bull     : max 90% equity, min 0% bonds
-      bear     : max 30% equity, min 30% bonds+or
-      crisis   : max 10% equity, min 50% bonds+or+cash
-      transition: interpolation entre bull et bear
-    """
-    # 1. Clamp les scores négatifs à 0 (pas de short sur ETF)
+# Modèle bull     : ETF surperforme-t-il l'univers equity sur 20j ?
+y_bull[etf_i]   = ret_20d[etf_i] - mean(ret_20d[equity_universe])
+
+# Modèle bear     : ETF surperforme-t-il l'univers défensif sur 20j ?
+y_bear[etf_i]   = ret_20d[etf_i] - mean(ret_20d[defensive_universe])
+
+# Modèle crisis   : horizon réduit à 5j (retournements rapides)
+y_crisis[etf_i] = ret_5d[etf_i]  - mean(ret_5d[all_universe])
+
+# Les poids ne sont jamais des labels — ils émergent du softmax sur les scores.
+```
+
+### Sortie du modèle : score → poids
+
+```python
+# XGBoost.predict() → score continu par ETF
+#        ↓
+# softmax(scores / temperature)  → probabilités
+#        ↓
+# × budget_régime  → poids finaux
+
+def scores_to_weights(scores: dict, regime: str) -> dict:
+    # 1. Clamp scores négatifs à 0 (pas de short sur ETF)
     scores_pos = {k: max(0, v) for k, v in scores.items()}
 
-    # 2. Filtrer par enveloppe de régime
-    equity_etfs = [e for e in scores_pos if e.section in ("geo", "sector_us", "thematic")]
-    defensive_etfs = [e for e in scores_pos if e.section in ("bond", "commodity")]
-
-    # 3. Allocation par bloc selon régime
-    equity_budget   = {"bull": 0.90, "transition": 0.60, "bear": 0.30, "crisis": 0.10}[regime]
+    # 2. Budgets par régime
+    equity_budget = {"bull": 0.90, "transition": 0.60, "bear": 0.30, "crisis": 0.10}[regime]
     defensive_budget = 1.0 - equity_budget - cash_min
 
-    # 4. Softmax à l'intérieur de chaque bloc
-    w_equity    = softmax(scores_pos[equity_etfs]) × equity_budget
-    w_defensive = softmax(scores_pos[defensive_etfs]) × defensive_budget
+    # 3. Softmax à l'intérieur de chaque bloc
+    equity_etfs    = [e for e in scores_pos if e.section in ("geo", "sector_us", "thematic")]
+    defensive_etfs = [e for e in scores_pos if e.section in ("bond", "commodity")]
+    w_equity    = softmax(scores_pos[equity_etfs],    temperature) * equity_budget
+    w_defensive = softmax(scores_pos[defensive_etfs], temperature) * defensive_budget
 
     return {**w_equity, **w_defensive}
 ```
