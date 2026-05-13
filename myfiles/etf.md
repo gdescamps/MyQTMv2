@@ -87,12 +87,17 @@ Il faut utiliser les équivalents UCITS cotés en EUR sur Euronext.
 > CHIP.PA couvert directement dans FMP malgré frais standards.
 
 ### Obligations / Taux — CTO uniquement
-| Ticker  | Description                | Signal           |
-|---------|----------------------------|------------------|
-| DTLA    | T-bonds 20 ans (iShares)   | Risk-off refuge  |
-| IBTA    | T-bonds 7-10 ans (iShares) | Taux moyen terme |
-| IHYU    | High Yield (iShares)       | Appétit au risque|
-| TIP/ITPS| TIPS inflation             | Hedge inflation  |
+
+| Ticker  | Nom exact Boursorama                              | 0%frais | FMP     | Signal               | Perf 1 an | Perf 5 ans |
+|---------|---------------------------------------------------|:-------:|:-------:|----------------------|:---------:|:----------:|
+| DTLA.AS | iShares USD Treasury Bond 20+yr UCITS ETF         | ❌ frais| TLT ⚠️  | Risk-off refuge taux | -1%       | -37%       |
+| IBTA.AS | iShares USD Treasury Bond 7-10yr UCITS ETF        | ❌ frais| IEF ⚠️  | Taux moyen terme     | +1%       | -17%       |
+| IHYU.AS | iShares USD High Yield Corp Bd UCITS ETF          | ❌ frais| HYG ⚠️  | Appétit au risque    | +1%       | -8%        |
+| ITPS.AS | iShares USD TIPS UCITS ETF                        | ❌ frais| TIP ⚠️  | Hedge inflation      | +3%       | -13%       |
+
+> **Tickers UCITS non couverts dans FMP** → proxies US (corrélation >0.98) : TLT, IEF, HYG, TIP.
+> **Aucun ETF obligataire dans la liste zéro frais Boursorama** — tous à tarif standard.
+> **Cycle Fed 2022-2023** : toutes en forte baisse. Rebond limité depuis; signal utile en regime risk-off.
 
 ### Commodités & Alternatif — CTO uniquement
 
@@ -112,8 +117,21 @@ Il faut utiliser les équivalents UCITS cotés en EUR sur Euronext.
 > **LVO.PA** : produit complexe à décroissance temporelle — UVXY ne convient pas comme proxy de signal.
 
 ### ETN Crypto (disponibles depuis mars 2025 sur Boursobank)
-- iShares Bitcoin ETP, CoinShares Physical BTC, ETH, SOL, ADA, XRP
-- CTO uniquement, ETN (ETF) : adossé à du crypto physique en custody
+
+| Ticker   | Nom exact Boursorama                         | 0%frais | FMP      | Actif    | Perf 1 an | Perf 5 ans |
+|----------|----------------------------------------------|:-------:|:--------:|----------|:---------:|:----------:|
+| IBTC.AS  | iShares Physical Bitcoin ETP USD Acc         | ❌ frais| IBIT ⚠️  | Bitcoin  | +55%      | N/D        |
+| CBTC.AS  | CoinShares Physical Bitcoin USD Acc          | ❌ frais| IBIT ⚠️  | Bitcoin  | +55%      | N/D        |
+| CETH.AS  | CoinShares Physical Ethereum USD Acc         | ❌ frais| ETHA ⚠️  | Ethereum | -35%      | N/D        |
+| CSOL.AS  | CoinShares Physical Solana USD Acc           | ❌ frais| —        | Solana   | -40%      | N/D        |
+| CADA.AS  | CoinShares Physical Cardano USD Acc          | ❌ frais| —        | ADA      | -50%      | N/D        |
+| CXRP.AS  | CoinShares Physical XRP USD Acc              | ❌ frais| —        | XRP      | +180%     | N/D        |
+
+> **CTO uniquement** : ETN adossés à du crypto physique en custody (UCITS-like, MiFID II compliant).
+> **Lancés mars 2025** : pas de historique 5 ans. Perf 1 an ≈ performance du sous-jacent crypto.
+> **FMP couvre IBIT / ETHA** (US Bitcoin/ETH ETFs Jan 2024+) comme proxies de signal.
+> **SOL / ADA / CXRP** : pas de proxy ETF US dans FMP — utiliser prix spot crypto comme signal brut.
+> **Tickers Boursorama** : préfixe `1rT` + ticker (ex : IBTC.AS → `1rTIBTC`).
 
 **Note Boursomarkets :** achat >= 500EUR -> 0EUR de courtage. Vente -> ~0.22% (tarif standard).
 Symbole Boursorama = préfixe `1rT` + ticker (ex : CSP1 -> `1rTCSP1`).
