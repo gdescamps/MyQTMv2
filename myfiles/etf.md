@@ -28,7 +28,7 @@ Il faut utiliser les équivalents UCITS cotés en EUR sur Euronext.
 | CSP1.PA | iShares Core S&P 500 ETF USD Acc             | PEA ✅ | ✅      | CSPX.AS | +21%      | +96%       |
 | CNX1.PA | iShares NASDAQ 100 ETF USD Acc               | PEA ✅ | ✅      | QQQ ⚠️  | +39%      | +123%      |
 | WPEA.PA | iShares MSCI World Swap PEA ETF              | PEA ✅ | ✅      | WPEA.PA | +20%      | +81% ⁽¹⁾  |
-| AEEM.PA | Amundi MSCI Emerging Markets Swap ETF        | CTO    | ❌ frais| AEEM.PA | +39%      | +49%       |
+| IEMA.AS | iShares MSCI Emerging Markets UCITS ETF USD Acc | CTO | ✅      | IEMA.AS | +39%      | +49%       |
 | CSKR.PA | iShares MSCI Korea ETF USD Dist              | CTO    | ✅      | EWY ⚠️  | +208%     | +102%      |
 | ITWN.PA | iShares MSCI Taiwan ETF USD Dist             | CTO    | ✅      | EWT ⚠️  | +77%      | +65%       |
 | IFFI.AS | iShares MSCI AC Far East ex-Japan ETF        | CTO    | ✅      | IFFI.AS | +63%      | +46%       |
@@ -44,7 +44,7 @@ Il faut utiliser les équivalents UCITS cotés en EUR sur Euronext.
 
 > ⁽¹⁾ 5 ans WPEA.PA incomplet (lancé ~2020) → valeur reprise de l'équivalent CTO IWDA.AS (même indice MSCI World).
 > **CNX1** : ticker CNX1.PA non couvert dans FMP → proxy QQQ (même indice Nasdaq-100, corrélation >0.99).
-> **AEEM** : hors zéro frais mais couvert directement dans FMP (AEEM.PA). Alternative zéro frais : IEMA.AS (+39% / +49%).
+> **IEMA.AS** : iShares MSCI EM, zéro frais, couvert directement dans FMP. Remplace AEEM.PA (Amundi).
 > **FXC** : couvert dans FMP via FXC.L (version LSE, même fonds). Perf faible due à la Chine en 2020-2024.
 > **WPEA.PA** : historique FMP limité (5Y=+31% car lancé ~2020) — données partielles.
 
@@ -80,19 +80,6 @@ Il faut utiliser les équivalents UCITS cotés en EUR sur Euronext.
 > ⚠️ = proxy US ou LSE (UCITS Euronext non couvert dans FMP).
 > ETF IA iShares (AINF, IART) trop récents pour FMP → proxies : CHAT (Gen AI), WTAI (AI Innovation), AIQ (AI Adopters).
 > CHIP.PA couvert directement dans FMP malgré frais standards.
-
-### Obligations / Taux — CTO uniquement
-
-| Ticker  | Nom exact Boursorama                              | 0%frais | FMP     | Signal               | Perf 1 an | Perf 5 ans |
-|---------|---------------------------------------------------|:-------:|:-------:|----------------------|:---------:|:----------:|
-| DTLA.AS | iShares USD Treasury Bond 20+yr UCITS ETF         | ❌ frais| TLT ⚠️  | Risk-off refuge taux | -1%       | -37%       |
-| IBTA.AS | iShares USD Treasury Bond 7-10yr UCITS ETF        | ❌ frais| IEF ⚠️  | Taux moyen terme     | +1%       | -17%       |
-| IHYU.AS | iShares USD High Yield Corp Bd UCITS ETF          | ❌ frais| HYG ⚠️  | Appétit au risque    | +1%       | -8%        |
-| ITPS.AS | iShares USD TIPS UCITS ETF                        | ❌ frais| TIP ⚠️  | Hedge inflation      | +3%       | -13%       |
-
-> **Tickers UCITS non couverts dans FMP** → proxies US (corrélation >0.98) : TLT, IEF, HYG, TIP.
-> **Aucun ETF obligataire dans la liste zéro frais Boursorama** — tous à tarif standard.
-> **Cycle Fed 2022-2023** : toutes en forte baisse. Rebond limité depuis; signal utile en regime risk-off.
 
 ### Commodités & Alternatif — CTO uniquement
 
@@ -234,7 +221,7 @@ recovery_score = moyenne([
 
 ### ETF à surpondérer après un pic VIX
 - J0-J30   : CSP1, CNX1 (rebond large marché et tech)
-- J30-J90  : IUCD (cyclique), IUFS (financials), AEEM (émergents)
+- J30-J90  : IUCD (cyclique), IUFS (financials), IEMA (émergents)
 - Alléger  : DTLA (T-bonds), IGLN (or)
 
 ---

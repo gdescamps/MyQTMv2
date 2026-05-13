@@ -48,7 +48,7 @@ GEO = [
     ETF("CSP1.PA", "iShares Core S&P 500 ETF USD Acc",              "geo", "us",         pea=True,  zero_fees=True,  fmp="CSPX.AS", fmp_proxy=False, perf_1y=0.21,  perf_5y=0.96),
     ETF("CNX1.PA", "iShares NASDAQ 100 ETF USD Acc",                 "geo", "us",         pea=True,  zero_fees=True,  fmp="QQQ",     fmp_proxy=True,  perf_1y=0.39,  perf_5y=1.23),
     ETF("WPEA.PA", "iShares MSCI World Swap PEA ETF",                "geo", "world",      pea=True,  zero_fees=True,  fmp="WPEA.PA", fmp_proxy=False, perf_1y=0.20,  perf_5y=0.81),  # 5Y from IWDA.AS proxy
-    ETF("AEEM.PA", "Amundi MSCI Emerging Markets Swap ETF",          "geo", "em",         pea=False, zero_fees=False, fmp="AEEM.PA", fmp_proxy=False, perf_1y=0.39,  perf_5y=0.49),
+    ETF("IEMA.AS", "iShares MSCI Emerging Markets UCITS ETF USD Acc", "geo", "em",         pea=False, zero_fees=True,  fmp="IEMA.AS", fmp_proxy=False, perf_1y=0.39,  perf_5y=0.49),
     ETF("CSKR.PA", "iShares MSCI Korea ETF USD Dist",                "geo", "korea",      pea=False, zero_fees=True,  fmp="EWY",     fmp_proxy=True,  perf_1y=2.08,  perf_5y=1.02),
     ETF("ITWN.PA", "iShares MSCI Taiwan ETF USD Dist",               "geo", "taiwan",     pea=False, zero_fees=True,  fmp="EWT",     fmp_proxy=True,  perf_1y=0.77,  perf_5y=0.65),
     ETF("IFFI.AS", "iShares MSCI AC Far East ex-Japan ETF",          "geo", "far_east",   pea=False, zero_fees=True,  fmp="IFFI.AS", fmp_proxy=False, perf_1y=0.63,  perf_5y=0.46),
