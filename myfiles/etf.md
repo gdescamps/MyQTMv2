@@ -29,7 +29,6 @@ Il faut utiliser les équivalents UCITS cotés en EUR sur Euronext.
 | CNX1.PA | iShares NASDAQ 100 ETF USD Acc               | PEA ✅ | ✅      | QQQ ⚠️  | +39%      | +123%      |
 | WPEA.PA | iShares MSCI World Swap PEA ETF              | PEA ✅ | ✅      | WPEA.PA | +20%      | +81% ⁽¹⁾  |
 | AEEM.PA | Amundi MSCI Emerging Markets Swap ETF        | CTO    | ❌ frais| AEEM.PA | +39%      | +49%       |
-| FXC.AS  | iShares China Large Cap ETF USD Dist         | CTO    | ✅      | FXC.L ⚠️| +2%       | -12%       |
 | CSKR.PA | iShares MSCI Korea ETF USD Dist              | CTO    | ✅      | EWY ⚠️  | +208%     | +102%      |
 | ITWN.PA | iShares MSCI Taiwan ETF USD Dist             | CTO    | ✅      | EWT ⚠️  | +77%      | +65%       |
 | IFFI.AS | iShares MSCI AC Far East ex-Japan ETF        | CTO    | ✅      | IFFI.AS | +63%      | +46%       |
@@ -41,6 +40,7 @@ Il faut utiliser les équivalents UCITS cotés en EUR sur Euronext.
 | ICAU.AS | iShares MSCI Canada ETF USD Acc              | CTO    | ✅      | EWC ⚠️  | +35%      | +61%       |
 | ITKY.AS | iShares MSCI Turkey ETF USD Dist             | CTO    | ✅      | TUR ⚠️  | +31%      | +87%       |
 | ISF.L   | iShares Core FTSE 100 ETF GBP Dist           | CTO    | ✅      | ISF.L   | +19%      | +46%       |
+| FXC.AS  | iShares China Large Cap ETF USD Dist         | CTO    | ✅      | FXC.L ⚠️| +2%       | -12%       |
 
 > ⁽¹⁾ 5 ans WPEA.PA incomplet (lancé ~2020) → valeur reprise de l'équivalent CTO IWDA.AS (même indice MSCI World).
 > **CNX1** : ticker CNX1.PA non couvert dans FMP → proxy QQQ (même indice Nasdaq-100, corrélation >0.99).
@@ -67,20 +67,15 @@ Il faut utiliser les équivalents UCITS cotés en EUR sur Euronext.
 
 | Ticker  | Nom exact Boursorama                              | Thème          | Env.   | 0%frais | FMP      | Perf 1 an | Perf 5 ans |
 |---------|---------------------------------------------------|----------------|--------|:-------:|:--------:|:---------:|:----------:|
+| EXX1.DE | iShares EURO STOXX Banks 30-15ETF DE acc          | Banques EU     | PEA ✅ | ✅      | EXX1.DE  | +31%      | +174%      |
+| EXV1.DE | iShares STOXX Europe 600 Tech (DE) acc            | Tech EU        | PEA ✅ | ✅      | EXV1.DE  | +30%      | +164%      |
 | SEMI.AS | iShares MSCI Global Semiconductors ETF$Acc        | Semi-conducteurs| CTO   | ✅      | SEMI.AS  | +167%     | +264%      |
-| CHIP.PA | Amundi MSCI Semiconductors ETF Acc                | Semi-conducteurs| CTO   | ❌ frais| CHIP.PA  | +118%     | +364%      |
 | AINF.PA | iShares AI Infrastructure ETF USD Acc             | IA             | CTO    | ✅      | CHAT ⚠️  | +112%     | +225%      |
 | IART.PA | iShares AI Innovation Active ETF $ Acc            | IA             | CTO    | ✅      | WTAI ⚠️  | +86%      | +62%       |
 | ECAR.AS | iShares Elctrc Vhcl&Drvng Tech ETF USD Acc        | Véhicules élec.| CTO    | ✅      | DRIV ⚠️  | +77%      | +56%       |
 | INRA.AS | iShares Global Clean Engy Trns ETF $ Acc          | Énergie propre | CTO    | ✅      | INRA.AS  | +75%      | +42%       |
-| AIAI.L  | L&G Artificial Intelligence UCITS ETF *(LSE)*     | IA             | CTO    | ❌ frais| AIAI.L   | +57%      | +108%      |
-| —       | iShares AI Adopters & Applications ETF            | IA             | CTO    | ✅      | AIQ ⚠️   | +53%      | +125%      |
 | CITY.AS | iShares Smart City Infra ETF USD Acc              | Infra / Smart  | CTO    | ✅      | CITY.AS  | +44%      | +60%       |
-| GOAI.PA | Amundi MSCI Robotics & AI UCITS ETF Acc           | IA / Robotique | CTO    | ❌ frais| GOAI.PA  | +32%      | +73%       |
-| EXX1.DE | iShares EURO STOXX Banks 30-15ETF DE acc          | Banques EU     | PEA ✅ | ✅      | EXX1.DE  | +31%      | +174%      |
-| EXV1.DE | iShares STOXX Europe 600 Tech (DE) acc            | Tech EU        | PEA ✅ | ✅      | EXV1.DE  | +30%      | +164%      |
 | IQQQ.DE | iShares Global Water ETF USD Acc                  | Eau            | CTO    | ✅      | IQQQ.DE  | +1%       | +26%       |
-| RBOT.AS | iShares Automation&Robotics ETF USD Acc           | Robotique      | CTO    | ✅      | IRBO ⚠️  | -1%       | +27%       |
 
 > ⚠️ = proxy US ou LSE (UCITS Euronext non couvert dans FMP).
 > ETF IA iShares (AINF, IART) trop récents pour FMP → proxies : CHAT (Gen AI), WTAI (AI Innovation), AIQ (AI Adopters).
@@ -118,10 +113,7 @@ Il faut utiliser les équivalents UCITS cotés en EUR sur Euronext.
 |----------|----------------------------------------------|:-------:|:--------:|----------|:---------:|:----------:|
 | IBTC.AS  | iShares Physical Bitcoin ETP USD Acc         | ❌ frais| IBIT ⚠️  | Bitcoin  | +55%      | N/D        |
 
-> **CTO uniquement** : ETN adossés à du crypto physique en custody (UCITS-like, MiFID II compliant).
-> **Lancés mars 2025** : pas de historique 5 ans. Perf 1 an ≈ performance du sous-jacent crypto.
 > **FMP couvre IBIT / ETHA** (US Bitcoin/ETH ETFs Jan 2024+) comme proxies de signal.
-> **SOL / ADA / CXRP** : pas de proxy ETF US dans FMP — utiliser prix spot crypto comme signal brut.
 > **Tickers Boursorama** : préfixe `1rT` + ticker (ex : IBTC.AS → `1rTIBTC`).
 
 **Note Boursomarkets :** achat >= 500EUR -> 0EUR de courtage. Vente -> ~0.22% (tarif standard).
