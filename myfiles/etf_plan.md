@@ -289,12 +289,18 @@ X = [
     "bear_prob",             # ex. 0.06
     "crisis_prob",           # ex. 0.02
 
-    # Dynamique du régime
-    "vix_level",
+    # Variables d'entrée du HMM — passées aussi directement à XGBoost
+    # XGBoost peut exploiter des non-linéarités que le HMM ne capture pas
+    "vix_level",             # entrée HMM 1
+    "hy_spread",             # entrée HMM 2
+    "yield_curve",           # entrée HMM 3 (10Y - 2Y)
+    "ret_spx_20d",           # entrée HMM 4 (momentum macro via QQQ proxy)
+
+    # Dynamique dérivée
     "vix_velocity",          # Δvix 5j
     "vix_reversion_force",   # (vix_mean - vix) / vix_std
-    "hy_spread_z60",
-    "yield_curve",           # 10Y - 2Y
+    "hy_spread_z60",         # z-score 60j du spread HY
+    "yield_curve_velocity",  # Δyield_curve 20j (inversion/désinversion)
 ]
 
 score_per_etf = model.predict(X_today)
