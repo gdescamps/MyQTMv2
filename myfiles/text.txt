@@ -1,4 +1,77 @@
+-------------------------------------------
 
-est ce qu'il y a un mcp pour finhub ?
-https://finnhub.io/docs/api/introduction
+ecrire dans 
+myfiles/etf_plan.md
+
+une nouvelle stratégie d'un modèle quantitatif.
+Dédié aux ETF.
+Parmi les ETF listés dans l'univers,
+
+Dans ce répertoire ./MyQTM
+Il y a un modèle quantitatif basé sur des actions américaines.
+Je veux reprendre quelques concepts dans le modèle quantitatif dédié aux ETF.
+
+Je veux reprendre également des éléments de myfiles/etf.md
+
+Au niveau de la stratégie ETF, je veux plutôt une répartition du portefeuille sur l'univers
+En fonction de la phase de marché.
+
+Le modèle doit se baser sur récupération des données historiques via un compte FMP.
+Payant  sur un mois.
+
+Puis le suivi journalier en production peut se faire avec le compte gratuit 250 appels par jour.
+
+Dans ce modèle ETF, Le modèle ETF est basé sur une approche data.
+On ajoute des features qui a priori on pouvoir prédictif.
+Puis un modèle XGBoost Entraîner sur des intervalles permet d'analyser, sur les différents intervalles indépendants, l'importance de prédiction de chaque feature.
+Qui permet de sélectionner pour le modèle final un sous-ensemble de features débruités.
+Ce qui est fait dans le modèle quantitatif ./MyQTM
+
+Je veux des features : 
+
+Des signaux techniques de base comme
+Les moyennes mobiles, le RSI.
+Notamment ceux utilisé dans MyQTM
+Je veux reprendre les signaux techniques sur
+Le Nasdaq, le VIX, gold, pétrole, MSI world
+
+Je veux des features de régime qui est faite dans la stratégie initiale.
+Notamment ce qui est connu au niveau de la gestion du VIX.
+
+Sur chaque ETF de l'univers, extraire des informations sur le détail des composants utilisés.
+Leur répartition, savoir comment change la répartition Dans le temps.
+Se baser sur les composants majoritaires pour extraire des notes d'analystes dispo sur FMP.
+Comme par exemple les notes s'analist des actions.
+
+Je veux des features de sentiment global, par géographie et secteur
+Faire une proposition d'utilisation de news disponible sur FMP.
+Et comment créer les features de sentiments basés sur un LLM commercial Faible coût.
+Comme ce qui est fait dans le modèle quantitatif ./MyQTM Mais adapté aux ETF. 
+
+Je veux des features qui montrent les mouvements des capitaux des institutionnels (smart money)
+Je vais vous expliquer comment on extrait ces features à partir des infos de FMP.
+
+Faire une proposition pour définir la sortie du modèle XGBoost
+Une sortie qui permettra de définir la répartition de l'univers ETF
+L'arbitrage peut être réalisé quotidiennement (daily)
+
+Est-ce qu'on garde le même formalisme que le modèle quantitatif sur les actions américaines 
+dans ./MyQTM 
+Ou est-ce qu'il y a mieux à faire pour gérer le portefeuille ETF ?
+
+-------------------------------------------
+
+dans myfiles/etf_plan.md
+Dans le plan établir un ordre de priorité dans les features a extraire
+en terme de retour sur investissement sur le potentiel predictif.
+
+-------------------------------------------
+
+Extraire les données au même format .csv que dans le modèle quantitatif spécialisé sur les actions américaines.
+./MyQTM 
+Utiliser le meme format pour les nom de fichier de donnée
+Organiser l'extraction de toutes les données nécessaires pour exécuter le plan.
+myfiles/etf_plan.md en utilisant FMP
+
+-------------------------------------------
 
