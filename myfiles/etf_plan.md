@@ -448,6 +448,34 @@ PRODUCTION     FMP free 250 calls/jour      FMP free ~72 calls/jour ✅
 
 ## 7. Workflows de production
 
+### Démarrage à froid (capital 100% cash)
+
+Le sigmoid gère le démarrage automatiquement — pas de logique spéciale nécessaire.
+
+```python
+# Jour 0 : portefeuille = 100% cash, poids actuels = {}
+
+# Le modèle tourne normalement chaque soir :
+danger        = sigmoid(p1 * vix + p2 * hy_spread_z60 + p3)
+equity_budget = equity_max * (1 - danger)
+
+# Cas 1 — conditions favorables (vix=18, hy_spread normal)
+#   danger ≈ 0.10  →  equity_budget ≈ 85%
+#   → allocation complète dès le premier soir ✅
+
+# Cas 2 — conditions dégradées (vix=55, hy_spread élevé)
+#   danger ≈ 0.90  →  equity_budget ≈ 6%
+#   → modèle dit "reste quasi-cash" jusqu'à normalisation ✅
+
+# Dans les deux cas : si |poids_cible - poids_actuel| > min_weight_change
+#   → ordre généré  (filtre anti-churning CMA-ES)
+# Sinon → HOLD, on attend le lendemain
+```
+
+Le démarrage est donc **conditionnel aux conditions macro du jour J** :
+- Bon timing (VIX bas) → allocation complète en 1 jour, 1 seule session d'ordres
+- Mauvais timing (VIX haut) → exposition progressive au fur et à mesure que le VIX baisse
+
 ### Signal daily (chaque soir)
 
 ```
