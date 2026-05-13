@@ -21,25 +21,70 @@ avec un signal daily (mise à jour chaque soir) et une exécution manuelle (~15 
 Les ETF US (SPY, QQQ…) sont bloqués pour les particuliers européens (règlement PRIIPs/MiFID II).
 Il faut utiliser les équivalents UCITS cotés en EUR sur Euronext.
 
-### Equity géographique
-| Ticker | Description              | Enveloppe | Boursomarkets |
-|--------|--------------------------|-----------|---------------|
-| CSP1   | S&P 500 (iShares)        | PEA ✅    | ✅ (≥500€)    |
-| CNX1   | Nasdaq 100 (iShares)     | PEA ✅    | ✅            |
-| IWDA   | MSCI World (iShares)     | PEA ✅    | ✅            |
-| AEEM   | Emergents (Amundi)       | CTO       | à vérifier    |
-| FXC    | Chine Large Cap (iShares)| CTO       | à vérifier    |
+### Equity géographique Boursorama & FMP
 
-### Secteurs US (iShares S&P 500 sectoriels)
-| Ticker | Secteur               | Enveloppe |
-|--------|-----------------------|-----------|
-| IUFS   | Finance               | CTO       |
-| IUES   | Énergie               | CTO       |
-| IUIT   | Tech                  | CTO       |
-| IUHC   | Santé                 | CTO       |
-| IUII   | Industriels           | CTO       |
-| IUCS   | Conso défensive       | CTO       |
-| IUCD   | Conso cyclique        | CTO       |
+| Ticker  | Nom exact Boursorama                         | Env.   | 0%frais | FMP     | Perf 1 an | Perf 5 ans |
+|---------|----------------------------------------------|--------|:-------:|:-------:|:---------:|:----------:|
+| CSP1.PA | iShares Core S&P 500 ETF USD Acc             | PEA ✅ | ✅      | CSPX.AS | +21%      | +96%       |
+| CNX1.PA | iShares NASDAQ 100 ETF USD Acc               | PEA ✅ | ✅      | QQQ ⚠️  | +39%      | +123%      |
+| WPEA.PA | iShares MSCI World Swap PEA ETF              | PEA ✅ | ✅      | WPEA.PA | +20%      | +81% ⁽¹⁾  |
+| AEEM.PA | Amundi MSCI Emerging Markets Swap ETF        | CTO    | ❌ frais| AEEM.PA | +39%      | +49%       |
+| FXC.AS  | iShares China Large Cap ETF USD Dist         | CTO    | ✅      | FXC.L ⚠️| +2%       | -12%       |
+| CSKR.PA | iShares MSCI Korea ETF USD Dist              | CTO    | ✅      | EWY ⚠️  | +208%     | +102%      |
+| ITWN.PA | iShares MSCI Taiwan ETF USD Dist             | CTO    | ✅      | EWT ⚠️  | +77%      | +65%       |
+| IFFI.AS | iShares MSCI AC Far East ex-Japan ETF        | CTO    | ✅      | IFFI.AS | +63%      | +46%       |
+| EXCH.AS | iShares MSCI EM ex-China ETF USD Acc         | CTO    | ✅      | EXCH.AS | +62%      | +72%       |
+| SJPE.AS | iShares Core MSCI Japan IMI ETF EUR Hedged   | CTO    | ✅      | SJPE.AS | +43%      | +140%      |
+| LTAM.AS | iShares MSCI EM Latin America ETF USD Dist   | CTO    | ✅      | ILF ⚠️  | +41%      | +23%       |
+| IBZL.AS | iShares MSCI Brazil ETF USD Dist             | CTO    | ✅      | EWZ ⚠️  | +39%      | +4%        |
+| IMEX.AS | iShares MSCI Mexico Capped ETF USD Acc       | CTO    | ✅      | EWW ⚠️  | +38%      | +74%       |
+| ICAU.AS | iShares MSCI Canada ETF USD Acc              | CTO    | ✅      | EWC ⚠️  | +35%      | +61%       |
+| ITKY.AS | iShares MSCI Turkey ETF USD Dist             | CTO    | ✅      | TUR ⚠️  | +31%      | +87%       |
+| ISF.L   | iShares Core FTSE 100 ETF GBP Dist           | CTO    | ✅      | ISF.L   | +19%      | +46%       |
+
+> ⁽¹⁾ 5 ans WPEA.PA incomplet (lancé ~2020) → valeur reprise de l'équivalent CTO IWDA.AS (même indice MSCI World).
+> **CNX1** : ticker CNX1.PA non couvert dans FMP → proxy QQQ (même indice Nasdaq-100, corrélation >0.99).
+> **AEEM** : hors zéro frais mais couvert directement dans FMP (AEEM.PA). Alternative zéro frais : IEMA.AS (+39% / +49%).
+> **FXC** : couvert dans FMP via FXC.L (version LSE, même fonds). Perf faible due à la Chine en 2020-2024.
+> **WPEA.PA** : historique FMP limité (5Y=+31% car lancé ~2020) — données partielles.
+
+### Secteurs US (iShares S&P 500 sectoriels) Boursorama & FMP
+
+| Ticker  | Nom exact Boursorama                              | Env. | 0%frais | FMP    | Perf 1 an | Perf 5 ans |
+|---------|---------------------------------------------------|------|:-------:|:------:|:---------:|:----------:|
+| IUIT.AS | iShares S&P 500 Info Technology UCITS ETF USD Acc | CTO  | ❌ frais| XLK ⚠️ | +54%      | +167%      |
+| IUES.AS | iShares S&P 500 Energy Sector UCITS ETF USD Acc   | CTO  | ❌ frais| XLE ⚠️ | +36%      | +119%      |
+| IUII.AS | iShares S&P 500 Industrials Sector UCITS ETF Acc  | CTO  | ❌ frais| XLI ⚠️ | +24%      | +72%       |
+| IUCD.AS | iShares S&P 500 Consumer Discret UCITS ETF USD Acc| CTO  | ❌ frais| XLY ⚠️ | +11%      | +42%       |
+| IUHC.AS | iShares S&P 500 Health Care Sector UCITS ETF Acc  | CTO  | ❌ frais| XLV ⚠️ | +7%       | +20%       |
+| IUCS.AS | iShares S&P 500 Consumer Staples UCITS ETF USD Acc| CTO  | ❌ frais| XLP ⚠️ | +4%       | +21%       |
+| IUFS.AS | iShares S&P 500 Financials Sector UCITS ETF Acc   | CTO  | ❌ frais| XLF ⚠️ | +1%       | +41%       |
+
+> Aucun ticker UCITS sectoriel iShares (.AS) n'est couvert dans FMP → proxies SPDR XL* (même indice S&P 500 sectoriel, corrélation >0.98).
+> Aucun ETF sectoriel en zéro frais sur Boursorama — frais standards (~0.22% achat + 0.22% vente).
+
+### Secteurs thématiques & IA — Boursorama & FMP
+
+| Ticker  | Nom exact Boursorama                              | Thème          | Env.   | 0%frais | FMP      | Perf 1 an | Perf 5 ans |
+|---------|---------------------------------------------------|----------------|--------|:-------:|:--------:|:---------:|:----------:|
+| SEMI.AS | iShares MSCI Global Semiconductors ETF$Acc        | Semi-conducteurs| CTO   | ✅      | SEMI.AS  | +167%     | +264%      |
+| CHIP.PA | Amundi MSCI Semiconductors ETF Acc                | Semi-conducteurs| CTO   | ❌ frais| CHIP.PA  | +118%     | +364%      |
+| AINF.PA | iShares AI Infrastructure ETF USD Acc             | IA             | CTO    | ✅      | CHAT ⚠️  | +112%     | +225%      |
+| IART.PA | iShares AI Innovation Active ETF $ Acc            | IA             | CTO    | ✅      | WTAI ⚠️  | +86%      | +62%       |
+| ECAR.AS | iShares Elctrc Vhcl&Drvng Tech ETF USD Acc        | Véhicules élec.| CTO    | ✅      | DRIV ⚠️  | +77%      | +56%       |
+| INRA.AS | iShares Global Clean Engy Trns ETF $ Acc          | Énergie propre | CTO    | ✅      | INRA.AS  | +75%      | +42%       |
+| AIAI.L  | L&G Artificial Intelligence UCITS ETF *(LSE)*     | IA             | CTO    | ❌ frais| AIAI.L   | +57%      | +108%      |
+| —       | iShares AI Adopters & Applications ETF            | IA             | CTO    | ✅      | AIQ ⚠️   | +53%      | +125%      |
+| CITY.AS | iShares Smart City Infra ETF USD Acc              | Infra / Smart  | CTO    | ✅      | CITY.AS  | +44%      | +60%       |
+| GOAI.PA | Amundi MSCI Robotics & AI UCITS ETF Acc           | IA / Robotique | CTO    | ❌ frais| GOAI.PA  | +32%      | +73%       |
+| EXX1.DE | iShares EURO STOXX Banks 30-15ETF DE acc          | Banques EU     | PEA ✅ | ✅      | EXX1.DE  | +31%      | +174%      |
+| EXV1.DE | iShares STOXX Europe 600 Tech (DE) acc            | Tech EU        | PEA ✅ | ✅      | EXV1.DE  | +30%      | +164%      |
+| IQQQ.DE | iShares Global Water ETF USD Acc                  | Eau            | CTO    | ✅      | IQQQ.DE  | +1%       | +26%       |
+| RBOT.AS | iShares Automation&Robotics ETF USD Acc           | Robotique      | CTO    | ✅      | IRBO ⚠️  | -1%       | +27%       |
+
+> ⚠️ = proxy US ou LSE (UCITS Euronext non couvert dans FMP).
+> ETF IA iShares (AINF, IART) trop récents pour FMP → proxies : CHAT (Gen AI), WTAI (AI Innovation), AIQ (AI Adopters).
+> CHIP.PA couvert directement dans FMP malgré frais standards.
 
 ### Obligations / Taux — CTO uniquement
 | Ticker  | Description                | Signal           |
@@ -50,11 +95,21 @@ Il faut utiliser les équivalents UCITS cotés en EUR sur Euronext.
 | TIP/ITPS| TIPS inflation             | Hedge inflation  |
 
 ### Commodités & Alternatif — CTO uniquement
-| Ticker | Description              | Signal               |
-|--------|--------------------------|----------------------|
-| IGLN   | Or physique (iShares)    | Risk-off / inflation |
-| OIL    | Pétrole (Lyxor)          | Macro commodités     |
-| LVO    | VIX futures (Lyxor)      | produit complexe     |
+
+| Ticker  | Nom exact Boursorama                              | 0%frais | FMP      | Signal               | Perf 1 an | Perf 5 ans |
+|---------|---------------------------------------------------|:-------:|:--------:|----------------------|:---------:|:----------:|
+| IGLN.AS | iShares Physical Gold ETC                         | ❌ frais| GLD ⚠️   | Risk-off / inflation | +45%      | +154%      |
+| SXRS.DE | iShares Diversified Commodity Swap (DE)           | ✅ PEA  | SXRS.DE  | Commodités larges    | +37%      | +82%       |
+| RING    | iShares Gold Producers ETF USD Acc                | ✅      | RING ⚠️  | Or minier / levier or| +117%     | +174%      |
+| GLDU.AS | L&G Gold Mining ETF                               | ❌ frais| GLDU.AS  | Or minier / levier or| +106%     | +158%      |
+| IOGP.AS | iShares Oil & Gas Explr&Prod ETF USD Acc          | ✅      | IEO ⚠️   | Pétrole E&P          | +33%      | +122%      |
+| OIL.PA  | Lyxor Crude Oil ETF                               | ❌ frais| OIL.PA   | Pétrole spot         | +14%      | +13%       |
+| LVO.PA  | Lyxor S&P 500 VIX Futures ETF                     | ❌ frais| UVXY ⚠️  | Volatilité / hedge   | —         | —          |
+
+> **Or physique (IGLN)** : non couvert dans FMP → proxy GLD (SPDR Gold, corrélation >0.99).
+> **SXRS.DE** : seule commodité zéro frais + éligible PEA, couverte directement dans FMP.
+> **RING / GLDU** : mines d'or = levier sur l'or (~1.5-2x), plus volatil que l'or physique.
+> **LVO.PA** : produit complexe à décroissance temporelle — UVXY ne convient pas comme proxy de signal.
 
 ### ETN Crypto (disponibles depuis mars 2025 sur Boursobank)
 - iShares Bitcoin ETP, CoinShares Physical BTC, ETH, SOL, ADA, XRP
