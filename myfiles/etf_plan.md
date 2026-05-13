@@ -263,22 +263,49 @@ features_smart_money = {
 ### Approche retenue : score par ETF → allocation par régime
 
 ```
-MyQTM          : XGBoost classify → long/short/hold → CMA-ES seuils → top N positions
-MyQTM-ETF      : XGBoost regress  → score continu   → softmax/rank  → poids de portefeuille
+MyQTM     : XGBoost classify → long/short/hold → CMA-ES seuils → top N positions
+MyQTM-ETF : XGBoost regress  → score continu   → softmax × budget_régime → poids
 ```
 
-### Architecture multi-régime (identique MyQTM)
+### Architecture — 1 seul modèle avec régime intégré
+
+Le régime n'est **pas un router externe** (3 modèles séparés comme MyQTM) mais une **feature** parmi les autres. XGBoost apprend lui-même les interactions entre régime et signaux techniques.
 
 ```python
-# 3 modèles XGBoost distincts (repris de MyQTM train.py)
-model_bull       = XGBRegressor(...)   # entraîné sur périodes bull
-model_transition = XGBRegressor(...)   # entraîné sur périodes transition
-model_bear       = XGBRegressor(...)   # entraîné sur périodes bear+crisis
+# 1 seul XGBRegressor — régime intégré comme features
+model = XGBRegressor(max_depth=3, min_child_weight=50, ...)
 
-# Router : régime détecté → bon modèle
-regime = detect_regime(vix, vix_slope)
-score_per_etf = model_{regime}.predict(X_today)
+# Features d'entrée = technique + sentiment + smart_money + REGIME
+X = [
+    # ... features technique, sentiment, smart_money ...
+
+    # Régime Phase 1 (règles VIX)
+    "regime_encoded",        # 0=bull 1=transition 2=bear 3=crisis
+    "regime_duration_days",  # depuis combien de jours dans ce régime
+
+    # Régime Phase 2 (HMM probabiliste — sortie continue)
+    "bull_prob",             # ex. 0.72
+    "transition_prob",       # ex. 0.20
+    "bear_prob",             # ex. 0.06
+    "crisis_prob",           # ex. 0.02
+
+    # Dynamique du régime
+    "vix_level",
+    "vix_velocity",          # Δvix 5j
+    "vix_reversion_force",   # (vix_mean - vix) / vix_std
+    "hy_spread_z60",
+    "yield_curve",           # 10Y - 2Y
+]
+
+score_per_etf = model.predict(X_today)
+# XGBoost apprend : "en bull_prob élevé, momentum_20d pèse plus"
+#                   "en crisis_prob élevé, hy_spread_velocity pèse plus"
 ```
+
+**Avantages vs router externe :**
+- 1 modèle au lieu de 3 → plus de données d'entraînement, moins d'overfitting
+- Transitions continues via `bull_prob` / `bear_prob` → pas de saut brutal entre régimes
+- Interactions régime × feature apprises automatiquement par XGBoost
 
 ### Sélection des features — identique MyQTM
 
@@ -300,17 +327,14 @@ feature_importance = mean_importance / (std_importance ** mean_std_power)
 ### Supervision des labels
 
 ```python
-# Label = performance relative future (continu, pas de seuil binaire)
-# Entraînement par régime séparé — 3 horizons différents
+# Label = performance relative future vs univers complet (continu, pas de seuil binaire)
+# 1 seul label universel — le modèle apprend lui-même l'horizon selon le régime
 
-# Modèle bull     : ETF surperforme-t-il l'univers equity sur 20j ?
-y_bull[etf_i]   = ret_20d[etf_i] - mean(ret_20d[equity_universe])
+y[etf_i] = ret_20d[etf_i] - mean(ret_20d[all_universe])
 
-# Modèle bear     : ETF surperforme-t-il l'univers défensif sur 20j ?
-y_bear[etf_i]   = ret_20d[etf_i] - mean(ret_20d[defensive_universe])
-
-# Modèle crisis   : horizon réduit à 5j (retournements rapides)
-y_crisis[etf_i] = ret_5d[etf_i]  - mean(ret_5d[all_universe])
+# Le régime est dans les features X → XGBoost apprend que :
+#   en crisis_prob élevé → l'horizon effectif est plus court (les patterns 5j dominent)
+#   en bull_prob élevé   → les patterns 20j momentum sont plus prédictifs
 
 # Les poids ne sont jamais des labels — ils émergent du softmax sur les scores.
 ```
@@ -324,12 +348,18 @@ y_crisis[etf_i] = ret_5d[etf_i]  - mean(ret_5d[all_universe])
 #        ↓
 # × budget_régime  → poids finaux
 
-def scores_to_weights(scores: dict, regime: str) -> dict:
+def scores_to_weights(scores: dict, regime_probs: dict) -> dict:
     # 1. Clamp scores négatifs à 0 (pas de short sur ETF)
     scores_pos = {k: max(0, v) for k, v in scores.items()}
 
-    # 2. Budgets par régime
-    equity_budget = {"bull": 0.90, "transition": 0.60, "bear": 0.30, "crisis": 0.10}[regime]
+    # 2. Budget equity interpolé en continu depuis les probabilités HMM
+    #    → pas de saut brutal entre régimes
+    equity_budget = (
+        0.90 * regime_probs["bull"] +
+        0.60 * regime_probs["transition"] +
+        0.30 * regime_probs["bear"] +
+        0.10 * regime_probs["crisis"]
+    )
     defensive_budget = 1.0 - equity_budget - cash_min
 
     # 3. Softmax à l'intérieur de chaque bloc
@@ -383,7 +413,7 @@ FEATURES       technique par action          technique + cross-ETF momentum
                —                            smart money (HY spread, 13F, put/call)
 
 MODÈLE         XGBoost classify (-1/0/+1)   XGBoost regress (score continu)
-               3 modèles par régime          3 modèles par régime (identique)
+               3 modèles par régime          1 seul modèle, régime = features
                feature select mean/std^p     feature select mean/std^p (identique)
                intervals OOS                 intervals OOS (identique)
 
