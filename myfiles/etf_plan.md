@@ -267,51 +267,56 @@ MyQTM     : XGBoost classify → long/short/hold → CMA-ES seuils → top N pos
 MyQTM-ETF : XGBoost regress  → score continu   → softmax × budget_régime → poids
 ```
 
-### Architecture — 1 seul modèle avec régime intégré
+### Architecture — 1 seul XGBoost, pas de HMM
 
-Le régime n'est **pas un router externe** (3 modèles séparés comme MyQTM) mais une **feature** parmi les autres. XGBoost apprend lui-même les interactions entre régime et signaux techniques.
+Le régime n'est pas modélisé explicitement. XGBoost reçoit les **variables macro brutes**
+et apprend lui-même les patterns de régime via les splits d'arbres. Pas de leakage,
+pas de modèle intermédiaire, interprétabilité via SHAP.
 
 ```python
-# 1 seul XGBRegressor — régime intégré comme features
+# 1 seul XGBRegressor — pas de HMM, pas de router
 model = XGBRegressor(max_depth=3, min_child_weight=50, ...)
 
-# Features d'entrée = technique + sentiment + smart_money + REGIME
+# Features d'entrée = technique + sentiment + smart_money + MACRO BRUT
 X = [
-    # ... features technique, sentiment, smart_money ...
+    # --- Technique par ETF (§4a) ---
+    "ret_1d", "ret_5d", "ret_20d", "ret_60d",
+    "vol_20d", "rsi_14", "ma_20_slope", "ma_50_slope",
+    "price_vs_ma50", "price_vs_ma200", "volume_z20",
 
-    # Régime Phase 1 (règles VIX)
-    "regime_encoded",        # 0=bull 1=transition 2=bear 3=crisis
-    "regime_duration_days",  # depuis combien de jours dans ce régime
+    # --- Macro brut (capte le régime implicitement) ---
+    "vix_level",             # niveau absolu de la peur
+    "vix_velocity",          # Δvix 5j  (montée = danger, descente = signal achat)
+    "vix_reversion_force",   # (vix_mean - vix) / vix_std  (Ornstein-Uhlenbeck)
+    "hy_spread",             # stress crédit absolu
+    "hy_spread_z60",         # déviation vs 60j
+    "yield_curve",           # 10Y - 2Y  (inversion = récession)
+    "yield_curve_velocity",  # Δyield_curve 20j
+    "ret_spx_20d",           # momentum macro (QQQ proxy)
 
-    # Régime Phase 2 (HMM probabiliste — sortie continue)
-    "bull_prob",             # ex. 0.72
-    "transition_prob",       # ex. 0.20
-    "bear_prob",             # ex. 0.06
-    "crisis_prob",           # ex. 0.02
+    # --- Sentiment agrégé (§4e) ---
+    "sentiment_weighted", "sentiment_zscore_20d", "news_volume_z20",
 
-    # Variables d'entrée du HMM — passées aussi directement à XGBoost
-    # XGBoost peut exploiter des non-linéarités que le HMM ne capture pas
-    "vix_level",             # entrée HMM 1
-    "hy_spread",             # entrée HMM 2
-    "yield_curve",           # entrée HMM 3 (10Y - 2Y)
-    "ret_spx_20d",           # entrée HMM 4 (momentum macro via QQQ proxy)
+    # --- Smart money (§4f) ---
+    "rotation_z60", "put_call_z20", "hy_spread_velocity",
 
-    # Dynamique dérivée
-    "vix_velocity",          # Δvix 5j
-    "vix_reversion_force",   # (vix_mean - vix) / vix_std
-    "hy_spread_z60",         # z-score 60j du spread HY
-    "yield_curve_velocity",  # Δyield_curve 20j (inversion/désinversion)
+    # --- Composition ETF (§4d) ---
+    "analyst_consensus_etf", "sector_rotation_30d", "top10_concentration",
 ]
 
 score_per_etf = model.predict(X_today)
-# XGBoost apprend : "en bull_prob élevé, momentum_20d pèse plus"
-#                   "en crisis_prob élevé, hy_spread_velocity pèse plus"
+# XGBoost découvre seul :
+#   vix > 50 + hy_spread_z60 > 2  → scores défensifs élevés
+#   vix_velocity < 0 + vix > 40   → signal retournement, acheter equity
+#   yield_curve < 0                → surpondérer bonds
+# SHAP permet de visualiser ces régimes implicites a posteriori
 ```
 
-**Avantages vs router externe :**
-- 1 modèle au lieu de 3 → plus de données d'entraînement, moins d'overfitting
-- Transitions continues via `bull_prob` / `bear_prob` → pas de saut brutal entre régimes
-- Interactions régime × feature apprises automatiquement par XGBoost
+**Avantages :**
+- Aucun leakage (variables macro observables à t, pas de modèle intermédiaire)
+- Moins de complexité (pas de HMM à entraîner en expanding window)
+- SHAP révèle les régimes capturés — interprétabilité équivalente
+- Phase 2 optionnelle : ajouter HMM si performances OOS insuffisantes
 
 ### Sélection des features — identique MyQTM
 
@@ -338,9 +343,9 @@ feature_importance = mean_importance / (std_importance ** mean_std_power)
 
 y[etf_i] = ret_20d[etf_i] - mean(ret_20d[all_universe])
 
-# Le régime est dans les features X → XGBoost apprend que :
-#   en crisis_prob élevé → l'horizon effectif est plus court (les patterns 5j dominent)
-#   en bull_prob élevé   → les patterns 20j momentum sont plus prédictifs
+# Le régime est capté implicitement via vix_level, hy_spread, yield_curve → XGBoost apprend :
+#   vix élevé + hy_spread élevé → patterns défensifs courts (5j) dominent
+#   vix bas + momentum positif  → patterns momentum longs (20j) dominent
 
 # Les poids ne sont jamais des labels — ils émergent du softmax sur les scores.
 ```
@@ -354,18 +359,14 @@ y[etf_i] = ret_20d[etf_i] - mean(ret_20d[all_universe])
 #        ↓
 # × budget_régime  → poids finaux
 
-def scores_to_weights(scores: dict, regime_probs: dict) -> dict:
+def scores_to_weights(scores: dict, vix: float, hy_spread_z60: float) -> dict:
     # 1. Clamp scores négatifs à 0 (pas de short sur ETF)
     scores_pos = {k: max(0, v) for k, v in scores.items()}
 
-    # 2. Budget equity interpolé en continu depuis les probabilités HMM
-    #    → pas de saut brutal entre régimes
-    equity_budget = (
-        0.90 * regime_probs["bull"] +
-        0.60 * regime_probs["transition"] +
-        0.30 * regime_probs["bear"] +
-        0.10 * regime_probs["crisis"]
-    )
+    # 2. Budget equity dérivé des variables macro brutes (pas de HMM)
+    #    → règle simple, optimisée par CMA-ES
+    danger = sigmoid(p1 * vix + p2 * hy_spread_z60 + p3)   # [0, 1]
+    equity_budget    = equity_max * (1 - danger)             # ex. 0.10 à 0.90
     defensive_budget = 1.0 - equity_budget - cash_min
 
     # 3. Softmax à l'intérieur de chaque bloc
@@ -375,6 +376,9 @@ def scores_to_weights(scores: dict, regime_probs: dict) -> dict:
     w_defensive = softmax(scores_pos[defensive_etfs], temperature) * defensive_budget
 
     return {**w_equity, **w_defensive}
+
+# CMA-ES optimise : p1, p2, p3, equity_max, cash_min, temperature, ...
+# → apprend les seuils optimaux de vix et hy_spread pour réduire l'exposition
 ```
 
 ### Optimisation des paramètres — CMA-ES adapté
@@ -419,7 +423,7 @@ FEATURES       technique par action          technique + cross-ETF momentum
                —                            smart money (HY spread, 13F, put/call)
 
 MODÈLE         XGBoost classify (-1/0/+1)   XGBoost regress (score continu)
-               3 modèles par régime          1 seul modèle, régime = features
+               3 modèles par régime          1 seul modèle, pas de HMM
                feature select mean/std^p     feature select mean/std^p (identique)
                intervals OOS                 intervals OOS (identique)
 
