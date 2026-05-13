@@ -1,0 +1,396 @@
+Libellé	
+Dernier
+Var.
+Perf. 1 an
+Risque
+Morningstar
+iShares MSCI Korea ETF USD Dist
+0%	108,8900	-8,23%	+180,41%	
+5/7
+2
+iShares MSCI Global Semicondctrs ETF$Acc
+0%	16,0960	-5,05%	+157,15%	
+5/7
+5
+iShares MSCI Taiwan ETF USD Dist
+0%	150,6300	-3,64%	+94,87%	
+5/7
+3
+iShares AI Infrastructure ETF USD Acc
+0%	8,4600	-3,78%	+87,52%	
+5/7
+
+iShares AI Innovation Active ETF $ Acc
+0%	7,0910	-4,77%	+86,90%	
+5/7
+
+iShares Gold Producers ETF USD Acc
+0%	36,5300	-3,99%	+74,95%	
+5/7
+3
+iShares Global Clean Engy Trns ETF $ Acc
+0%	26,5743	-2,96%	+72,02%	
+5/7
+2
+iShares Elctrc Vhcl&Drvng Tech ETFUSDAcc
+0%	10,8400	-3,44%	+69,68%	
+5/7
+3
+iShares MSCI AC Far East exJpn ETF $ Dis
+0%	79,5300	-3,75%	+58,54%	
+4/7
+3
+iShares MSCI EM ex China ETF USD Acc
+0%	7,5460	-4,47%	+56,27%	
+4/7
+4
+iShares Oil & Gas Explr&Prod ETF USD Acc
+0%	29,1400	+1,32%	+49,68%	
+5/7
+2
+iShares MSCI Brazil ETF USD Dist
+0%	26,0800	-0,84%	+48,43%	
+5/7
+4
+iShares EURO STOXX Banks 30-15ETF DE acc
+0%	17,1580	-1,47%	+47,30%	
+5/7
+5
+iShares MSCI EM Latin Amer ETF USD Dist
+0%	18,7420	-0,71%	+46,64%	
+5/7
+4
+iShares Core MSCI Japan IMI ETF EURH Acc
+0%	14,3200	-0,21%	+45,01%	
+4/7
+
+Libellé	
+Dernier
+Var.
+Perf. 1 an
+Risque
+Morningstar
+iShares MSCI Japan EUR Hedged ETF Acc
+0%	135,0000	-0,36%	+44,06%	
+4/7
+
+iShares Nasdaq 100 Top 30 ETF USD Acc
+0%	5,9000	-1,37%	+42,62%	
+5/7
+
+iShares MSCI EM ETF USD Acc
+0%	53,3000	-3,53%	+42,27%	
+4/7
+3
+iShares MSCI EM ETF USD Dist
+0%	55,5400	-3,53%	+42,24%	
+4/7
+3
+iShares Core MSCI EM IMI ETF USD Acc
+0%	45,5400	-3,54%	+41,04%	
+4/7
+4
+iShares MSCI Turkey ETF USD Dist
+0%	20,4700	-2,34%	+40,22%	
+6/7
+
+iShares Automation&Robotics ETF USD Acc
+0%	16,9520	-3,35%	+39,01%	
+5/7
+3
+iShares Diversified Commodity Swap (DE)
+0%	35,3200	+1,60%	+38,92%	
+4/7
+
+iShares MSCI EM SRI ETF USD Acc
+0%	9,2210	-2,05%	+36,86%	
+4/7
+3
+iShares NASDAQ 100 ETF USD Acc
+0%	1 408,4000	-1,40%	+36,30%	
+5/7
+5
+iShares MSCI Mexico Capped ETF USD Acc
+0%	196,4000	-0,85%	+35,37%	
+5/7
+
+iShares MSCI Canada ETF USD Acc
+0%	253,7400	-0,72%	+35,34%	
+4/7
+3
+iShares MSCI China A ETF USD Acc
+0%	5,4330	-0,37%	+34,13%	
+4/7
+3
+iShares S&P 500 Top 20 ETF USD Acc
+0%	5,6430	+0,05%	+33,98%	
+5/7
+
+iShares Global Arspc & Dfnc ETF USD Acc
+0%	7,9370	-1,37%	+30,01%	
+4/7
+
+Libellé	
+Dernier
+Var.
+Perf. 1 an
+Risque
+Morningstar
+iShares Smart City Infra ETF USD Acc
+0%	9,2000	-0,09%	+28,97%	
+4/7
+3
+iShares S&P 500 EUR Hedged ETF Acc
+0%	151,0400	-1,05%	+27,35%	
+4/7
+
+iShares MSCI ACWI ETF USD Acc
+0%	100,5300	-1,01%	+27,01%	
+4/7
+4
+iShares S&P 500 Swap ETF USD Acc
+0%	0,0000	0,00%	+26,88%	
+4/7
+5
+iShares Core S&P 500 ETF USD Acc
+0%	673,4800	-0,53%	+26,69%	
+4/7
+4
+iShares Core S&P 500 ETF USD Dist
+0%	62,4400	-0,53%	+26,68%	
+4/7
+4
+iShares Core MSCI Japan IMI ETF USD Acc
+0%	66,9700	-0,52%	+26,63%	
+4/7
+3
+iShares MSCI USA Swap ETF USD Acc
+0%	8,5730	-0,40%	+26,61%	
+4/7
+4
+iShares MSCI USA ETF USD Acc
+0%	648,9200	-0,22%	+26,43%	
+4/7
+4
+iShares MSCI Japan ETF USD Acc
+0%	241,9600	+0,39%	+26,43%	
+5/7
+3
+iShares MSCI Japan ETF USD Dist
+0%	20,4750	-0,49%	+26,42%	
+5/7
+3
+iShares MSCI North America ETF USD Dist
+0%	115,9200	-0,57%	+26,41%	
+4/7
+4
+iShares MSCI World EUR Hedged ETF Acc
+0%	113,8000	-0,84%	+26,12%	
+4/7
+
+iShares MSCI World Swap ETF USD Acc
+0%	6,1900	-0,64%	+25,46%	
+4/7
+
+iShares EURO STOXX Select Div 30 DE acc
+0%	7,6240	-1,03%	+25,38%	
+4/7
+5Libellé	
+Dernier
+Var.
+Perf. 1 an
+Risque
+Morningstar
+iShares Euro Dividend ETF EUR Dist
+0%	25,0000	-1,32%	+25,27%	
+4/7
+3
+iShares Core MSCI World ETF USD Acc
+0%	119,1600	-0,64%	+25,22%	
+4/7
+5
+iShares MSCI World Swap PEA ETF
+0%	6,5370	-0,59%	+24,98%	
+4/7
+
+iShares MSCI World ETF USD Dist
+0%	85,9900	-0,58%	+24,78%	
+4/7
+4
+iShares Core FTSE 100 ETF GBP Dist
+0%	11,6130	-0,52%	+24,33%	
+4/7
+5
+iShares MSCI USA SRI ETF USD Acc
+0%	17,0520	+0,04%	+23,74%	
+4/7
+2
+iShares Metaverse ETF USD Acc
+0%	10,0340	-0,79%	+23,46%	
+5/7
+3
+iShares Dgtl Entrtnmnt & Edu ETF USD Acc
+0%	11,0586	-2,23%	+21,12%	
+4/7
+3
+iShares Core MSCI Pac ex-Jpn ETF USD Acc
+0%	205,2500	-0,80%	+21,09%	
+4/7
+3
+iShares Dow Jones Glb Ldrs Scrn ETF $Acc
+0%	79,4500	-0,96%	+21,01%	
+4/7
+4
+iShares EURO STOXX Small ETF EUR Dist
+0%	51,6300	-1,07%	+20,67%	
+4/7
+4
+iShares MSCI World SRI ETF EUR Acc
+0%	12,9680	-0,92%	+20,32%	
+4/7
+3
+iShares EURO STOXX Mid ETF EUR Dist
+0%	84,6400	-0,34%	+20,05%	
+4/7
+4
+iShares Core MSCI EMU UCITS ETF EUR Acc
+0%	226,3400	-1,48%	+19,67%	
+4/7
+4
+iShares Ageing Population ETF USD Acc
+0%	8,3170	-0,47%	+19,05%	
+4/7
+4
+
+Libellé	
+Dernier
+Var.
+Perf. 1 an
+Risque
+Morningstar
+iShares Core MSCI Europe ETF EUR Acc
+0%	97,2900	-1,00%	+18,79%	
+4/7
+4
+iShares Cor MSCI Eurp UCITS ETF EUR Dist
+0%	38,0200	-0,95%	+18,72%	
+4/7
+5
+iShares S&P 500 Equal Weight ETF USD Acc
+0%	6,2650	-0,10%	+18,17%	
+4/7
+1
+iShares AEX ETF EUR Dist
+0%	100,3400	-1,38%	+17,97%	
+4/7
+
+iShares AEX ETF EUR Acc
+0%	9,9460	-1,33%	+17,96%	
+4/7
+
+iShares Nasdaq 100 ex-Top 30 ETF USD Acc
+0%	4,9255	-0,24%	+17,62%	
+5/7
+
+iShares Core EURO STOXX 50 ETF EUR Acc
+0%	225,2000	-1,34%	+17,36%	
+4/7
+5
+iShares Core EURO STOXX 50 ETF EUR Dist
+0%	59,8800	-1,50%	+17,35%	
+4/7
+5
+iShares MSCI Europe ex-UK ETF EUR Dist
+0%	52,4200	-1,09%	+16,76%	
+4/7
+4
+iShares Global Infras ETF USD Dist
+0%	33,4850	+0,28%	+16,46%	
+4/7
+4
+iShares Digital Security ETF USD Acc
+0%	9,4000	-1,26%	+16,15%	
+4/7
+3
+iShares STOXX Europe 600 Tech (DE) acc
+0%	6,8940	-2,21%	+14,33%	
+5/7
+2
+iShares Euro Total Mkt Gr Lg ETF  Dist
+0%	66,9100	-0,61%	+13,10%	
+4/7
+3
+iShares US Property Yield ETF USD Dist
+0%	28,0700	+0,04%	+12,67%	
+4/7
+4
+iShares MSCI EMU SRI ETF EUR Acc
+0%	8,7790	-1,03%	+12,67%	
+4/7
+
+Libellé	
+Dernier
+Var.
+Perf. 1 an
+Risque
+Morningstar
+iShares MSCI EMU Paris-Algnd ClmtETFAcc
+0%	6,8000	-1,41%	+12,62%	
+4/7
+3
+iShares Asia Property Yield ETF USD Dist
+0%	19,5580	-0,95%	+12,61%	
+4/7
+4
+iShares MSCI EMU Paris-Algnd ClmtETFDis
+0%	6,1160	-1,45%	+12,61%	
+4/7
+3
+iShares Healthcare Innov ETF USD Acc
+0%	7,3980	-0,11%	+11,89%	
+4/7
+2
+iShares Dev Mkts Prpty Yld ETF USD Dist
+0%	22,1400	-0,56%	+11,35%	
+4/7
+3
+iShares MSCI Eurp Paris-AlgndClmtETFEURAcc
+0%	6,8480	-0,88%	+10,27%	
+4/7
+3
+iShares MSCI Eurp Paris-AlgndClmtETFEURDis
+0%	6,1780	-1,10%	+10,27%	
+4/7
+3
+iShares MSCI France ETF EUR Acc
+0%	62,2200	-1,08%	+9,96%	
+4/7
+5
+iShares Global Water ETF USD Acc
+0%	24,0450	-0,31%	+7,88%	
+4/7
+3
+iShares JP Morgan Advcd $ EM Bd ETF $Acc
+0%	5,4010	-0,13%	+7,70%	
+3/7
+2
+iShares Core DAX(r) ETF (DE) Acc
+0%	197,6000	-1,47%	+7,37%	
+4/7
+4
+iShares JPMorgan EM Lcl Govt Bd ETF$Acc
+0%	4,8305	-0,25%	+7,02%	
+3/7
+2
+iShares AI Adopters & Applctns ETF $ Acc
+0%	4,6075	-0,65%	+7,01%	
+4/7
+
+iShares China Large Cap ETF USD Dist
+0%	90,6800	-0,85%	+5,70%	
+5/7
+3
+iShares China Large Cap ETF USD Acc
+0%	4,1775	-0,70%	+5,69%	
+5/7
+4

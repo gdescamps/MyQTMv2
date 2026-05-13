@@ -2,3 +2,23 @@
 est ce qu'il y a un mcp pour finhub ?
 https://finnhub.io/docs/api/introduction
 
+
+analyser les données recupérées via FMP trading 
+MyQTM/src/data_download_fmp.py
+MyQTM/src/data_pipeline.py
+MyQTM/src/data_tranform_clean.py
+MyQTM/src/data_transform_analyst_stock_recommendations_time_series.py
+MyQTM/src/data_transform_economic_indicators_time_series.py
+MyQTM/src/data_transform_key_metrics_time_series.py
+MyQTM/src/data_transform_price_trends_indicators_time_series.py
+MyQTM/src/data_transform_ratings_time_series.py
+MyQTM/src/data_transform_sentiments_time_series.py
+MyQTM/src/data_transform_split_intervals.py
+MyQTM/src/data_transform_stock_news_to_sentiment_scores.py
+MyQTM/src/data_transform_stock_news.py
+
+dans myfiles/fmp2finhub.txt
+
+ecrire l'API equivalente de finhub pour recuperer les meme données
+est quel est l'historique disponible en free
+est quel est le forfait pour recuperer un historique plus important

@@ -1,0 +1,290 @@
+================================================================================
+MAPPING FMP -> FINNHUB
+Analyse des données utilisées dans MyQTM et équivalents Finnhub
+================================================================================
+
+--------------------------------------------------------------------------------
+1. PRIX HISTORIQUE EOD (OHLCV)
+--------------------------------------------------------------------------------
+FMP:
+  URL : /stable/historical-price-eod/full?symbol={symbol}&from={from}&to={to}
+  Fichier : {stock}_{date}_historical_price_full.json
+  Champs utilisés : date, open, high, low, close, volume
+  Aussi utilisé pour : indices ^IXIC, ^VIX (symbol=^VIX, ^IXIC)
+
+Finnhub équivalent:
+  GET /api/v1/stock/candle?symbol=AAPL&resolution=D&from={unix_ts}&to={unix_ts}&token=...
+  Réponse : { o:[], h:[], l:[], c:[], v:[], t:[], s:"ok" }
+  NOTE: Les timestamps doivent être en Unix epoch (secondes)
+  Conversion date -> unix : int(datetime.strptime(date, "%Y-%m-%d").timestamp())
+
+  Pour VIX / IXIC :
+  - ^VIX et ^IXIC ne sont PAS supportés par Finnhub via /stock/candle
+  - Alternative VIX : données économiques CBOE via code "VIXCLS" sur FRED
+    GET /api/v1/economic?code=VIXCLS&token=...
+  - Alternative IXIC (NASDAQ Composite) : utiliser QQQ (ETF Nasdaq) comme proxy
+    ou GET /api/v1/index/historical?symbol=^NDX&resolution=D&from=...&to=...
+    (endpoint indices, disponible en premium uniquement)
+
+Historique disponible:
+  FREE   : 1 an
+  Starter (~$25/mo) : 5 ans
+  Growth (~$100/mo) : Historique complet (20+ ans)
+
+--------------------------------------------------------------------------------
+2. NEWS (actualités par action)
+--------------------------------------------------------------------------------
+FMP:
+  URL : /stable/news/stock?symbol={symbol}&from={from}&to={to}&page={page}&limit=1000
+  Fichier : {stock}_{date}_stock_news.json
+  Champs utilisés : publishedDate, title, text, url, site
+  Filtrage : uniquement les sites dans RELIABLE_NEWS_SITES (voir config.py)
+  Pagination : par pages de 1000, toutes les pages sont récupérées
+
+Finnhub équivalent:
+  GET /api/v1/company-news?symbol=AAPL&from=2023-01-01&to=2023-12-31&token=...
+  Réponse : [{ datetime, headline, summary, url, source, image, category, id, related }]
+  NOTE: Pas de pagination, retourne toutes les news dans la plage de dates
+  NOTE: Champ "source" = équivalent de "site" FMP (pour filtrer les sources fiables)
+  NOTE: Pas de champ "text" complet — seulement "summary" (~headline étendu)
+        Pour avoir le texte complet, il faudrait crawler l'URL (comme FMP le fait)
+
+  Mapping champs:
+    FMP publishedDate  -> Finnhub datetime (Unix timestamp, convertir en date)
+    FMP title          -> Finnhub headline
+    FMP text           -> Finnhub summary (approximatif, moins complet)
+    FMP url            -> Finnhub url
+    FMP site           -> Finnhub source
+
+Historique disponible:
+  FREE   : 1 an
+  Payant : 5 ans (Starter), historique complet (Growth+)
+
+--------------------------------------------------------------------------------
+3. RECOMMANDATIONS ANALYSTES (grades historiques)
+--------------------------------------------------------------------------------
+FMP:
+  URL : /stable/grades-historical?symbol={symbol}
+  Fichier : {stock}_{date}_analyst_stock_recommendations.json
+  Champs utilisés : date, gradingCompany, fromGrade, toGrade, action
+  (strong buy / buy / hold / sell / strong sell par analyste individuel)
+
+Finnhub équivalents:
+  a) Consensus (tendances agrégées par période) :
+     GET /api/v1/stock/recommendation?symbol=AAPL&token=...
+     Réponse : [{ period, strongBuy, buy, hold, sell, strongSell }]
+     NOTE: Données mensuelles agrégées, PAS les changements individuels par analyste
+
+  b) Upgrades/downgrades individuels (plus proche de FMP grades-historical) :
+     GET /api/v1/stock/upgrade-downgrade?symbol=AAPL&token=...
+     Réponse : [{ symbol, gradeDate, fromGrade, toGrade, firm, action }]
+     Mapping direct:
+       FMP gradingCompany -> Finnhub firm
+       FMP fromGrade      -> Finnhub fromGrade
+       FMP toGrade        -> Finnhub toGrade
+       FMP action         -> Finnhub action
+       FMP date           -> Finnhub gradeDate
+
+  RECOMMANDATION: Utiliser /stock/upgrade-downgrade (option b), structure identique à FMP
+
+Historique disponible:
+  FREE   : 1 an d'upgrades/downgrades, consensus dernières périodes
+  Payant : Historique complet
+
+--------------------------------------------------------------------------------
+4. METRIQUES FINANCIERES CLÉS (ratios fondamentaux)
+--------------------------------------------------------------------------------
+FMP:
+  URL : /stable/ratios?symbol={symbol}&period=quarter&limit=30
+  Fichier : {stock}_{date}_key_metrics.json
+  Champs utilisés dans le modèle : debtToEquity, debtToAssets
+  (série temporelle trimestrielle sur 30 trimestres)
+
+Finnhub équivalent:
+  a) Métriques courantes (snapshot actuel uniquement) - FREE:
+     GET /api/v1/stock/metric?symbol=AAPL&metric=all&token=...
+     Retourne les valeurs actuelles : currentRatio, debtToEquity, etc.
+
+  b) Séries historiques de métriques fondamentales - PAYANT:
+     GET /api/v1/stock/metric?symbol=AAPL&metric=debtToEquityQuarterly&token=...
+     NOTE: Les séries historiques de ratios nécessitent un forfait payant
+
+  c) Alternative gratuite via bilans trimestriels (calculer les ratios manuellement):
+     GET /api/v1/financials?symbol=AAPL&statement=bs&freq=quarterly&token=...
+     Retourne bilans trimestriels -> calculer debtToEquity = totalDebt / totalEquity
+
+  ATTENTION: C'est le point le plus critique. FMP fournit les ratios précalculés
+  sur 30 trimestres. Finnhub ne le fait qu'en payant ou nécessite un calcul manuel.
+
+Historique disponible:
+  FREE   : Métriques actuelles uniquement (pas de séries historiques)
+  Starter: Ratios historiques 5 ans
+  Growth+: Historique complet
+
+--------------------------------------------------------------------------------
+5. RATINGS HISTORIQUES (score FMP propriétaire)
+--------------------------------------------------------------------------------
+FMP:
+  URL : /stable/ratings-historical?symbol={symbol}&limit=2000
+  Fichier : {stock}_{date}_ratings.json
+  Champs utilisés : date, ratingScore, ratingDetailsDCFScore, ratingDetailsROEScore,
+                    ratingDetailsROAScore, ratingDetailsDEScore, ratingDetailsPEScore,
+                    ratingDetailsPBScore
+  NOTE: Ce sont des scores composites PROPRIÉTAIRES calculés par FMP
+
+Finnhub équivalent:
+  PAS D'ÉQUIVALENT DIRECT.
+  Ces scores (DCF, ROE, ROA, D/E, P/E, P/B combinés en un seul rating) sont
+  une valeur ajoutée spécifique à FMP.
+
+  Alternatives partielles:
+  - GET /api/v1/stock/metric?symbol=AAPL&metric=all -> donne les ratios individuels
+    (peNormalizedAnnual, pbAnnual, roeRfy, roaRfy, currentRatio, etc.)
+    -> Possible de reconstruire un score composite manuellement
+
+  CONCLUSION: Cette feature devrait soit être supprimée si migration vers Finnhub,
+  soit reconstruite à partir des métriques individuelles Finnhub.
+
+Historique disponible:
+  N/A (pas d'équivalent natif)
+
+--------------------------------------------------------------------------------
+6. INDICATEURS ÉCONOMIQUES MACRO
+--------------------------------------------------------------------------------
+FMP:
+  URL : /stable/economic-indicators?name={indicator}&from={from}&to={to}
+  Fichier : {date}_economic_indicators.json
+  Indicateurs utilisés (22 au total):
+    GDP, realGDP, nominalPotentialGDP, realGDPPerCapita,
+    federalFunds, CPI, inflationRate, inflation,
+    retailSales, consumerSentiment, durableGoods,
+    unemploymentRate, totalNonfarmPayroll, initialClaims,
+    industrialProductionTotalIndex,
+    newPrivatelyOwnedHousingUnitsStartedTotalUnits,
+    totalVehicleSales, retailMoneyFunds,
+    smoothedUSRecessionProbabilities,
+    3MonthOr90DayRatesAndYieldsCertificatesOfDeposit,
+    commercialBankInterestRateOnCreditCardPlansAllAccounts,
+    30YearFixedRateMortgageAverage, 15YearFixedRateMortgageAverage
+
+Finnhub équivalent:
+  GET /api/v1/economic?code={FRED_CODE}&token=...
+  Liste des codes : GET /api/v1/economic/code?token=...
+
+  Mapping FMP -> code FRED Finnhub:
+    GDP                                      -> GDP
+    realGDP                                  -> GDPC1
+    nominalPotentialGDP                      -> GDPPOT
+    realGDPPerCapita                         -> A939RX0Q048SBEA
+    federalFunds                             -> FEDFUNDS
+    CPI                                      -> CPIAUCSL
+    inflationRate                            -> FPCPITOTLZGUSA (ou calculé depuis CPI)
+    inflation                                -> CPIAUCSL (même donnée)
+    retailSales                              -> RSAFS
+    consumerSentiment                        -> UMCSENT
+    durableGoods                             -> DGORDER
+    unemploymentRate                         -> UNRATE
+    totalNonfarmPayroll                      -> PAYEMS
+    initialClaims                            -> ICSA
+    industrialProductionTotalIndex           -> INDPRO
+    newPrivatelyOwnedHousingUnitsStarted...  -> HOUST
+    totalVehicleSales                        -> TOTALSA
+    retailMoneyFunds                         -> WRMFSL
+    smoothedUSRecessionProbabilities         -> RECPROUSM156N
+    3MonthOr90DayRates...CertificatesOfDep.  -> IR3TIB01USM156N (approx)
+    commercialBankInterestRate...CreditCard  -> TERMCBCCALLNS
+    30YearFixedRateMortgageAverage           -> MORTGAGE30US
+    15YearFixedRateMortgageAverage           -> MORTGAGE15US
+
+Historique disponible:
+  FREE   : Accès complet aux données FRED (historique long, données publiques)
+  NOTE: Finnhub utilise les données FRED publiques -> historique complet disponible
+
+--------------------------------------------------------------------------------
+7. PROFIL SOCIÉTÉ
+--------------------------------------------------------------------------------
+FMP:
+  URL : /stable/profile?symbol={symbol}
+  Fichier : {stock}_{date}_profile.json
+  Champs utilisés : currency, companyName, industry, sector, description, exchange
+
+Finnhub équivalent:
+  GET /api/v1/stock/profile2?symbol=AAPL&token=...
+  Réponse : { country, currency, exchange, ipo, marketCapitalization, name,
+              phone, shareOutstanding, ticker, weburl, logo, finnhubIndustry }
+
+  Mapping champs:
+    FMP currency    -> Finnhub currency
+    FMP companyName -> Finnhub name
+    FMP industry    -> Finnhub finnhubIndustry (classification différente de FMP)
+    FMP sector      -> PAS de champ sector direct (finnhubIndustry combine les deux)
+    FMP description -> PAS disponible dans Finnhub /stock/profile2
+    FMP exchange    -> Finnhub exchange
+
+  NOTE: Finnhub ne fournit pas la description textuelle de la société.
+  Alternative pour la description : Wikipedia API ou scraping.
+
+Historique disponible:
+  FREE   : Données actuelles (profil ne change pas souvent)
+
+--------------------------------------------------------------------------------
+RÉSUMÉ : COMPATIBILITÉ FMP -> FINNHUB
+--------------------------------------------------------------------------------
+
+  Donnée                     | Finnhub dispo | Qualité   | Tier requis
+  ---------------------------|---------------|-----------|-------------
+  Prix historique EOD        | OUI           | Excellente| FREE (1 an) / Payant (complet)
+  News par action            | OUI           | Bonne     | FREE (1 an) / Payant (complet)
+  Recommandations analystes  | OUI           | Excellente| FREE
+  Ratios fondamentaux hist.  | PARTIEL       | Moyenne   | FREE (actuel) / Payant (historique)
+  Ratings propriétaires FMP  | NON           | N/A       | Pas d'équivalent
+  Indicateurs économiques    | OUI           | Excellente| FREE (historique complet FRED)
+  Profil société             | OUI           | Bonne     | FREE
+
+--------------------------------------------------------------------------------
+FORFAITS FINNHUB (vérifier sur finnhub.io/pricing pour les tarifs actuels)
+--------------------------------------------------------------------------------
+
+  FREE:
+    - 60 appels/minute
+    - Prix historiques: 1 an
+    - News: 1 an
+    - Métriques fondamentales: snapshot actuel uniquement
+    - Recommandations/upgrades: accès de base
+    - Indicateurs économiques FRED: accès complet
+    - Profils: accès complet
+
+  STARTER (~$25-50/mo) - à vérifier sur le site:
+    - Historique étendu: 5 ans pour prix et news
+    - Ratios historiques trimestriels
+    - Appels/minute augmentés
+
+  GROWTH / PROFESSIONAL (~$100-300/mo):
+    - Historique complet (20+ ans) pour prix EOD
+    - Historique complet news
+    - Séries historiques métriques fondamentales
+    - Données temps réel
+
+  NOTE IMPORTANTE: Les indicateurs économiques (FRED) sont des données publiques,
+  Finnhub les fournit gratuitement avec historique complet. C'est un avantage
+  par rapport à FMP qui les facture dans les forfaits premium.
+
+--------------------------------------------------------------------------------
+CONCLUSION: FAISABILITÉ DE MIGRATION
+--------------------------------------------------------------------------------
+
+  Points favorables:
+  - Prix EOD, news, recommendations, profils, économique = couverts
+  - Les indicateurs économiques FRED = gratuits et complets sur Finnhub
+  - /stock/upgrade-downgrade = mapping quasi-identique à FMP grades-historical
+
+  Points de friction:
+  - Ratios historiques (debtToEquity, debtToAssets) : FREE ne suffit pas,
+    il faut calculer depuis les bilans trimestriels ou payer
+  - Ratings FMP propriétaires (ratingScore, DCF/ROE/ROA scores) : aucun équivalent
+    -> Feature à supprimer ou reconstruire manuellement
+  - VIX historique : non disponible directement, workaround via FRED code "VIXCLS"
+  - News: Finnhub retourne "summary" et non le texte complet, ce qui peut
+    dégrader la qualité des scores de sentiment LLM (Gemini)
+
+================================================================================

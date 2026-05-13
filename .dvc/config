@@ -7,4 +7,3 @@
     type = copy
 ['remote "gb10"']
     url = ssh://gb10/dvc
-
