@@ -8,7 +8,7 @@ This repo contains `MyQTM/` as a git submodule — a quantitative trading framew
 
 ## Environment Setup
 
-Requires Python 3.11 and a virtual environment:
+Requires Python 3.12 and a virtual environment:
 
 ```bash
 cd MyQTM
