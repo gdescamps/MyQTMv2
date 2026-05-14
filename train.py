@@ -51,8 +51,8 @@ FEATURE_COLS = [
     "dxy_ret_20d", "dxy_z60",
     "ret_spx_20d",
     # Smart money
-    "shares_outstanding_z20",
-    "rotation_z60",
+    "shares_outstanding_z5", "shares_outstanding_z20", "shares_outstanding_z60",
+    "rotation_z5", "rotation_z20", "rotation_z60",
     # Cross-sectional
     "ret_20d_z_within_block", "ret_5d_z_within_block",
 ]

@@ -114,13 +114,17 @@ def compute_etf_features(ohlcv: pd.DataFrame, shares_df: pd.DataFrame | None) ->
     dvol = c * v
     f["volume_z20"] = _z(dvol, 20)
 
-    # Shares outstanding z-score from iShares XLS
+    # Shares outstanding z-scores from iShares XLS (smart money flows)
     if shares_df is not None and "shares_outstanding" in shares_df.columns:
         so = shares_df["shares_outstanding"].reindex(c.index, method="ffill")
         so_chg = so.diff(1)
+        f["shares_outstanding_z5"]  = _z(so_chg, 5)
         f["shares_outstanding_z20"] = _z(so_chg, 20)
+        f["shares_outstanding_z60"] = _z(so_chg, 60)
     else:
+        f["shares_outstanding_z5"]  = np.nan
         f["shares_outstanding_z20"] = np.nan
+        f["shares_outstanding_z60"] = np.nan
 
     # Forward return (label component) — shifted BACK 20 days (no lookahead)
     f["ret_20d_fwd"] = c.pct_change(20).shift(-20)
@@ -146,9 +150,14 @@ def load_macro() -> pd.DataFrame:
     mac["vix_level"]           = vix
     mac["vix_velocity"]        = vix.diff(5)
     mac["vix_reversion_force"] = _z(vix, 60) * -1   # positive = vix above norm (dangerous)
+    mac["vix_z5"]              = _z(vix, 5)
+    mac["vix_z20"]             = _z(vix, 20)
+    mac["vix_z60"]             = _z(vix, 60)
 
     hy = _fred("hy_spread", "hy")
     mac["hy_spread"]          = hy
+    mac["hy_spread_z5"]       = _z(hy, 5)
+    mac["hy_spread_z20"]      = _z(hy, 20)
     mac["hy_spread_z60"]      = _z(hy, 60)
     mac["hy_spread_velocity"] = hy.diff(5)
 

@@ -140,8 +140,9 @@ def build_flow_proxies() -> None:
     off_cols = [f"{t}_dvol_z20" for t in RISK_OFF if f"{t}_dvol_z20" in result.columns]
     if on_cols and off_cols:
         ratio = result[on_cols].mean(axis=1) - result[off_cols].mean(axis=1)
-        m, s = ratio.rolling(60).mean(), ratio.rolling(60).std()
-        result["rotation_z60"] = (ratio - m) / s.replace(0, float("nan"))
+        for w in (5, 20, 60):
+            m, s = ratio.rolling(w).mean(), ratio.rolling(w).std()
+            result[f"rotation_z{w}"] = (ratio - m) / s.replace(0, float("nan"))
 
     result.to_parquet(fname, engine="pyarrow", compression="snappy")
     first = result.dropna(how="all").index[0].date()
