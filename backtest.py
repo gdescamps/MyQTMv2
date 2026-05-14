@@ -54,7 +54,7 @@ PARAM_BOUNDS = [
     (-3.00, 3.00),   # p3_bias
     ( 0.50, 0.95),   # equity_max
     ( 0.00, 0.20),   # cash_min
-    ( 0.50, 4.00),   # temperature
+    ( 0.10, 4.00),   # temperature
     ( 0.05, 0.50),   # max_single_weight
     ( 0.01, 0.10),   # min_weight_change
     ( 0.05, 0.40),   # defensive_min
@@ -149,7 +149,9 @@ def run_backtest(
     turnover  = np.abs(np.diff(final_weights, axis=0, prepend=np.zeros((1, n_etfs)))).sum(axis=1)
     port_ret -= turnover * transaction_cost
 
-    return pd.Series(port_ret, index=dates, name="port_return")
+    ret_series = pd.Series(port_ret, index=dates, name="port_return")
+    weights_df = pd.DataFrame(final_weights, index=dates, columns=scores_wide.columns)
+    return ret_series, weights_df
 
 
 def sharpe(returns: pd.Series, min_obs: int = 30) -> float:
@@ -173,9 +175,18 @@ def run_cmaes(
     Returns (best_params, best_sharpe).
     """
     def objective(params: list) -> float:
-        returns = run_backtest(scores_wide, labels_wide, is_equity, is_defensive,
-                               vix_s, hy_z60_s, params)
-        return -sharpe(returns)
+        returns, _ = run_backtest(scores_wide, labels_wide, is_equity, is_defensive,
+                                  vix_s, hy_z60_s, params)
+        r = returns.dropna()
+        if len(r) < 30 or r.std() < 1e-10:
+            return 10.0
+        ann_ret = r.mean() * 252
+        ann_vol = r.std() * np.sqrt(252)
+        eq = (1 + r).cumprod()
+        max_dd = abs((eq / eq.cummax() - 1).min())
+        if max_dd < 1e-10:
+            max_dd = 1e-10
+        return -(ann_ret / (max_dd * ann_vol))
 
     es = cma.CMAEvolutionStrategy(
         PARAM_INIT,
@@ -219,17 +230,30 @@ def _section_arrays(etf_list: list, sections: dict) -> tuple[np.ndarray, np.ndar
     return is_eq, is_def
 
 
+def _load_benchmark(ticker: str, dates: pd.DatetimeIndex) -> pd.Series | None:
+    """Load a benchmark equity curve normalised to 1 at first available date."""
+    for fname in [f"{ticker}.parquet", f"{ticker.replace('.', '_')}.parquet"]:
+        path = DATA / fname
+        if path.exists():
+            df = pd.read_parquet(path)
+            col = "close" if "close" in df.columns else "adj_close"
+            s = df[col].reindex(dates, method="ffill").dropna()
+            if len(s) > 10:
+                return s / s.iloc[0]
+    return None
+
+
 def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
+                     weights_df: pd.DataFrame,
                      params_df: pd.DataFrame, out_dir: Path) -> None:
-    """Save a two-panel equity + drawdown PNG for the backtest."""
-    dd = eq_curve / eq_curve.cummax() - 1
+    """Save a two-panel PNG: log equity curves + portfolio allocation."""
     ann_ret = port_returns.mean() * 252
     ann_vol = port_returns.std() * np.sqrt(252)
     sh      = sharpe(port_returns)
-    max_dd  = dd.min()
+    max_dd  = (eq_curve / eq_curve.cummax() - 1).min()
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8),
-                                    gridspec_kw={"height_ratios": [3, 1]},
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 10),
+                                    gridspec_kw={"height_ratios": [3, 2]},
                                     sharex=True)
     fig.suptitle(
         f"MyQTM-ETF — Walk-Forward OOS  "
@@ -237,34 +261,88 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         fontsize=12, fontweight="bold",
     )
 
-    # Panel 1: equity curve with per-step shading
-    ax1.plot(eq_curve.index, eq_curve.values, lw=1.8, color="#1f77b4", label="Portfolio")
-    ax1.set_ylabel("Portfolio value (base 1)")
+    # Panel 1: log equity curves (portfolio + benchmarks)
+    ax1.plot(eq_curve.index, eq_curve.values, lw=2.0, color="#1f77b4", label="Portfolio")
+
+    benchmarks = [("CSPX_AS", "S&P 500", "#ff7f0e"), ("QQQ", "Nasdaq", "#2ca02c"),
+                  ("GLD", "Gold", "#d4af37")]
+    for ticker, name, color in benchmarks:
+        bm = _load_benchmark(ticker, eq_curve.index)
+        if bm is not None:
+            ax1.plot(bm.index, bm.values, lw=1.2, color=color, alpha=0.7, label=name)
+
+    ax1.set_yscale("log")
+    ax1.set_ylabel("Equity (log scale, base 1)")
     ax1.yaxis.set_major_formatter(mtick.FuncFormatter(lambda x, _: f"{x:.1f}x"))
-    ax1.grid(True, alpha=0.3)
+    ax1.grid(True, alpha=0.3, which="both")
     ax1.set_facecolor("#f8f8f8")
+    ax1.legend(fontsize=10, loc="upper left")
 
-    # Shade alternating steps
-    if "step" in params_df.columns and len(params_df) > 1:
-        step_dates = {}
-        # We can't easily get step boundaries here — shade via equity index split
-        n_steps = len(params_df)
-        dates   = eq_curve.index
-        chunk   = max(len(dates) // n_steps, 1)
-        for i in range(n_steps):
-            if i % 2 == 0:
-                s = dates[i * chunk]
-                e = dates[min((i + 1) * chunk - 1, len(dates) - 1)]
-                ax1.axvspan(s, e, alpha=0.05, color="orange")
+    # VIX on secondary y-axis
+    vix_path = DATA / "fred_vix.parquet"
+    if vix_path.exists():
+        vix_raw = pd.read_parquet(vix_path).iloc[:, 0]
+        vix_raw = vix_raw.reindex(eq_curve.index, method="ffill").dropna()
+        ax1b = ax1.twinx()
+        ax1b.fill_between(vix_raw.index, vix_raw.values, alpha=0.10, color="#d62728")
+        ax1b.set_ylabel("VIX", color="#d62728", fontsize=9)
+        ax1b.tick_params(axis="y", labelcolor="#d62728", labelsize=8)
+        ax1b.set_ylim(0, 80)
+        ax1b.set_yscale("linear")
 
-    ax1.legend(fontsize=10)
+    # Panel 2: portfolio allocation stacked area (grouped by category)
+    if len(weights_df) > 0:
+        from etf import BY_BOURSO
+        w = weights_df.reindex(eq_curve.index, method="ffill").fillna(0)
+        cash = (1 - w.sum(axis=1)).clip(0, 1)
 
-    # Panel 2: drawdown
-    ax2.fill_between(dd.index, dd.values, 0, alpha=0.6, color="#d62728")
-    ax2.set_ylabel("Drawdown")
-    ax2.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
-    ax2.set_facecolor("#f8f8f8")
-    ax2.grid(True, alpha=0.3)
+        # Map ETFs to display groups
+        SOLO_IDS = {"CSP1.PA": "S&P 500", "CNX1.PA": "Nasdaq",
+                    "IGLN.AS": "Gold", "RING": "Gold Miners",
+                    "IOGP.AS": "Oil & Gas", "SXRS.DE": "Commodities",
+                    "IBTC.AS": "Bitcoin"}
+        alloc = pd.DataFrame(index=w.index)
+        grouped_etfs = set()
+
+        # Solo ETFs by ID (always present in legend, 0 if not yet available)
+        for etf_id, label in SOLO_IDS.items():
+            alloc[label] = w[etf_id] if etf_id in w.columns else 0.0
+            grouped_etfs.add(etf_id)
+
+        # Group remaining by section
+        section_labels = {"geo": "Geo (autres)", "sector_us": "Secteurs US",
+                          "thematic": "Thématiques", "bond": "Obligations"}
+        for section, label in section_labels.items():
+            cols = [c for c in w.columns if c not in grouped_etfs
+                    and BY_BOURSO.get(c) and BY_BOURSO[c].section == section]
+            if cols:
+                alloc[label] = w[cols].sum(axis=1)
+                grouped_etfs.update(cols)
+
+        # Any remaining
+        remaining = [c for c in w.columns if c not in grouped_etfs]
+        if remaining:
+            alloc["Autres"] = w[remaining].sum(axis=1)
+
+        alloc["Cash"] = cash
+
+        colors_map = {
+            "S&P 500": "#1f77b4", "Nasdaq": "#2ca02c", "Gold": "#d4af37",
+            "Gold Miners": "#b8860b", "Oil & Gas": "#8b4513", "Commodities": "#cd853f",
+            "Bitcoin": "#ff7f00", "Geo (autres)": "#aec7e8", "Secteurs US": "#ff9896",
+            "Thématiques": "#c5b0d5", "Obligations": "#98df8a", "Autres": "#c7c7c7",
+            "Cash": "#e8e8e8",
+        }
+        colors = [colors_map.get(c, "#c7c7c7") for c in alloc.columns]
+
+        ax2.stackplot(alloc.index, alloc.values.T,
+                      labels=alloc.columns, colors=colors, alpha=0.85)
+        ax2.set_ylabel("Allocation")
+        ax2.set_ylim(0, 1)
+        ax2.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
+        ax2.legend(fontsize=8, loc="center left", bbox_to_anchor=(1.01, 0.5), ncol=1)
+        ax2.set_facecolor("#f8f8f8")
+        ax2.grid(True, alpha=0.3)
 
     plt.tight_layout()
     fig.savefig(out_dir / "backtest_equity.png", dpi=150, bbox_inches="tight")
@@ -309,6 +387,7 @@ def main():
           f"test rows: {(oos['split']=='test').sum()}\n")
 
     all_test_returns = []
+    all_test_weights = []
     all_params_rows  = []
 
     print(f"{'Step':>4}  {'Val period':>24}  {'Val↗':>7}  "
@@ -331,8 +410,8 @@ def main():
         # --- Evaluate on test (true OOS) ---
         test_sw, test_lw = _pivot_step(test_data)
         test_is_eq, test_is_def = _section_arrays(test_sw.columns.tolist(), sections)
-        test_returns = run_backtest(test_sw, test_lw, test_is_eq, test_is_def,
-                                    vix_s, hy_z60_s, best_params)
+        test_returns, test_weights = run_backtest(test_sw, test_lw, test_is_eq, test_is_def,
+                                                   vix_s, hy_z60_s, best_params)
         test_sh = sharpe(test_returns)
 
         val_dates  = val_data.index.get_level_values("date")
@@ -340,11 +419,23 @@ def main():
         print(
             f"{step:4d}  "
             f"[{val_dates.min().date()} → {val_dates.max().date()}]  {val_sharpe:7.3f}  "
-            f"[{test_dates.min().date()} → {test_dates.max().date()}]  {test_sh:7.3f}"
+            f"[{test_dates.min().date()} → {test_dates.max().date()}]  {test_sh:7.3f}",
+            flush=True,
         )
 
         all_test_returns.append(test_returns)
+        all_test_weights.append(test_weights)
         all_params_rows.append({"step": step, **dict(zip(PARAM_NAMES, best_params))})
+
+        # Live equity curve update after each step
+        tmp_returns = pd.concat(all_test_returns).sort_index()
+        tmp_weights = pd.concat(all_test_weights).sort_index()
+        tmp_eq = (1 + tmp_returns).cumprod()
+        tmp_sharpe = sharpe(tmp_returns)
+        tmp_dd = (tmp_eq / tmp_eq.cummax() - 1).min()
+        print(f"       cumul: {tmp_eq.iloc[-1]-1:+.1%}  sharpe={tmp_sharpe:.2f}  dd={tmp_dd:.1%}", flush=True)
+        params_df = pd.DataFrame(all_params_rows)
+        _save_equity_png(tmp_returns, tmp_eq, tmp_weights, params_df, OUTPUTS)
 
     if not all_test_returns:
         sys.exit("No test returns produced — check OOS predictions")
@@ -386,7 +477,8 @@ def main():
     pd.DataFrame(step_summary).to_csv(OUTPUTS / "cmaes_steps.csv", index=False)
 
     # Equity curve PNG
-    _save_equity_png(port_returns, eq_curve, params_df, OUTPUTS)
+    all_weights = pd.concat(all_test_weights).sort_index()
+    _save_equity_png(port_returns, eq_curve, all_weights, params_df, OUTPUTS)
 
     print(f"\nSaved → data/backtest_results.parquet")
     print(f"Saved → outputs/best_params.csv")
