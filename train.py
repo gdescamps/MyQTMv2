@@ -8,14 +8,15 @@ For each step in the walk-forward:
   - Predict on odd blocks (split="val") → used by CMA-ES in backtest.py
   - Predict on next TEST_WINDOW days (split="test") → true OOS backtest
 
-Interlaced split rationale:
-  - Val scores are OOS from XGBoost (model never saw those blocks) → unbiased
-  - Val covers all market regimes in the training period (not just recent)
-  - CMA-ES params found on val generalise better to the future test period
+IC maximisation:
+  Labels are z-scored cross-sectionally per date before training.
+  Minimising MSE(ŷ, zscore(y)) is equivalent to maximising equal-weighted
+  cross-sectional IC: each date contributes equally to the loss regardless
+  of its cross-sectional return variance.
 
 Output: data/oos_predictions.parquet
   MultiIndex: (date, etf_id)
-  Columns:    score, label, step, split ("val" | "test"), best_iter
+  Columns:    score, label (original, unscaled), step, split, best_iter, val_ic
 
 GPU: uses device='cuda' (NVIDIA GB10), falls back to CPU if unavailable.
 """
@@ -59,18 +60,42 @@ FEATURE_COLS = [
 LABEL_COL = "label"
 
 XGB_PARAMS = dict(
-    tree_method     = "hist",
-    max_depth       = 4,
-    min_child_weight= 50,
-    subsample       = 0.8,
-    colsample_bytree= 0.8,
-    learning_rate   = 0.05,
-    n_estimators    = 2000,
-    early_stopping_rounds = 50,
-    objective       = "reg:squarederror",
-    eval_metric     = "rmse",
-    verbosity       = 0,
+    tree_method          = "hist",
+    max_depth            = 4,
+    min_child_weight     = 50,
+    subsample            = 0.8,
+    colsample_bytree     = 0.8,
+    learning_rate        = 0.05,
+    n_estimators         = 2000,
+    early_stopping_rounds= 50,
+    objective            = "reg:squarederror",
+    eval_metric          = "rmse",
+    verbosity            = 0,
 )
+
+
+def _zscore_per_date(y: pd.Series) -> pd.Series:
+    """
+    Z-score labels cross-sectionally within each date.
+
+    Minimising MSE against these z-scored labels is equivalent to maximising
+    equal-weighted cross-sectional IC: every date contributes identically to
+    the loss regardless of its cross-sectional return variance.
+    """
+    return y.groupby(level="date").transform(
+        lambda x: (x - x.mean()) / (x.std() + 1e-8)
+    )
+
+
+def _daily_ic(scores: np.ndarray, labels: np.ndarray, index: pd.MultiIndex) -> float:
+    """Mean cross-sectional IC (Pearson per date, averaged across dates)."""
+    df = pd.DataFrame({"score": scores, "label": labels}, index=index).dropna()
+    if len(df) < 2:
+        return float("nan")
+    ic_by_date = df.groupby(level="date").apply(
+        lambda x: x["score"].corr(x["label"]) if len(x) > 1 else np.nan
+    )
+    return float(ic_by_date.dropna().mean())
 
 
 def _try_gpu() -> str:
@@ -84,58 +109,51 @@ def _try_gpu() -> str:
 
 
 def run_walk_forward(panel: pd.DataFrame, device: str) -> pd.DataFrame:
-    # All unique sorted dates across the panel
     dates = panel.index.get_level_values("date").unique().sort_values()
     n = len(dates)
 
     available_cols = [c for c in FEATURE_COLS if c in panel.columns]
-    X_all = panel[available_cols].astype(np.float32)
-    y_all = panel[LABEL_COL].astype(np.float32)
+    X_all   = panel[available_cols].astype(np.float32)
+    y_all   = panel[LABEL_COL].astype(np.float32)          # original labels (saved + IC)
+    y_train = _zscore_per_date(y_all).astype(np.float32)   # z-scored labels (for fit)
 
-    # Map each row to its date position (0-indexed integer)
     date_to_pos = {d: i for i, d in enumerate(dates)}
     row_dates   = panel.index.get_level_values("date")
     row_pos     = pd.Series([date_to_pos[d] for d in row_dates], index=panel.index)
 
     predictions = []
-    step_n = 0
+    ic_log      = []   # [(step, val_ic, test_ic)]
+    step_n      = 0
 
     train_end_pos = MIN_TRAIN_ROWS
     while train_end_pos + TEST_WINDOW <= n:
         test_end_pos = min(train_end_pos + TEST_WINDOW, n)
 
-        # --- Interlaced 50/50 split within training period ---
-        # Block index = date_position // BLOCK_ROWS
-        # Even blocks → XGBoost train | Odd blocks → val (early stop + CMA-ES)
-        in_train   = row_pos < train_end_pos
+        in_train     = row_pos < train_end_pos
         block_parity = (row_pos // BLOCK_ROWS) % 2
 
         train_mask = in_train & (block_parity == 0)
         val_mask   = in_train & (block_parity == 1)
         test_mask  = (row_pos >= train_end_pos) & (row_pos < test_end_pos)
 
-        tr_idx  = panel.index[train_mask & y_all.notna()]
-        val_idx = panel.index[val_mask   & y_all.notna()]
+        tr_idx   = panel.index[train_mask & y_all.notna()]
+        val_idx  = panel.index[val_mask   & y_all.notna()]
         test_idx = panel.index[test_mask]
 
         if len(tr_idx) < 100 or len(val_idx) < 10:
             train_end_pos += STEP
             continue
 
-        X_tr  = X_all.loc[tr_idx].values
-        y_tr  = y_all.loc[tr_idx].values
-        X_val = X_all.loc[val_idx].values
-        y_val = y_all.loc[val_idx].values
+        # Train on z-scored labels; eval_set also z-scored (for RMSE early stopping)
+        X_tr   = X_all.loc[tr_idx].values
+        y_tr   = y_train.loc[tr_idx].values
+        X_val  = X_all.loc[val_idx].values
+        y_val  = y_train.loc[val_idx].values
 
         model = xgb.XGBRegressor(device=device, **XGB_PARAMS)
-        model.fit(
-            X_tr, y_tr,
-            eval_set=[(X_val, y_val)],
-            verbose=False,
-        )
+        model.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], verbose=False)
         best_iter = model.best_iteration
 
-        # Save model for this step (up to early-stop iteration)
         model_dir = OUTPUTS / "models"
         model_dir.mkdir(parents=True, exist_ok=True)
         model.save_model(str(model_dir / f"step_{step_n:02d}.ubj"))
@@ -143,43 +161,61 @@ def run_walk_forward(panel: pd.DataFrame, device: str) -> pd.DataFrame:
         train_dates = dates[:train_end_pos]
         test_dates  = dates[train_end_pos:test_end_pos]
 
-        # --- Predict on val blocks → for CMA-ES in backtest.py ---
+        # Predict on val blocks (save original labels for CMA-ES / backtest)
+        val_ic = float("nan")
         if len(val_idx) > 0:
             val_scores = model.predict(X_all.loc[val_idx].values)
-            val_df = pd.DataFrame(
+            val_ic     = _daily_ic(val_scores, y_all.loc[val_idx].values, val_idx)
+            val_df     = pd.DataFrame(
                 {"score": val_scores, "label": y_all.loc[val_idx].values},
                 index=val_idx,
             )
             val_df["step"]      = step_n
             val_df["split"]     = "val"
             val_df["best_iter"] = best_iter
+            val_df["val_ic"]    = val_ic
             predictions.append(val_df)
 
-        # --- Predict on test window → true OOS backtest ---
+        # Predict on test window (save original labels)
+        test_ic = float("nan")
         if len(test_idx) > 0:
             test_scores = model.predict(X_all.loc[test_idx].values)
-            test_df = pd.DataFrame(
+            test_ic     = _daily_ic(test_scores, y_all.loc[test_idx].values, test_idx)
+            test_df     = pd.DataFrame(
                 {"score": test_scores, "label": y_all.loc[test_idx].values},
                 index=test_idx,
             )
             test_df["step"]      = step_n
             test_df["split"]     = "test"
             test_df["best_iter"] = best_iter
+            test_df["val_ic"]    = val_ic   # val IC of the model that produced this test
             predictions.append(test_df)
 
+        ic_log.append((step_n, val_ic, test_ic))
         step_n += 1
+
         print(
             f"  Step {step_n:2d}  "
-            f"train [{dates[0].date()} → {train_dates[-1].date()}]  "
-            f"val_blocks={val_mask.sum()}rows  "
+            f"[{dates[0].date()} → {train_dates[-1].date()}]  "
+            f"val_IC={val_ic:+.4f}  "
             f"test [{test_dates[0].date()} → {test_dates[-1].date()}]  "
-            f"best_iter={best_iter}"
+            f"test_IC={test_ic:+.4f}  "
+            f"iter={best_iter}"
         )
 
         train_end_pos += STEP
 
     if not predictions:
         raise RuntimeError("No predictions produced — check MIN_TRAIN_ROWS vs data length")
+
+    # IC summary
+    ic_df = pd.DataFrame(ic_log, columns=["step", "val_ic", "test_ic"])
+    print(f"\n{'='*60}")
+    print(f"  {'Mean val IC':30s} {ic_df['val_ic'].mean():+.4f}")
+    print(f"  {'Mean test IC (true OOS)':30s} {ic_df['test_ic'].mean():+.4f}")
+    print(f"  {'IC stability (val/test corr)':30s} "
+          f"{ic_df['val_ic'].corr(ic_df['test_ic']):+.3f}")
+    print(f"{'='*60}")
 
     return pd.concat(predictions).sort_index()
 
@@ -206,8 +242,9 @@ def main():
     device = _try_gpu()
     print(f"Device: {device.upper()}")
     print(
-        f"\nWalk-Forward: MIN_TRAIN={MIN_TRAIN_ROWS}d  "
-        f"TEST={TEST_WINDOW}d  STEP={STEP}d  BLOCK={BLOCK_ROWS}d\n"
+        f"\nWalk-Forward: MIN_TRAIN={MIN_TRAIN_ROWS}d  TEST={TEST_WINDOW}d  "
+        f"STEP={STEP}d  BLOCK={BLOCK_ROWS}d\n"
+        f"Labels: z-scored per date (IC maximisation)\n"
     )
 
     oos = run_walk_forward(panel, device)
@@ -215,18 +252,23 @@ def main():
     out = DATA / "oos_predictions.parquet"
     oos.to_parquet(out)
 
-    # IC on test predictions only (true OOS metric)
     test_oos = oos[oos["split"] == "test"].dropna(subset=["score", "label"])
-    ic = test_oos.groupby(test_oos.index.get_level_values("date")).apply(
+    mean_test_ic = test_oos.groupby(test_oos.index.get_level_values("date")).apply(
         lambda x: x["score"].corr(x["label"])
     ).mean()
 
-    print(f"\nOOS predictions saved → {out.name}")
-    print(f"  val rows:  {(oos['split']=='val').sum()}")
-    print(f"  test rows: {(oos['split']=='test').sum()}")
-    print(f"Mean daily IC (test scores vs label): {ic:.4f}")
+    val_oos = oos[oos["split"] == "val"].dropna(subset=["score", "label"])
+    mean_val_ic = val_oos.groupby(val_oos.index.get_level_values("date")).apply(
+        lambda x: x["score"].corr(x["label"])
+    ).mean()
+
+    print(f"\nSaved → {out.name}")
+    print(f"  val rows:       {(oos['split']=='val').sum()}")
+    print(f"  test rows:      {(oos['split']=='test').sum()}")
+    print(f"  Mean val IC:    {mean_val_ic:+.4f}")
+    print(f"  Mean test IC:   {mean_test_ic:+.4f}")
     print(
-        f"Test date range: "
+        f"  Test range:     "
         f"{test_oos.index.get_level_values('date').min().date()} → "
         f"{test_oos.index.get_level_values('date').max().date()}"
     )
