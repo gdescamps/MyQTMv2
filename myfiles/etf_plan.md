@@ -53,72 +53,52 @@ Voir `myfiles/etf_univers.md` — 41 ETFs UCITS Boursorama répartis en 6 sectio
 
 ## 3. Pipeline de données
 
-### 3a. Historique initial (FMP payant, 1 mois ~$50)
+**Architecture simplifiée — zéro FMP, zéro LLM, 100% gratuit.**
+
+### 3a. Sources de données
 
 ```
-download_etf_data.py    → OHLCV max history pour 41 tickers FMP proxy
-                          ex. QQQ depuis 2000, SEMI.AS depuis 2021
-                          → ./data/{TICKER}.parquet
+SOURCE 1 — Yahoo Finance (yfinance, gratuit, sans clé API)
+  download_ohlcv.py  [À CRÉER]
+  → OHLCV journalier pour les 41 tickers (proxies US + UCITS européens)
+  → yf.download(ticker, start="2000-01-01")
+  → ./data/{TICKER}.parquet
+  Couverture : tous tickers US + la majorité des UCITS (.AS, .PA, .DE)
 
-download_macro_data.py  → FRED : VIX, HY spread, yield curve, WTI, gold
-                          → ./data/fred_{series}.parquet
-                          + flow_proxies.parquet (dollar volume z-scores)
+SOURCE 2 — FRED (gratuit, clé API free à fred.stlouisfed.org)
+  download_macro_data.py  ✅ déjà fait
+  → VIX (VIXCLS), HY spread (BAMLH0A0HYM2), IG spread (BAMLC0A0CM)
+  → Yield curve 10Y-2Y (T10Y2Y), DGS10, DGS2
+  → WTI crude (DCOILWTICO), Gold LBMA (GOLDAMGBD228NLBM)
+  → ./data/fred_{series}.parquet
+  → ./data/flow_proxies.parquet  (dollar volume z-scores)
 
-download_ishares_fund_data.py  [À CRÉER]
-  Source : iShares.com — onglet "Data Download" sur chaque page produit
-  Format : XLS (XML spreadsheet), 5 sheets :
-    - Historical  → NAV par part + Shares Outstanding JOURNALIER depuis inception
-    - Holdings    → composition actuelle (snapshot du jour)
-    - Performance → returns mensuels
-    - Distributions → dividendes historiques
-  URL pattern :
-    ishares.com/us/products/{product_id}/fund/{ts}.ajax?fileType=xls&dataType=fund
-
-  Couverture : proxies iShares US de notre univers (téléchargement manuel navigateur)
-    EWY  (depuis 2000-05-09)   CSKR.PA proxy
-    EWT  (depuis 2000-06-23)   ITWN.PA proxy
-    EWZ  (depuis 2000-07-14)   IBZL.AS proxy
-    EWC  (depuis 2000-01-03)   ICAU.AS proxy
-    EWW  (depuis 2000-01-03)   IMEX.AS proxy
-    ILF  (depuis 2001-10-26)   LTAM.AS proxy
-    TLT  (depuis 2002-07-26)   DTLA.AS proxy
-    IEF  (depuis 2002-07-26)   IBTA.AS proxy
-    HYG  (depuis 2007-04-11)   IHYU.AS proxy
-    TIP  (depuis 2003-12-05)   ITPS.AS proxy
-    IEO  (depuis 2006-05-05)   IOGP.AS proxy
-    RING (depuis 2012-02-02)   commodity proxy
-    TUR  (depuis 2008-03-28)   ITKY.AS proxy
-    IBIT (depuis 2024-01-11)   IBTC.AS proxy
-  → ./data/ishares/{TICKER}_historical.parquet   (NAV + shares outstanding quotidien)
-
-  Note : ETF UCITS (.AS, .PA, .DE) non couverts — domiciliés en Irlande,
-         hors iShares US. Pour ceux-là, seul le dollar volume z-score est disponible.
-
-download_etf_holdings.py  [À CRÉER]
-  FMP /v3/etf-holder/{symbol}          → top holdings + poids (mensuel)
-  FMP /v3/etf-info/{symbol}            → AUM, expense ratio, sector weights
-  FMP /v3/analyst-stock-recommendations/{comp}  → notes analystes composants
-  → ./data/holdings/{ETF_TICKER}.parquet
-
-download_etf_news.py  [À CRÉER]
-  FMP /v3/stock_news?tickers={top20_composants}  → news des composants
-  → ./data/news/{DATE}.parquet
+SOURCE 3 — iShares Data Download (gratuit, téléchargement manuel navigateur)
+  parse_ishares_xls.py  [À CRÉER]
+  Source : iShares.com → page produit → onglet "Data Download" → XLS
+  Format : XML spreadsheet, sheet "Historical" :
+    As Of | NAV per Share | Shares Outstanding | Non-FV NAV
+  Couverture : 14 proxies iShares US, depuis inception :
+    EWY  (2000-05-09)  EWT  (2000-06-23)  EWZ  (2000-07-14)
+    EWC  (2000-01-03)  EWW  (2000-01-03)  ILF  (2001-10-26)
+    TLT  (2002-07-26)  IEF  (2002-07-26)  TIP  (2003-12-05)
+    HYG  (2007-04-11)  IEO  (2006-05-05)  RING (2012-02-02)
+    TUR  (2008-03-28)  IBIT (2024-01-11)
+  → ./data/ishares/{TICKER}_historical.parquet
+  Note : ETF UCITS non couverts → dollar volume z-score en fallback
 ```
 
-### 3b. Mise à jour journalière (FMP free, ~250 calls/jour)
+### 3b. Mise à jour journalière (100% gratuit)
 
 ```
-Budget FMP free 250 calls/jour :
-  Prix EOD 41 ETFs     :  41 calls  (via /quote bulk)
-  Holdings (mensuel)   :  41/30 ≈   2 calls/jour
-  Analyst notes (hebdo):  20×3/7 ≈  9 calls/jour
-  News composants      :  20        calls/jour
-  Macro FRED           :   0        (FRED API gratuit, sans quota)
-  ─────────────────────────────────
-  Total                : ~72 calls  → 29% du quota ✅
+18h00 : yfinance → prix EOD 41 ETFs          (gratuit, sans quota)
+18h10 : FRED     → VIX, HY spread, yield curve (gratuit, illimité)
+18h20 : calcul   → flow_proxies (dollar volume z-scores)
+18h30 : feature engineering → prédiction → ordres
 
-Budget FRED illimité :
-  VIX, HY spread, yield curve, WTI → mise à jour quotidienne
+Mise à jour mensuelle :
+  Téléchargement manuel XLS iShares (14 fichiers, ~5 min)
+  → mise à jour shares outstanding
 ```
 
 ---
@@ -154,170 +134,65 @@ features_macro_technique = {
 }
 ```
 
-### 4b. Régime de marché — repris et étendu de MyQTM
+### 4b. Régime de marché — variables FRED brutes
+
+XGBoost reçoit les variables macro brutes — pas de HMM, pas de régime encodé.
+Il apprend lui-même les patterns de régime via les splits d'arbres.
 
 ```python
-# Phase 1 MVP : règles VIX (identique MyQTM)
-def detect_regime(vix, vix_slope):
-    if vix > 50:                          return "crisis"
-    if vix > 30 and vix_slope < 0:        return "bear"
-    if vix < 15 and vix_slope > 0:        return "bull"
-    return "transition"
-
-# Phase 2 prod : HMM (hmmlearn) sur [VIX, HY_spread, yield_curve, ret_spx]
-# → probabilités continues par régime (bull_prob, bear_prob, crisis_prob)
-# → half-life de decay des features conditionné au régime
-
 features_regime = {
-    "regime_encoded",          # 0=bull, 1=transition, 2=bear, 3=crisis
-    "regime_duration_days",    # jours dans le régime actuel
-    "bull_prob", "bear_prob", "crisis_prob",  # HMM phase 2
-    "vix_deviation",           # vix - vix_ma60 (distance à la normale)
-    "vix_velocity",            # variation 5j du VIX
-    "vix_reversion_force",     # (vix_mean - vix) / vix_std  (Ornstein-Uhlenbeck)
-    "recovery_score",          # 0-4 confirmateurs (cf. §7 etf_strategy.txt)
+    # VIX (peur / risk-off)
+    "vix_level",             # niveau absolu
+    "vix_velocity",          # Δvix 5j  (montée = danger, descente = signal achat)
+    "vix_reversion_force",   # (vix_mean60 - vix) / vix_std60  (retour à la normale)
+
+    # Crédit (stress systémique)
+    "hy_spread",             # ICE BofA HY OAS (FRED BAMLH0A0HYM2)
+    "hy_spread_z60",         # déviation vs 60j
+    "hy_spread_velocity",    # Δspread 5j
+
+    # Taux (cycle économique)
+    "yield_curve",           # 10Y - 2Y (FRED T10Y2Y)
+    "yield_curve_velocity",  # Δyield_curve 20j
+
+    # Momentum macro global
+    "ret_spx_20d",           # rendement S&P 500 sur 20j (via QQQ/CSPX proxy)
 }
+# → sigmoid(vix, hy_spread) → budget_régime (exposition equity vs défensif)
 ```
 
-### 4c. Analyst consensus synthétique — spécifique ETF
-
-Les ETF n'ont pas de notes analystes directes. On construit un score composite
-à partir des composants (repris de MyQTM `data_transform_analyst_stock_recommendations_time_series.py`) :
+### 4c. Mouvements institutionnels (smart money)
 
 ```python
-# FMP: /etf-holder/{symbol} → top 20 holdings + poids
-# FMP: /analyst-stock-recommendations/{comp} → buy/hold/sell
-
-analyst_consensus_etf = Σ( weight_i × (buy_i - sell_i) / total_i )
-                          pour i in top_20_holdings
-
-upgrade_momentum_30d  = Σ( weight_i × (upgrades_30d_i - downgrades_30d_i) )
-price_target_upside   = Σ( weight_i × (target_price_i - price_i) / price_i )
-
-# Fréquence de mise à jour : hebdomadaire (économise les appels FMP)
-# → features stables 7j, mis à jour chaque lundi
-```
-
-### 4d. Recomposition historique de l'ETF — stockage time-aware
-
-```python
-# FMP: /etf-holder → snapshot mensuel, TOUS les snapshots conservés
-# → pas seulement le dernier, mais tout l'historique de composition
-
-# Stockage : data/holdings/{ETF_TICKER}.parquet
-# Colonnes  : [date_snapshot, composant, poids, secteur]
-
-# Pour chaque date t du backtest, utiliser le dernier snapshot ≤ t
-def get_weights(etf, date_t):
-    snapshots = holdings[etf]
-    last_date = max(d for d in snapshots if d <= date_t)
-    return snapshots[last_date]   # poids connus à date_t, sans look-ahead ✅
-
-# CRITIQUE pour le backtest : utiliser les poids actuels (2024) pour
-# recalculer le sentiment en 2020 = look-ahead bias
-# → on doit toujours utiliser get_weights(etf, date_t)
-```
-
-**Features de rotation dérivées de la recomposition :**
-```python
-# Variation de composition = signal avant le prix
-w_t    = get_weights(etf, t)
-w_t30  = get_weights(etf, t - 30j)
-
-sector_rotation_30d  = tech_weight(w_t) - tech_weight(w_t30)
-top10_concentration  = sum(sorted(w_t.values())[-10:])
-geo_us_weight        = w_t.get("US", 0)
-holdings_count       = len(w_t)
-# Ex : si XLK perd du poids dans le S&P 500 → rotation défensive imminente
-```
-
-### 4e. Sentiment composite time-aware — news composants via LLM
-
-Adapté de MyQTM (`data_transform_stock_news_to_sentiment_scores.py`) :
-
-```python
-# Pipeline :
-# 1. get_weights(etf, date_t)           → poids composants à date_t (§4d)
-# 2. FMP /stock_news?tickers={top10}    → news des composants (daily)
-# 3. Filtre RELIABLE_NEWS_SITES          → repris de MyQTM config.py
-# 4. Score LLM (Gemini Flash ~$0.0001)  → cache pickle (identique MyQTM)
-# 5. Agrégation pondérée par poids historiques
-
-# Sentiment composite tenant compte de la recomposition dans le temps
-sentiment_etf_t = Σ( get_weights(etf, t)[i] × llm_score_i_t × decay(age_news) )
-                    pour i in top_10_holdings(etf, t)
-
-# Exemple :
-#   2020 : NVDA pèse 4% dans SEMI.AS → score NVDA pondéré à 4%
-#   2024 : NVDA pèse 9% dans SEMI.AS → score NVDA pondéré à 9%
-#   → sentiment composite reflète fidèlement l'exposition réelle à chaque date
-
-features_sentiment = {
-    "sentiment_weighted",      # score agrégé pondéré (recomposition aware)
-    "sentiment_zscore_20d",    # déviation vs 20j
-    "sentiment_velocity",      # variation 3j
-    "news_volume_z20",         # volume de news
-    "novelty_score",           # nouveauté sémantique
-}
-
-# Coût : ~20 composants × 5 news/j × $0.0001 = $0.01/jour ✅
-# Cache : llm_cache.pkl (identique MyQTM)
-```
-
-**Sentiment géographique et sectoriel (cross-ETF) :**
-```python
-geo_sentiment_asia    = mean(sentiment_etf(CSKR,t), sentiment_etf(ITWN,t), sentiment_etf(IFFI,t))
-sector_sentiment_tech = mean(sentiment_etf(IUIT,t), sentiment_etf(SEMI,t), sentiment_etf(CNX1,t))
-```
-
-### 4f. Mouvements institutionnels (smart money)
-
-```python
-# Proxy 1 : Shares Outstanding iShares (source primaire — journalier depuis inception)
-# Téléchargement manuel via iShares.com "Data Download" → XLS → sheet "Historical"
-# Colonnes : As Of | NAV per Share | Ex-Dividends | Shares Outstanding | Non-FV NAV
-# Exemple EWY : 6 544 jours, 2000-05-09 → 2026-05-13
+# Signal primaire : Shares Outstanding iShares (journalier depuis inception)
+# Source : iShares.com "Data Download" → XLS → sheet "Historical"
 # → ./data/ishares/{TICKER}_historical.parquet
 #
-# Signal directionnel institutionnel NET :
-shares_outstanding_change = shares_outstanding_t - shares_outstanding_t_minus_1
-shares_outstanding_z20    = z_score(shares_outstanding_change, 20d)
-#   > 0  : création nette de parts  → inflow institutionnel (bullish)
-#   < 0  : rachat net de parts      → outflow institutionnel (bearish)
+shares_outstanding_z20 = z_score(Δshares_outstanding, 20d)
+#   > 0 : création nette de parts  → inflow institutionnel  (bullish)
+#   < 0 : rachat net de parts      → outflow institutionnel (bearish)
 #
-# Disponible pour : EWY, EWT, EWZ, EWC, EWW, ILF, TLT, IEF, HYG, TIP,
-#                   IEO, RING, TUR, IBIT  (proxies iShares US)
-# Non disponible  : ETF UCITS (.AS, .PA, .DE) → proxy dollar volume z-score
+# Disponible : EWY, EWT, EWZ, EWC, EWW, ILF, TLT, IEF, HYG, TIP,
+#              IEO, RING, TUR, IBIT  (14 proxies iShares US)
+# Fallback    : dollar_volume_z20 pour les ETF UCITS non couverts
 
-# Proxy 2 : dollar volume z-score (tous ETFs — déjà dans flow_proxies.parquet)
-# Signal d'intensité (pas directionnel seul, mais utile combiné au prix)
+# Signal secondaire : dollar volume z-score (tous ETFs, yfinance)
 dollar_vol_z20 = (close × volume - mean_20d) / std_20d
-rotation_z60   = dvol_risk_on_avg - dvol_risk_off_avg  (z-scoré 60j)
-
-# Proxy 3 : HY spread (FRED BAMLH0A0HYM2)
-# → les institutionnels fuient le crédit risqué en bear
-hy_spread_z60      = z_score(hy_spread, 60d)
-hy_spread_velocity = hy_spread_t - hy_spread_t_minus_5d
-
-# Proxy 4 : Put/Call ratio (CBOE, gratuit)
-# → peur institutionnelle mesurée via le marché des options
-put_call_ratio = put_vol / call_vol
-put_call_z20   = z_score(put_call_ratio, 20d)
-
-# Proxy 5 : 13F institutional holdings (FMP, trimestriel) — phase 4
-# FMP: /v4/institutional-ownership/symbol-ownership?symbol=QQQ
-inst_position_change_qtrly = shares_held_t - shares_held_t_minus_1q
+rotation_z60   = dvol_risk_on_avg - dvol_risk_off_avg   # z-scoré 60j
 
 features_smart_money = {
-    "shares_outstanding_z20",  # flux nets iShares (journalier, signal direct) ✅
-    "rotation_z60",             # rotation risk-on vs risk-off (OHLCV)
-    "hy_spread_z60",            # stress crédit (FRED)
-    "hy_spread_velocity",       # accélération du stress
-    "put_call_z20",             # peur institutionnelle (CBOE) — phase 2
-    "inst_position_change",     # variation 13F (trimestriel, interpolé) — phase 4
-    "yield_curve",              # 10Y-2Y (FRED T10Y2Y)
-    "yield_curve_velocity",     # inversion/désinversion
+    "shares_outstanding_z20",  # flux nets iShares (signal directionnel) ✅
+    "dollar_vol_z20",           # intensité volume (signal d'activité)
+    "rotation_z60",             # rotation risk-on vs risk-off
 }
+```
+
+**Logique de décision :**
+```
+Macro apaisée (VIX bas + HY spread normal)
+  + Rotation institutionnelle (shares_outstanding_z20 > 1.5 sur un ETF)
+  + Technique favorable (RSI < 65 + MA slope positive)
+  → XGBoost score élevé → poids fort dans le portefeuille
 ```
 
 ---
@@ -344,28 +219,28 @@ model = XGBRegressor(max_depth=3, min_child_weight=50, ...)
 # Features d'entrée = technique + sentiment + smart_money + MACRO BRUT
 X = [
     # --- Technique par ETF (§4a) ---
-    "ret_1d", "ret_5d", "ret_20d", "ret_60d",
-    "vol_20d", "rsi_14", "ma_20_slope", "ma_50_slope",
-    "price_vs_ma50", "price_vs_ma200", "volume_z20",
+    "ret_1d", "ret_5d", "ret_20d", "ret_60d",      # momentum multi-horizon
+    "vol_20d", "vol_60d",                            # volatilité réalisée
+    "rsi_14",                                        # RSI (surachat/survente)
+    "ma_20_slope", "ma_50_slope",                    # direction tendance
+    "price_vs_ma50", "price_vs_ma200",               # position vs moyennes mobiles
+    "volume_z20",                                    # activité volume ETF
 
-    # --- Macro brut (capte le régime implicitement) ---
+    # --- Régime macro brut — FRED (§4b) ---
     "vix_level",             # niveau absolu de la peur
-    "vix_velocity",          # Δvix 5j  (montée = danger, descente = signal achat)
-    "vix_reversion_force",   # (vix_mean - vix) / vix_std  (Ornstein-Uhlenbeck)
+    "vix_velocity",          # Δvix 5j
+    "vix_reversion_force",   # retour à la moyenne (Ornstein-Uhlenbeck)
     "hy_spread",             # stress crédit absolu
     "hy_spread_z60",         # déviation vs 60j
+    "hy_spread_velocity",    # accélération du stress
     "yield_curve",           # 10Y - 2Y  (inversion = récession)
     "yield_curve_velocity",  # Δyield_curve 20j
-    "ret_spx_20d",           # momentum macro (QQQ proxy)
+    "ret_spx_20d",           # momentum macro global
 
-    # --- Sentiment agrégé (§4e) ---
-    "sentiment_weighted", "sentiment_zscore_20d", "news_volume_z20",
-
-    # --- Smart money (§4f) ---
-    "rotation_z60", "put_call_z20", "hy_spread_velocity",
-
-    # --- Composition ETF (§4d) ---
-    "analyst_consensus_etf", "sector_rotation_30d", "top10_concentration",
+    # --- Mouvements institutionnels (§4c) ---
+    "shares_outstanding_z20", # flux nets iShares (14 proxies US)
+    "dollar_vol_z20",          # intensité volume (fallback UCITS)
+    "rotation_z60",            # rotation risk-on vs risk-off
 ]
 
 score_per_etf = model.predict(X_today)
@@ -663,16 +538,20 @@ Holdings complets ETF (FMP /etf-holder detail, 41 calls)
 
 ```
 Initialisation (1 fois) :
-  FMP bulk historique      ~$50    (1 mois payant)
+  yfinance OHLCV           $0      (gratuit, sans clé API)
+  FRED API key             $0      (gratuit à fred.stlouisfed.org)
+  iShares XLS (14 fichiers)$0      (téléchargement manuel ~5 min)
   Infrastructure           $0      (local Python)
+  ─────────────────────────────────
+  Total initialisation     $0 ✅
 
 Production mensuelle :
-  FMP free                 $0      (~72 calls/jour, quota 250)
+  yfinance prix EOD        $0      (gratuit, sans quota)
   FRED API                 $0      (illimité, gratuit)
-  CBOE put/call            $0      (public)
-  LLM scoring news         ~$3/mois (Gemini Flash, ~100 news/jour × $0.0001)
+  iShares XLS update       $0      (téléchargement manuel mensuel ~5 min)
+  LLM / news               $0      (supprimé — ratio signal/bruit défavorable)
   ─────────────────────────────────
-  Total récurrent          ~$3/mois ✅
+  Total récurrent          $0/mois ✅
 
 Frais trading (Boursorama) :
   ~15 ventes × 1000€ × 0.22%  = 33€/mois
@@ -683,33 +562,24 @@ Frais trading (Boursorama) :
 
 ## 9. Phases de développement
 
-### Phase 1 — MVP (données + régime + technique)
-- `download_etf_data.py` ✅ fait
+### Phase 1 — Données + feature engineering
+- `download_ohlcv.py` : yfinance → OHLCV 41 tickers  [À CRÉER]
 - `download_macro_data.py` ✅ fait (FRED + flow proxies)
-- Feature engineering technique + régime VIX
-- XGBoost simple sur scores techniques + régime
-- Backtest VectorBT sur données disponibles
+- `parse_ishares_xls.py` : parser XLS iShares → shares outstanding parquet  [À CRÉER]
+- Feature engineering : technique (RSI, MA, momentum, volume) + régime FRED
 
-### Phase 2 — Shares outstanding + Holdings + analyst consensus
-- `download_ishares_fund_data.py` : téléchargement manuel XLS iShares US
-  → NAV + shares outstanding journalier depuis inception pour 14 proxies
-  → feature `shares_outstanding_z20` (signal institutionnel direct)
-- `download_etf_holdings.py` : FMP /etf-holder mensuel
-- Calcul analyst_consensus_etf, upgrade_momentum, price_target_upside
-- Ajout features composition (sector_rotation_30d, top10_concentration)
+### Phase 2 — Modèle + débruitage + backtest
+- XGBoost avec features 3 piliers (technique + régime FRED + smart money SO)
+- Débruitage features : 3 sous-fenêtres entrelacées → mean/std^power (identique MyQTM)
+- Early stopping sur zone de validation réservée
+- Walk-Forward Expanding backtest (MIN_TRAIN=3ans, TEST=1an, STEP=6mois)
 
-### Phase 3 — Sentiment LLM
-- Reprendre `data_transform_stock_news_to_sentiment_scores.py` de MyQTM
-- Adapter pour news des composants ETF (Gemini Flash)
-- Agrégation pondérée par poids dans l'ETF
-
-### Phase 4 — Smart money + CMA-ES
-- Put/Call ratio CBOE
-- 13F institutional ownership FMP (trimestriel)
-- CMA-ES sur paramètres d'allocation
+### Phase 3 — CMA-ES + optimisation allocation
+- CMA-ES sur paramètres sigmoid (p1_vix, p2_hy, equity_max…) + temperature + min_weight_change
 - Optimisation anti-overfit (dropout régimes comme MyQTM)
+- Validation OOS courbe d'équité lisse sur ~13 ans
 
-### Phase 5 — Production
+### Phase 4 — Production
 - Scheduler daily (APScheduler)
 - Notification signal → ordres manuels Boursobank
 - Monitoring : drift de régime, performance OOS, SHAP stability
