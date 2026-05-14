@@ -37,37 +37,52 @@ STEP           = 63    # refit every ~3 months
 BLOCK_ROWS     = 21    # ~1 month alternating blocks for interlaced train/val
 
 FEATURE_COLS = [
-    # Technical
-    "ret_1d", "ret_5d", "ret_20d", "ret_60d",
-    "vol_20d", "vol_60d",
-    "rsi_14",
-    "price_vs_ma50", "price_vs_ma200",
-    "ma_20_slope", "ma_50_slope",
-    "atr_14", "volume_z20",
+    # Momentum
+    "ret_20d", "ret_40d", "ret_60d", "ret_120d",
+    # Volatility
+    "vol_10d", "vol_20d", "vol_60d", "vol_120d",
+    "vol_ratio_20v60", "vol_ratio_5v60",
+    # RSI
+    "rsi_21",
+    # Moving averages: price distance
+    "price_vs_ma10", "price_vs_ma50", "price_vs_ma100", "price_vs_ma200",
+    # Moving averages: slopes
+    "ma_20_slope", "ma_50_slope", "ma_100_slope", "ma_200_slope",
+    # Moving averages: crossovers
+    "ma10_vs_ma20", "ma10_vs_ma50", "ma20_vs_ma50", "ma20_vs_ma100",
+    "ma50_vs_ma100", "ma50_vs_ma200", "ma100_vs_ma200",
+    # ATR
+    "atr_14", "atr_21",
     # Macro / regime
-    "vix_level", "vix_velocity", "vix_reversion_force",
-    "hy_spread", "hy_spread_z60", "hy_spread_velocity",
-    "yield_curve", "yield_curve_velocity",
-    "dxy_ret_20d", "dxy_z60",
+    "vix_level", "vix_z60", "vix_cross_20v60",
+    "hy_spread", "hy_spread_z20", "hy_spread_z60", "hy_spread_velocity_20",
+    "yield_curve", "yield_curve_velocity_20",
+    "dxy_ret_20d", "dxy_ret_60d", "dxy_z20", "dxy_z60", "dxy_cross_20v60",
     "ret_spx_20d",
     # Smart money
     "shares_outstanding_z5", "shares_outstanding_z20", "shares_outstanding_z60",
-    "rotation_z5", "rotation_z20", "rotation_z60",
+    "so_cross_5v20", "so_cross_20v60",
+    "rotation_z20",
+    "GLD_dvol_z20",
     # Cross-sectional
-    "ret_20d_z_within_block", "ret_5d_z_within_block",
+    "ret_20d_z_within_block", "ret_60d_z_within_block",
+    "ret_5d_z_xs", "ret_20d_z_xs", "ret_60d_z_xs", "ret_120d_z_xs",
+    "vol_20d_z_xs", "vol_60d_z_xs",
+    "ret_20d_rank", "ret_60d_rank", "ret_120d_rank",
+    "mom_accel_20v60_z_xs",
 ]
 
 LABEL_COL = "label"
 
 XGB_PARAMS = dict(
     tree_method          = "hist",
-    max_depth            = 4,
-    min_child_weight     = 40,
-    subsample            = 0.744,
-    colsample_bytree     = 0.470,
-    learning_rate        = 0.088,
-    reg_alpha            = 0.0002,
-    reg_lambda           = 9.414,
+    max_depth            = 3,
+    min_child_weight     = 117,
+    subsample            = 0.946,
+    colsample_bytree     = 0.805,
+    learning_rate        = 0.048,
+    reg_alpha            = 0.004,
+    reg_lambda           = 2.217,
     n_estimators         = 1000,
     early_stopping_rounds= 30,
     objective            = "reg:squarederror",
@@ -143,26 +158,29 @@ def run_walk_forward(
         in_train     = row_pos < train_end_pos
         block_parity = (row_pos // BLOCK_ROWS) % 2
 
-        train_mask = in_train & (block_parity == 0)
-        val_mask   = in_train & (block_parity == 1)
-        test_mask  = (row_pos >= train_end_pos) & (row_pos < test_end_pos)
+        train_mask   = in_train & (block_parity == 0)
+        val_mask     = in_train & (block_parity == 1)
+        val_es_mask  = val_mask
+        val_cma_mask = val_mask
+        test_mask    = (row_pos >= train_end_pos) & (row_pos < test_end_pos)
 
-        tr_idx   = panel.index[train_mask & y_all.notna()]
-        val_idx  = panel.index[val_mask   & y_all.notna()]
-        test_idx = panel.index[test_mask]
+        tr_idx      = panel.index[train_mask   & y_all.notna()]
+        val_es_idx  = panel.index[val_es_mask  & y_all.notna()]
+        val_cma_idx = panel.index[val_cma_mask & y_all.notna()]
+        test_idx    = panel.index[test_mask]
 
-        if len(tr_idx) < 100 or len(val_idx) < 10:
+        if len(tr_idx) < 100 or len(val_es_idx) < 10:
             train_end_pos += STEP
             continue
 
-        # Train on z-scored labels; eval_set also z-scored (for RMSE early stopping)
-        X_tr   = X_all.loc[tr_idx].values
-        y_tr   = y_train.loc[tr_idx].values
-        X_val  = X_all.loc[val_idx].values
-        y_val  = y_train.loc[val_idx].values
+        # Train on z-scored labels; early stopping on val_ES (interlaced)
+        X_tr     = X_all.loc[tr_idx].values
+        y_tr     = y_train.loc[tr_idx].values
+        X_val_es = X_all.loc[val_es_idx].values
+        y_val_es = y_train.loc[val_es_idx].values
 
         model = xgb.XGBRegressor(**params)
-        model.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], verbose=False)
+        model.fit(X_tr, y_tr, eval_set=[(X_val_es, y_val_es)], verbose=False)
         best_iter = model.best_iteration
 
         if save_models:
@@ -173,19 +191,31 @@ def run_walk_forward(
         train_dates = dates[:train_end_pos]
         test_dates  = dates[train_end_pos:test_end_pos]
 
-        # Predict on val blocks (save original labels for CMA-ES / backtest)
-        val_ic = float("nan")
-        if len(val_idx) > 0:
-            val_scores = model.predict(X_all.loc[val_idx].values)
-            val_ic     = _daily_ic(val_scores, y_all.loc[val_idx].values, val_idx)
+        # IC on train (in-sample)
+        train_ic = float("nan")
+        if len(tr_idx) > 0:
+            train_scores = model.predict(X_all.loc[tr_idx].values)
+            train_ic = _daily_ic(train_scores, y_all.loc[tr_idx].values, tr_idx)
+
+        # IC on val_es (early stopping set — seen by XGBoost for ES)
+        val_es_ic = float("nan")
+        if len(val_es_idx) > 0:
+            val_es_scores = model.predict(X_all.loc[val_es_idx].values)
+            val_es_ic = _daily_ic(val_es_scores, y_all.loc[val_es_idx].values, val_es_idx)
+
+        # Predict on val_cma blocks (CMA-ES + stability — never used for training or ES)
+        val_cma_ic = float("nan")
+        if len(val_cma_idx) > 0:
+            val_scores = model.predict(X_all.loc[val_cma_idx].values)
+            val_cma_ic = _daily_ic(val_scores, y_all.loc[val_cma_idx].values, val_cma_idx)
             val_df     = pd.DataFrame(
-                {"score": val_scores, "label": y_all.loc[val_idx].values},
-                index=val_idx,
+                {"score": val_scores, "label": y_all.loc[val_cma_idx].values},
+                index=val_cma_idx,
             )
             val_df["step"]      = step_n
             val_df["split"]     = "val"
             val_df["best_iter"] = best_iter
-            val_df["val_ic"]    = val_ic
+            val_df["val_ic"]    = val_cma_ic
             predictions.append(val_df)
 
         # Predict on test window (save original labels)
@@ -200,19 +230,19 @@ def run_walk_forward(
             test_df["step"]      = step_n
             test_df["split"]     = "test"
             test_df["best_iter"] = best_iter
-            test_df["val_ic"]    = val_ic   # val IC of the model that produced this test
+            test_df["val_ic"]    = val_cma_ic
             predictions.append(test_df)
 
-        ic_log.append((step_n, val_ic, test_ic))
+        ic_log.append((step_n, train_ic, val_es_ic, val_cma_ic, test_ic))
         step_n += 1
 
         if verbose:
             print(
                 f"  Step {step_n:2d}  "
-                f"[{dates[0].date()} → {train_dates[-1].date()}]  "
-                f"val_IC={val_ic:+.4f}  "
-                f"test [{test_dates[0].date()} → {test_dates[-1].date()}]  "
-                f"test_IC={test_ic:+.4f}  "
+                f"train={train_ic:+.4f}  "
+                f"val={val_es_ic:+.4f}  "
+                f"test={test_ic:+.4f}  "
+                f"[{test_dates[0].date()} → {test_dates[-1].date()}]  "
                 f"iter={best_iter}"
             )
 
@@ -222,14 +252,15 @@ def run_walk_forward(
         raise RuntimeError("No predictions produced — check MIN_TRAIN_ROWS vs data length")
 
     # IC summary
-    ic_df = pd.DataFrame(ic_log, columns=["step", "val_ic", "test_ic"])
+    ic_df = pd.DataFrame(ic_log, columns=["step", "train_ic", "val_ic", "val_cma_ic", "test_ic"])
     if verbose:
-        print(f"\n{'='*60}")
-        print(f"  {'Mean val IC':30s} {ic_df['val_ic'].mean():+.4f}")
-        print(f"  {'Mean test IC (true OOS)':30s} {ic_df['test_ic'].mean():+.4f}")
-        print(f"  {'IC stability (val/test corr)':30s} "
+        print(f"\n{'='*70}")
+        print(f"  {'Mean train IC (in-sample)':35s} {ic_df['train_ic'].mean():+.4f}")
+        print(f"  {'Mean val IC (early stop)':35s} {ic_df['val_ic'].mean():+.4f}")
+        print(f"  {'Mean test IC (true OOS)':35s} {ic_df['test_ic'].mean():+.4f}")
+        print(f"  {'IC stability (val/test corr)':35s} "
               f"{ic_df['val_ic'].corr(ic_df['test_ic']):+.3f}")
-        print(f"{'='*60}")
+        print(f"{'='*70}")
 
     return pd.concat(predictions).sort_index()
 

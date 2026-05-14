@@ -23,7 +23,11 @@ warnings.filterwarnings("ignore")
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 sys.path.insert(0, str(Path(__file__).parent))
+import train as train_mod
 from train import run_walk_forward, _try_gpu, FEATURE_COLS, LABEL_COL
+
+# Override MIN_TRAIN_ROWS for faster search (~20 steps instead of 95)
+train_mod.MIN_TRAIN_ROWS = 5500
 
 DATA    = Path(__file__).parent / "data"
 OUTPUTS = Path(__file__).parent / "outputs"
@@ -31,15 +35,16 @@ OUTPUTS.mkdir(exist_ok=True)
 
 N_TRIALS    = 25
 STAB_WEIGHT = 0.5
+GAP_WEIGHT  = 0.5   # penalty for val_cma - test IC gap
 
 
-def compute_objective(oos: pd.DataFrame) -> tuple[float, float, float]:
-    """Returns (objective, mean_test_ic, stability)."""
+def compute_objective(oos: pd.DataFrame) -> tuple[float, float, float, float, float]:
+    """Returns (objective, mean_test_ic, mean_val_cma_ic, gap, stability)."""
     test_df = oos[oos["split"] == "test"].dropna(subset=["score", "label"])
     val_df  = oos[oos["split"] == "val"].dropna(subset=["score", "label"])
 
     if len(test_df) < 10 or test_df["step"].nunique() < 3:
-        return -99.0, float("nan"), float("nan")
+        return -99.0, float("nan"), float("nan"), float("nan"), float("nan")
 
     test_ic_per_step = (
         test_df.reset_index()
@@ -51,19 +56,22 @@ def compute_objective(oos: pd.DataFrame) -> tuple[float, float, float]:
 
     val_ic_per_step = val_df.groupby("step")["val_ic"].first()
 
-    mean_test_ic = float(test_ic_per_step.dropna().mean())
-    stability    = float(val_ic_per_step.corr(test_ic_per_step))
+    mean_test_ic     = float(test_ic_per_step.dropna().mean())
+    mean_val_cma_ic  = float(val_ic_per_step.dropna().mean())
+    gap              = max(mean_val_cma_ic - mean_test_ic, 0.0)
+    stability        = float(val_ic_per_step.corr(test_ic_per_step))
 
     if np.isnan(stability):
         stability = 0.0
 
-    objective = mean_test_ic + STAB_WEIGHT * stability
-    return objective, mean_test_ic, stability
+    # Maximize test IC + stability, penalize val/test gap
+    objective = mean_test_ic + STAB_WEIGHT * stability - GAP_WEIGHT * gap
+    return objective, mean_test_ic, mean_val_cma_ic, gap, stability
 
 
 def make_trial_params(trial: optuna.Trial) -> dict:
     return dict(
-        max_depth         = trial.suggest_int  ("max_depth",         3,    7),
+        max_depth         = trial.suggest_int  ("max_depth",         2,    3),
         min_child_weight  = trial.suggest_int  ("min_child_weight",  20, 250, log=True),
         subsample         = trial.suggest_float("subsample",         0.50, 0.95),
         colsample_bytree  = trial.suggest_float("colsample_bytree",  0.40, 0.90),
@@ -100,9 +108,9 @@ def main():
 
     sep = "=" * 72
     print(f"\n{sep}")
-    print(f"  Optuna TPE search -- {N_TRIALS} trials (~10 min)")
-    print(f"  Objective: mean_test_IC + {STAB_WEIGHT} x stability")
-    print(f"  Baseline:  test_IC=+0.042  stability=+0.082  obj=+0.083")
+    print(f"  Optuna TPE search -- {N_TRIALS} trials")
+    print(f"  Objective: test_IC + {STAB_WEIGHT}*stab - {GAP_WEIGHT}*gap(val_cma-test)")
+    print(f"  Baseline:  test_IC=+0.071  val_cma=+0.364  gap=0.293  stab=+0.078")
     print(f"{sep}\n", flush=True)
 
     results = []
@@ -127,13 +135,15 @@ def main():
             return -99.0
 
         t_trial = time.time() - t_start
-        obj, mean_test_ic, stability = compute_objective(oos)
+        obj, mean_test_ic, mean_val_cma_ic, gap, stability = compute_objective(oos)
 
         results.append({
-            "trial":         trial.number,
-            "objective":     obj,
-            "mean_test_ic":  mean_test_ic,
-            "stability":     stability,
+            "trial":          trial.number,
+            "objective":      obj,
+            "mean_test_ic":   mean_test_ic,
+            "mean_val_cma_ic": mean_val_cma_ic,
+            "gap":            gap,
+            "stability":      stability,
             **trial_params,
         })
 
@@ -149,10 +159,11 @@ def main():
         print(
             f"  [{trial.number + 1:2d}/{N_TRIALS}] "
             f"obj={obj:+.4f}  "
-            f"test_IC={mean_test_ic:+.4f}  "
+            f"test={mean_test_ic:+.4f}  "
+            f"val={mean_val_cma_ic:+.4f}  "
+            f"gap={gap:.3f}  "
             f"stab={stability:+.3f}  |  "
             f"d={trial_params['max_depth']}  "
-            f"mcw={trial_params['min_child_weight']:3d}  "
             f"lr={trial_params['learning_rate']:.4f}  "
             f"({fmt_time(t_trial)})  "
             f"[{fmt_time(elapsed)} / ~{fmt_time(elapsed + remaining)}]"
@@ -194,14 +205,16 @@ def main():
             print(f"    {k:<22s} {v}")
 
     best_row = results_df.iloc[0]
-    print(f"\n  mean_test_IC : {best_row['mean_test_ic']:+.4f}  (baseline: +0.033)")
-    print(f"  stability    : {best_row['stability']:+.3f}  (baseline: +0.070)")
-    print(f"  objective    : {best_row['objective']:+.4f}  (baseline: +0.068)")
+    print(f"\n  mean_test_IC  : {best_row['mean_test_ic']:+.4f}  (baseline: +0.071)")
+    print(f"  mean_val_cma  : {best_row['mean_val_cma_ic']:+.4f}  (baseline: +0.364)")
+    print(f"  gap           : {best_row['gap']:.3f}  (baseline: 0.293)")
+    print(f"  stability     : {best_row['stability']:+.3f}  (baseline: +0.078)")
+    print(f"  objective     : {best_row['objective']:+.4f}")
 
     # Top 5
     print(f"\n  TOP 5 TRIALS")
     print(f"  {'─' * 40}")
-    cols = ["trial", "objective", "mean_test_ic", "stability",
+    cols = ["trial", "objective", "mean_test_ic", "mean_val_cma_ic", "gap", "stability",
             "max_depth", "min_child_weight", "learning_rate"]
     top5 = results_df[cols].head(5).copy()
     top5["trial"] = top5["trial"] + 1
