@@ -114,7 +114,7 @@ BOND = [
 # 6. ETN Crypto (disponibles depuis mars 2025)
 # ---------------------------------------------------------------------------
 CRYPTO = [
-    ETF("IBTC.AS", "iShares Physical Bitcoin ETP USD Acc", "crypto", "btc", pea=False, zero_fees=False, fmp="IBIT", fmp_proxy=True, perf_1y=0.55, perf_5y=None),
+    # ETF("IBTC.AS", "iShares Physical Bitcoin ETP USD Acc", "crypto", "btc", pea=False, zero_fees=False, fmp="IBIT", fmp_proxy=True, perf_1y=0.55, perf_5y=None),  # IC=-0.20, pas de smart money, trop récent
 ]
 
 # ---------------------------------------------------------------------------
