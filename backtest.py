@@ -85,7 +85,8 @@ def run_backtest(
     hy_z60_series: pd.Series,
     params: list,
     transaction_cost: float = 0.0022,
-) -> pd.Series:
+    prev_weights: np.ndarray | None = None,
+) -> tuple[pd.Series, pd.DataFrame]:
     """
     Vectorised portfolio simulation.
     scores_wide / labels_wide : DataFrame (dates × etf_ids)
@@ -134,7 +135,7 @@ def run_backtest(
     weights = np.minimum(w_eq + w_def, max_w)
 
     # Anti-churn: hold previous weight if |delta| < min_change
-    prev = np.zeros(n_etfs)
+    prev = prev_weights if prev_weights is not None else np.zeros(n_etfs)
     final_weights = np.empty_like(weights)
     for t in range(len(dates)):
         delta   = weights[t] - prev
@@ -246,15 +247,15 @@ def _load_benchmark(ticker: str, dates: pd.DatetimeIndex) -> pd.Series | None:
 def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
                      weights_df: pd.DataFrame,
                      params_df: pd.DataFrame, out_dir: Path) -> None:
-    """Save a two-panel PNG: log equity curves + portfolio allocation."""
+    """Save a three-panel PNG: equity curves + allocation + ETF P&L."""
     ann_ret = port_returns.mean() * 252
     ann_vol = port_returns.std() * np.sqrt(252)
     sh      = sharpe(port_returns)
     max_dd  = (eq_curve / eq_curve.cummax() - 1).min()
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 10),
-                                    gridspec_kw={"height_ratios": [3, 2]},
-                                    sharex=True)
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(16, 14),
+                                         gridspec_kw={"height_ratios": [3, 2, 2]},
+                                         sharex=False)
     fig.suptitle(
         f"MyQTM-ETF — Walk-Forward OOS  "
         f"(Sharpe={sh:.2f}  Ann={ann_ret:.1%}  Vol={ann_vol:.1%}  MaxDD={max_dd:.1%})",
@@ -344,6 +345,33 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         ax2.set_facecolor("#f8f8f8")
         ax2.grid(True, alpha=0.3)
 
+    # Panel 3: ETF P&L contribution (weighted returns)
+    if len(weights_df) > 0 and len(port_returns) > 0:
+        # Compute per-ETF weighted return contribution over full period
+        oos_path = DATA / "oos_predictions.parquet"
+        if oos_path.exists():
+            oos = pd.read_parquet(oos_path)
+            test_oos = oos[oos["split"] == "test"].dropna(subset=["label"])
+            # Per-ETF contribution = sum of (weight * daily_return) over all test days
+            w = weights_df.reindex(port_returns.index, method="ffill").fillna(0)
+            # Get daily returns per ETF from labels (already daily returns)
+            etf_labels = test_oos["label"].unstack("etf_id").reindex(port_returns.index).fillna(0)
+            common_etfs = [e for e in w.columns if e in etf_labels.columns]
+            if common_etfs:
+                contrib = (w[common_etfs] * etf_labels[common_etfs]).sum()
+                contrib = contrib.sort_values()
+                colors = ["#d62728" if v < 0 else "#2ca02c" for v in contrib.values]
+                from etf import BY_BOURSO
+                etf_names = [BY_BOURSO[e].name[:40] if e in BY_BOURSO else e for e in contrib.index]
+                ax3.barh(range(len(contrib)), contrib.values, color=colors, alpha=0.8, height=0.6)
+                ax3.set_yticks(range(len(contrib)))
+                ax3.set_yticklabels(etf_names, fontsize=5)
+                ax3.set_xlabel("P&L Contribution (weighted)")
+                ax3.set_title("ETF P&L Contribution", fontsize=10)
+                ax3.axvline(0, color="black", linewidth=0.5)
+                ax3.set_facecolor("#f8f8f8")
+                ax3.grid(True, alpha=0.3, axis="x")
+
     plt.tight_layout()
     fig.savefig(out_dir / "backtest_equity.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -381,7 +409,14 @@ def main():
     vix_s    = macro.get("vix_level",     pd.Series(dtype=float))
     hy_z60_s = macro.get("hy_spread_z60", pd.Series(dtype=float))
 
-    steps = sorted(oos["step"].unique())
+    # Filter steps: only keep test periods starting from START_YEAR
+    START_YEAR = 2018
+    all_steps = sorted(oos["step"].unique())
+    steps = []
+    for s in all_steps:
+        test_dates = oos[(oos["step"] == s) & (oos["split"] == "test")].index.get_level_values("date")
+        if len(test_dates) > 0 and test_dates.min().year >= START_YEAR:
+            steps.append(s)
     print(f"Walk-forward steps: {len(steps)}  "
           f"val rows: {(oos['split']=='val').sum()}  "
           f"test rows: {(oos['split']=='test').sum()}\n")
@@ -389,6 +424,7 @@ def main():
     all_test_returns = []
     all_test_weights = []
     all_params_rows  = []
+    carry_weights    = None   # chain positions between steps
 
     print(f"{'Step':>4}  {'Val period':>24}  {'Val↗':>7}  "
           f"{'Test period':>24}  {'Test↗':>7}")
@@ -410,8 +446,21 @@ def main():
         # --- Evaluate on test (true OOS) ---
         test_sw, test_lw = _pivot_step(test_data)
         test_is_eq, test_is_def = _section_arrays(test_sw.columns.tolist(), sections)
+
+        # Remap carry_weights to current ETF columns
+        prev_w = None
+        if carry_weights is not None:
+            prev_w = np.zeros(len(test_sw.columns))
+            for i, etf in enumerate(test_sw.columns):
+                if etf in carry_weights:
+                    prev_w[i] = carry_weights[etf]
+
         test_returns, test_weights = run_backtest(test_sw, test_lw, test_is_eq, test_is_def,
-                                                   vix_s, hy_z60_s, best_params)
+                                                   vix_s, hy_z60_s, best_params,
+                                                   prev_weights=prev_w)
+
+        # Save final weights for next step
+        carry_weights = dict(zip(test_weights.columns, test_weights.iloc[-1].values))
         test_sh = sharpe(test_returns)
 
         val_dates  = val_data.index.get_level_values("date")
