@@ -70,6 +70,7 @@ SOURCE 2 — FRED (gratuit, clé API free à fred.stlouisfed.org)
   → VIX (VIXCLS), HY spread (BAMLH0A0HYM2), IG spread (BAMLC0A0CM)
   → Yield curve 10Y-2Y (T10Y2Y), DGS10, DGS2
   → WTI crude (DCOILWTICO), Gold LBMA (GOLDAMGBD228NLBM)
+  → Dollar index (DTWEXBGS — broad USD index vs panier devises)
   → ./data/fred_{series}.parquet
   → ./data/flow_proxies.parquet  (dollar volume z-scores)
 
@@ -157,6 +158,11 @@ features_regime = {
 
     # Momentum macro global
     "ret_spx_20d",           # rendement S&P 500 sur 20j (via QQQ/CSPX proxy)
+
+    # Dollar index — FRED DTWEXBGS (gratuit)
+    # Impact direct sur ~20 ETFs : EM, or, obligations USD, matières premières
+    "dxy_ret_20d",           # direction du dollar sur 20j
+    "dxy_z60",               # déviation vs 60j (dollar fort/faible vs norme)
 }
 # → sigmoid(vix, hy_spread) → budget_régime (exposition equity vs défensif)
 ```
@@ -236,6 +242,15 @@ X = [
     "yield_curve",           # 10Y - 2Y  (inversion = récession)
     "yield_curve_velocity",  # Δyield_curve 20j
     "ret_spx_20d",           # momentum macro global
+    "dxy_ret_20d",           # dollar index (FRED DTWEXBGS) — force USD
+    "dxy_z60",               # déviation dollar vs 60j
+
+    # --- Momentum cross-sectionnel (relatif au bloc) ---
+    "ret_20d_z_within_block",  # z-score de ret_20d au sein du bloc (geo/sector/bond...)
+    "ret_5d_z_within_block",   # idem court terme
+    # → capte la ROTATION intra-bloc : "Corée surperforme les autres géo ?"
+    # → XGBoost voit déjà tous les ETFs ensemble mais ce z-score rend explicite
+    #   le signal de rotation que le modèle cherche à prédire
 
     # --- Mouvements institutionnels (§4c) ---
     "shares_outstanding_z20", # flux nets iShares (14 proxies US)
@@ -244,10 +259,11 @@ X = [
 ]
 
 score_per_etf = model.predict(X_today)
-# XGBoost découvre seul :
-#   vix > 50 + hy_spread_z60 > 2  → scores défensifs élevés
-#   vix_velocity < 0 + vix > 40   → signal retournement, acheter equity
-#   yield_curve < 0                → surpondérer bonds
+# XGBoost apprend les interactions multi-actifs :
+#   DXY fort + VIX monte          → EM (IEMA, CSKR, IBZL) score faible
+#   Or monte + DXY baisse         → IGLN score élevé, IUIT score faible
+#   Pétrole monte + yield_curve > 0 → IUES, IOGP, IBZL (Brésil) scores élevés
+#   ret_20d_z_within_block élevé  → ETF en tête de rotation dans son bloc
 # SHAP permet de visualiser ces régimes implicites a posteriori
 ```
 
