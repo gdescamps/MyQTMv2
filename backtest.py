@@ -28,6 +28,10 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 import cma
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mtick
 
 DATA    = Path(__file__).parent / "data"
 OUTPUTS = Path(__file__).parent / "outputs"
@@ -215,6 +219,58 @@ def _section_arrays(etf_list: list, sections: dict) -> tuple[np.ndarray, np.ndar
     return is_eq, is_def
 
 
+def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
+                     params_df: pd.DataFrame, out_dir: Path) -> None:
+    """Save a two-panel equity + drawdown PNG for the backtest."""
+    dd = eq_curve / eq_curve.cummax() - 1
+    ann_ret = port_returns.mean() * 252
+    ann_vol = port_returns.std() * np.sqrt(252)
+    sh      = sharpe(port_returns)
+    max_dd  = dd.min()
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8),
+                                    gridspec_kw={"height_ratios": [3, 1]},
+                                    sharex=True)
+    fig.suptitle(
+        f"MyQTM-ETF — Walk-Forward OOS  "
+        f"(Sharpe={sh:.2f}  Ann={ann_ret:.1%}  Vol={ann_vol:.1%}  MaxDD={max_dd:.1%})",
+        fontsize=12, fontweight="bold",
+    )
+
+    # Panel 1: equity curve with per-step shading
+    ax1.plot(eq_curve.index, eq_curve.values, lw=1.8, color="#1f77b4", label="Portfolio")
+    ax1.set_ylabel("Portfolio value (base 1)")
+    ax1.yaxis.set_major_formatter(mtick.FuncFormatter(lambda x, _: f"{x:.1f}x"))
+    ax1.grid(True, alpha=0.3)
+    ax1.set_facecolor("#f8f8f8")
+
+    # Shade alternating steps
+    if "step" in params_df.columns and len(params_df) > 1:
+        step_dates = {}
+        # We can't easily get step boundaries here — shade via equity index split
+        n_steps = len(params_df)
+        dates   = eq_curve.index
+        chunk   = max(len(dates) // n_steps, 1)
+        for i in range(n_steps):
+            if i % 2 == 0:
+                s = dates[i * chunk]
+                e = dates[min((i + 1) * chunk - 1, len(dates) - 1)]
+                ax1.axvspan(s, e, alpha=0.05, color="orange")
+
+    ax1.legend(fontsize=10)
+
+    # Panel 2: drawdown
+    ax2.fill_between(dd.index, dd.values, 0, alpha=0.6, color="#d62728")
+    ax2.set_ylabel("Drawdown")
+    ax2.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
+    ax2.set_facecolor("#f8f8f8")
+    ax2.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    fig.savefig(out_dir / "backtest_equity.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
 def main():
     oos_path = DATA / "oos_predictions.parquet"
     if not oos_path.exists():
@@ -313,7 +369,7 @@ def main():
     print(f"  Sharpe:       {final_sharpe:.3f}")
     print(f"  Max drawdown: {max_dd:.1%}")
 
-    # Save
+    # Save results
     port_returns.to_frame().to_parquet(DATA / "backtest_results.parquet")
 
     params_df = pd.DataFrame(all_params_rows)
@@ -323,9 +379,20 @@ def main():
     eq_df.columns = ["date", "equity"]
     eq_df.to_csv(OUTPUTS / "backtest_equity.csv", index=False)
 
+    # Save per-step CMA-ES details (sharpe on val + test)
+    step_summary = []
+    for row in all_params_rows:
+        step_summary.append(row)
+    pd.DataFrame(step_summary).to_csv(OUTPUTS / "cmaes_steps.csv", index=False)
+
+    # Equity curve PNG
+    _save_equity_png(port_returns, eq_curve, params_df, OUTPUTS)
+
     print(f"\nSaved → data/backtest_results.parquet")
     print(f"Saved → outputs/best_params.csv")
+    print(f"Saved → outputs/cmaes_steps.csv")
     print(f"Saved → outputs/backtest_equity.csv")
+    print(f"Saved → outputs/backtest_equity.png")
 
 
 if __name__ == "__main__":
