@@ -31,7 +31,7 @@ DATA_DIR.mkdir(exist_ok=True)
 # ---------------------------------------------------------------------------
 # FRED — macro indicators
 # ---------------------------------------------------------------------------
-FRED_KEY = os.getenv("FRED_API_KEY")
+FRED_KEY = os.getenv("FRED_API_KEY") or os.getenv("FRED")
 FRED_BASE = "https://api.stlouisfed.org/fred/series/observations"
 
 FRED_SERIES = {
@@ -42,7 +42,7 @@ FRED_SERIES = {
     "DGS2":               "yield_2y",     # 2Y Treasury yield
     "T10Y2Y":             "yield_curve",  # 10Y-2Y spread (inversion signal)
     "DCOILWTICO":         "wti_crude",    # WTI crude oil price
-    "GOLDAMGBD228NLBM":   "gold_lbma",   # Gold London fix (USD/troy oz)
+    # Gold covered via IAU OHLCV — FRED series requires paid subscription
 }
 
 
