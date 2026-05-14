@@ -50,7 +50,8 @@ GEO = [
     ETF("WPEA.PA", "iShares MSCI World Swap PEA ETF",                "geo", "world",      pea=True,  zero_fees=True,  fmp="WPEA.PA", fmp_proxy=False, perf_1y=0.20,  perf_5y=0.81),  # 5Y from IWDA.AS proxy
     ETF("IEMA.AS", "iShares MSCI Emerging Markets UCITS ETF USD Acc", "geo", "em",         pea=False, zero_fees=True,  fmp="IEMA.AS", fmp_proxy=False, perf_1y=0.39,  perf_5y=0.49),
     ETF("CSKR.PA", "iShares MSCI Korea ETF USD Dist",                "geo", "korea",      pea=False, zero_fees=True,  fmp="EWY",     fmp_proxy=True,  perf_1y=2.08,  perf_5y=1.02),
-    ETF("ITWN.PA", "iShares MSCI Taiwan ETF USD Dist",               "geo", "taiwan",     pea=False, zero_fees=True,  fmp="EWT",     fmp_proxy=True,  perf_1y=0.77,  perf_5y=0.65),
+    # ETF("ITWN.PA", "iShares MSCI Taiwan ETF USD Dist",               "geo", "taiwan",     pea=False, zero_fees=True,  fmp="EWT",     fmp_proxy=True,  perf_1y=0.77,  perf_5y=0.65),  # IC=-0.118, systematiquement mal predit
+
     ETF("IFFI.AS", "iShares MSCI AC Far East ex-Japan ETF",          "geo", "far_east",   pea=False, zero_fees=True,  fmp="IFFI.AS", fmp_proxy=False, perf_1y=0.63,  perf_5y=0.46),
     ETF("EXCH.AS", "iShares MSCI EM ex-China ETF USD Acc",           "geo", "em_exch",    pea=False, zero_fees=True,  fmp="EXCH.AS", fmp_proxy=False, perf_1y=0.62,  perf_5y=0.72),
     ETF("SJPE.AS", "iShares Core MSCI Japan IMI ETF EUR Hedged",     "geo", "japan",      pea=False, zero_fees=True,  fmp="SJPE.AS", fmp_proxy=False, perf_1y=0.43,  perf_5y=1.40),
@@ -59,7 +60,7 @@ GEO = [
     ETF("ICAU.AS", "iShares MSCI Canada ETF USD Acc",                "geo", "canada",     pea=False, zero_fees=True,  fmp="EWC",     fmp_proxy=True,  perf_1y=0.35,  perf_5y=0.61),
     ETF("ITKY.AS", "iShares MSCI Turkey ETF USD Dist",               "geo", "turkey",     pea=False, zero_fees=True,  fmp="TUR",     fmp_proxy=True,  perf_1y=0.31,  perf_5y=0.87),
     ETF("ISF.L",   "iShares Core FTSE 100 ETF GBP Dist",             "geo", "uk",         pea=False, zero_fees=True,  fmp="ISF.L",   fmp_proxy=False, perf_1y=0.19,  perf_5y=0.46),
-    ETF("FXC.AS",  "iShares China Large Cap ETF USD Dist",           "geo", "china",      pea=False, zero_fees=True,  fmp="FXC.L",   fmp_proxy=True,  perf_1y=0.02,  perf_5y=-0.12),
+    # ETF("FXC.AS",  "iShares China Large Cap ETF USD Dist",           "geo", "china",      pea=False, zero_fees=True,  fmp="FXC.L",   fmp_proxy=True,  perf_1y=0.02,  perf_5y=-0.12),  # IC=-0.043, politique chinoise imprevisible
 ]
 
 # ---------------------------------------------------------------------------
@@ -87,7 +88,7 @@ THEMATIC = [
     ETF("ECAR.AS", "iShares Electric Vehicle & Driving Tech ETF USD", "thematic", "ev",       pea=False, zero_fees=True,  fmp="DRIV",    fmp_proxy=True,  perf_1y=0.77,  perf_5y=0.56),
     ETF("INRA.AS", "iShares Global Clean Energy Transition ETF USD",  "thematic", "clean_nrg",pea=False, zero_fees=True,  fmp="INRA.AS", fmp_proxy=False, perf_1y=0.75,  perf_5y=0.42),
     ETF("CITY.AS", "iShares Smart City Infra ETF USD Acc",            "thematic", "infra",    pea=False, zero_fees=True,  fmp="CITY.AS", fmp_proxy=False, perf_1y=0.44,  perf_5y=0.60),
-    ETF("IQQQ.DE", "iShares Global Water ETF USD Acc",                "thematic", "water",    pea=False, zero_fees=True,  fmp="IQQQ.DE", fmp_proxy=False, perf_1y=0.01,  perf_5y=0.26),
+    # ETF("IQQQ.DE", "iShares Global Water ETF USD Acc",                "thematic", "water",    pea=False, zero_fees=True,  fmp="IQQQ.DE", fmp_proxy=False, perf_1y=0.01,  perf_5y=0.26),  # IC=-0.041, thematique niche
 ]
 
 # ---------------------------------------------------------------------------
@@ -104,10 +105,10 @@ COMMODITY = [
 # 5. Obligations / Taux (CTO uniquement)
 # ---------------------------------------------------------------------------
 BOND = [
-    ETF("DTLA.AS", "iShares USD Treasury Bond 20+yr UCITS ETF",     "bond", "us_lt",    pea=False, zero_fees=False, fmp="TLT", fmp_proxy=True, perf_1y=-0.01, perf_5y=-0.37),
-    ETF("IBTA.AS", "iShares USD Treasury Bond 7-10yr UCITS ETF",    "bond", "us_mt",    pea=False, zero_fees=False, fmp="IEF", fmp_proxy=True, perf_1y=0.01,  perf_5y=-0.17),
-    ETF("IHYU.AS", "iShares USD High Yield Corp Bond UCITS ETF",    "bond", "hy",       pea=False, zero_fees=False, fmp="HYG", fmp_proxy=True, perf_1y=0.01,  perf_5y=-0.08),
-    ETF("ITPS.AS", "iShares USD TIPS UCITS ETF",                    "bond", "tips",     pea=False, zero_fees=False, fmp="TIP", fmp_proxy=True, perf_1y=0.03,  perf_5y=-0.13),
+    # ETF("DTLA.AS", "iShares USD Treasury Bond 20+yr UCITS ETF",     "bond", "us_lt",    pea=False, zero_fees=False, fmp="TLT", fmp_proxy=True, perf_1y=-0.01, perf_5y=-0.37),  # IC=-0.022
+    # ETF("IBTA.AS", "iShares USD Treasury Bond 7-10yr UCITS ETF",    "bond", "us_mt",    pea=False, zero_fees=False, fmp="IEF", fmp_proxy=True, perf_1y=0.01,  perf_5y=-0.17),  # IC=+0.011
+    # ETF("IHYU.AS", "iShares USD High Yield Corp Bond UCITS ETF",    "bond", "hy",       pea=False, zero_fees=False, fmp="HYG", fmp_proxy=True, perf_1y=0.01,  perf_5y=-0.08),  # IC=-0.046
+    # ETF("ITPS.AS", "iShares USD TIPS UCITS ETF",                    "bond", "tips",     pea=False, zero_fees=False, fmp="TIP", fmp_proxy=True, perf_1y=0.03,  perf_5y=-0.13),  # IC=-0.001
 ]
 
 # ---------------------------------------------------------------------------
