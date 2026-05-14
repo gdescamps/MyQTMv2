@@ -26,7 +26,8 @@ import pandas as pd
 import xgboost as xgb
 from pathlib import Path
 
-DATA = Path(__file__).parent / "data"
+DATA    = Path(__file__).parent / "data"
+OUTPUTS = Path(__file__).parent / "outputs"
 
 # Walk-forward parameters
 MIN_TRAIN_ROWS = 750   # ~3 years of trading days before first test
@@ -133,6 +134,11 @@ def run_walk_forward(panel: pd.DataFrame, device: str) -> pd.DataFrame:
             verbose=False,
         )
         best_iter = model.best_iteration
+
+        # Save model for this step (up to early-stop iteration)
+        model_dir = OUTPUTS / "models"
+        model_dir.mkdir(parents=True, exist_ok=True)
+        model.save_model(str(model_dir / f"step_{step_n:02d}.ubj"))
 
         train_dates = dates[:train_end_pos]
         test_dates  = dates[train_end_pos:test_end_pos]
