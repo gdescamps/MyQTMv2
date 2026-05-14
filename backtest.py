@@ -130,14 +130,22 @@ def run_backtest(
 
     # Softmax weights per day
     def _softmax_masked(s: np.ndarray, mask: np.ndarray, T: float) -> np.ndarray:
-        """s: (T,E), mask: (E,) bool → (T,E) weights, only masked cols active."""
+        """s: (T,E), mask: (E,) bool → (T,E) weights. NaN scores excluded per row."""
         out = np.zeros_like(s)
         if not mask.any():
             return out
-        s_m = s[:, mask] / max(T, 1e-6)
-        s_m = s_m - s_m.max(axis=1, keepdims=True)
-        e   = np.exp(s_m)
-        out[:, mask] = e / e.sum(axis=1, keepdims=True)
+        s_m = s[:, mask].copy() / max(T, 1e-6)
+        for i in range(s_m.shape[0]):
+            row   = s_m[i]
+            valid = ~np.isnan(row)
+            if not valid.any():
+                continue
+            row_v = row[valid] - row[valid].max()
+            e     = np.exp(row_v)
+            probs = e / e.sum()
+            result = np.zeros(len(row))
+            result[valid] = probs
+            out[i, np.where(mask)[0]] = result
         return out
 
     w_eq  = _softmax_masked(scores, is_equity,    temp) * equity_budget[:, None]
