@@ -42,6 +42,7 @@ FRED_SERIES = {
     "DGS2":               "yield_2y",     # 2Y Treasury yield
     "T10Y2Y":             "yield_curve",  # 10Y-2Y spread (inversion signal)
     "DCOILWTICO":         "wti_crude",    # WTI crude oil price
+    "DTWEXBGS":           "dxy",          # Broad USD index vs basket (daily, from 2006)
     # Gold covered via IAU OHLCV — FRED series requires paid subscription
 }
 
