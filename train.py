@@ -32,9 +32,9 @@ OUTPUTS = Path(__file__).parent / "outputs"
 
 # Walk-forward parameters
 MIN_TRAIN_ROWS = 750   # ~3 years of trading days before first test
-TEST_WINDOW    = 125   # ~6 months per test step (non-overlapping with STEP)
-STEP           = 125   # refit every ~6 months
-BLOCK_ROWS     = 21    # alternating block size for interlaced train/val split (~1 month)
+TEST_WINDOW    = 63    # ~3 months per test step
+STEP           = 63    # refit every ~3 months
+BLOCK_ROWS     = 21    # ~1 month alternating blocks for interlaced train/val
 
 FEATURE_COLS = [
     # Technical
