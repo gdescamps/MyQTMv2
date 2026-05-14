@@ -71,13 +71,13 @@ def compute_objective(oos: pd.DataFrame) -> tuple[float, float, float, float, fl
 
 def make_trial_params(trial: optuna.Trial) -> dict:
     return dict(
-        max_depth         = trial.suggest_int  ("max_depth",         2,    3),
-        min_child_weight  = trial.suggest_int  ("min_child_weight",  20, 250, log=True),
-        subsample         = trial.suggest_float("subsample",         0.50, 0.95),
-        colsample_bytree  = trial.suggest_float("colsample_bytree",  0.40, 0.90),
-        learning_rate     = trial.suggest_float("learning_rate",     0.01, 0.15, log=True),
-        reg_alpha         = trial.suggest_float("reg_alpha",         1e-4,  2.0, log=True),
-        reg_lambda        = trial.suggest_float("reg_lambda",        0.10, 10.0, log=True),
+        max_depth         = 2,
+        min_child_weight  = trial.suggest_int  ("min_child_weight",  20, 200, log=True),
+        subsample         = trial.suggest_float("subsample",         0.70, 0.95),
+        colsample_bytree  = trial.suggest_float("colsample_bytree",  0.50, 0.90),
+        learning_rate     = trial.suggest_float("learning_rate",     0.01, 0.06, log=True),
+        reg_alpha         = trial.suggest_float("reg_alpha",         1e-4,  0.5, log=True),
+        reg_lambda        = trial.suggest_float("reg_lambda",        0.10,  5.0, log=True),
         n_estimators      = 1000,
         early_stopping_rounds = 30,
     )

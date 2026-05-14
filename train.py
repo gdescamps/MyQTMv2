@@ -38,38 +38,30 @@ BLOCK_ROWS     = 21    # ~1 month alternating blocks for interlaced train/val
 
 FEATURE_COLS = [
     # Momentum
-    "ret_20d", "ret_40d", "ret_60d", "ret_120d",
+    "ret_40d", "ret_120d",
     # Volatility
-    "vol_10d", "vol_20d", "vol_60d", "vol_120d",
-    "vol_ratio_20v60", "vol_ratio_5v60",
-    # RSI
-    "rsi_21",
+    "vol_20d", "vol_60d", "vol_120d",
     # Moving averages: price distance
-    "price_vs_ma10", "price_vs_ma50", "price_vs_ma100", "price_vs_ma200",
+    "price_vs_ma100", "price_vs_ma200",
     # Moving averages: slopes
-    "ma_20_slope", "ma_50_slope", "ma_100_slope", "ma_200_slope",
+    "ma_10_slope", "ma_50_slope", "ma_100_slope", "ma_200_slope",
     # Moving averages: crossovers
-    "ma10_vs_ma20", "ma10_vs_ma50", "ma20_vs_ma50", "ma20_vs_ma100",
+    "ma10_vs_ma20", "ma20_vs_ma50", "ma20_vs_ma100",
     "ma50_vs_ma100", "ma50_vs_ma200", "ma100_vs_ma200",
     # ATR
     "atr_14", "atr_21",
     # Macro / regime
-    "vix_level", "vix_z60", "vix_cross_20v60",
-    "hy_spread", "hy_spread_z20", "hy_spread_z60", "hy_spread_velocity_20",
-    "yield_curve", "yield_curve_velocity_20",
-    "dxy_ret_20d", "dxy_ret_60d", "dxy_z20", "dxy_z60", "dxy_cross_20v60",
+    "hy_spread", "hy_spread_velocity_20",
+    "yield_curve",
+    "dxy_ret_20d", "dxy_ret_60d", "dxy_z60",
     "ret_spx_20d",
     # Smart money
-    "shares_outstanding_z5", "shares_outstanding_z20", "shares_outstanding_z60",
-    "so_cross_5v20", "so_cross_20v60",
-    "rotation_z20",
-    "GLD_dvol_z20",
+    "so_cross_20v60",
     # Cross-sectional
-    "ret_20d_z_within_block", "ret_60d_z_within_block",
-    "ret_5d_z_xs", "ret_20d_z_xs", "ret_60d_z_xs", "ret_120d_z_xs",
     "vol_20d_z_xs", "vol_60d_z_xs",
-    "ret_20d_rank", "ret_60d_rank", "ret_120d_rank",
+    "ret_120d_z_xs", "ret_120d_rank",
     "mom_accel_20v60_z_xs",
+    "volume_z5",
 ]
 
 LABEL_COL = "label"

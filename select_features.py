@@ -74,7 +74,7 @@ def main():
     y_all = panel[LABEL_COL].astype(np.float32)
     y_z = _zscore_per_date(y_all).astype(np.float32)
 
-    params = {**XGB_PARAMS, "device": device}
+    params = {**XGB_PARAMS, "device": device, "max_depth": 2}
 
     importances = {}
     for period in range(3):
@@ -112,7 +112,7 @@ def main():
     imp_df.to_csv(OUTPUTS / "feature_selection.csv")
 
     # Select features: stability > threshold (mean/std > 2 = consistent across periods)
-    MIN_STABILITY = 2.0
+    MIN_STABILITY = 1.0
     MIN_IMPORTANCE = 0.005  # at least 0.5% average importance
     selected = imp_df[
         (imp_df["stability"] >= MIN_STABILITY) &
