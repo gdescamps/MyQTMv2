@@ -77,8 +77,26 @@ def parse_historical_sheet(path: Path) -> pd.DataFrame | None:
     col_map = {c: c.lower().replace(" ", "_") for c in df.columns if c}
     df = df.rename(columns=col_map)
 
-    df["as_of"] = pd.to_datetime(df["as_of"], format="%b %d, %Y", errors="coerce")
-    df = df.dropna(subset=["as_of"]).set_index("as_of").sort_index()
+    # Normalize column name variants across US and UK/EU iShares formats:
+    #   US:  "NAV per Share"      → nav_per_share
+    #   UK:  "NAV"                → nav_per_share
+    #   US:  "Shares Outstanding" → shares_outstanding
+    #   UK:  "Securities In Issue"→ securities_in_issue → shares_outstanding
+    if "nav" in df.columns and "nav_per_share" not in df.columns:
+        df = df.rename(columns={"nav": "nav_per_share"})
+    if "securities_in_issue" in df.columns and "shares_outstanding" not in df.columns:
+        df = df.rename(columns={"securities_in_issue": "shares_outstanding"})
+
+    # Parse date — handle both US format "May 13, 2026" and UK/EU format "13/May/2026"
+    date_col = "as_of"
+    raw_dates = df[date_col].astype(str)  # keep original strings for fallback
+    parsed = pd.to_datetime(raw_dates, format="%b %d, %Y", errors="coerce")
+    mask = parsed.isna()
+    if mask.any():
+        parsed[mask] = pd.to_datetime(raw_dates[mask], format="%d/%b/%Y", errors="coerce")
+    df[date_col] = parsed
+
+    df = df.dropna(subset=[date_col]).set_index(date_col).sort_index()
     df.index.name = "date"
 
     # Parse numeric columns — values may contain commas (e.g. "125,600,000")
