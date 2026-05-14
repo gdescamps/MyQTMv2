@@ -54,7 +54,6 @@ GEO = [
     ETF("IFFI.AS", "iShares MSCI AC Far East ex-Japan ETF",          "geo", "far_east",   pea=False, zero_fees=True,  fmp="IFFI.AS", fmp_proxy=False, perf_1y=0.63,  perf_5y=0.46),
     ETF("EXCH.AS", "iShares MSCI EM ex-China ETF USD Acc",           "geo", "em_exch",    pea=False, zero_fees=True,  fmp="EXCH.AS", fmp_proxy=False, perf_1y=0.62,  perf_5y=0.72),
     ETF("SJPE.AS", "iShares Core MSCI Japan IMI ETF EUR Hedged",     "geo", "japan",      pea=False, zero_fees=True,  fmp="SJPE.AS", fmp_proxy=False, perf_1y=0.43,  perf_5y=1.40),
-    ETF("LTAM.AS", "iShares MSCI EM Latin America ETF USD Dist",     "geo", "latam",      pea=False, zero_fees=True,  fmp="ILF",     fmp_proxy=True,  perf_1y=0.41,  perf_5y=0.23),
     ETF("IBZL.AS", "iShares MSCI Brazil ETF USD Dist",               "geo", "brazil",     pea=False, zero_fees=True,  fmp="EWZ",     fmp_proxy=True,  perf_1y=0.39,  perf_5y=0.04),
     ETF("IMEX.AS", "iShares MSCI Mexico Capped ETF USD Acc",         "geo", "mexico",     pea=False, zero_fees=True,  fmp="EWW",     fmp_proxy=True,  perf_1y=0.38,  perf_5y=0.74),
     ETF("ICAU.AS", "iShares MSCI Canada ETF USD Acc",                "geo", "canada",     pea=False, zero_fees=True,  fmp="EWC",     fmp_proxy=True,  perf_1y=0.35,  perf_5y=0.61),
@@ -81,7 +80,6 @@ SECTOR_US = [
 # ---------------------------------------------------------------------------
 THEMATIC = [
     ETF("EXX1.DE", "iShares EURO STOXX Banks 30-15 ETF DE acc",       "thematic", "banks_eu", pea=True,  zero_fees=True,  fmp="EXX1.DE", fmp_proxy=False, perf_1y=0.31,  perf_5y=1.74),
-    ETF("EXV1.DE", "iShares STOXX Europe 600 Tech (DE) acc",          "thematic", "tech_eu",  pea=True,  zero_fees=True,  fmp="EXV1.DE", fmp_proxy=False, perf_1y=0.30,  perf_5y=1.64),
     ETF("SEMI.AS", "iShares MSCI Global Semiconductors ETF USD Acc",  "thematic", "semi",     pea=False, zero_fees=True,  fmp="SEMI.AS", fmp_proxy=False, perf_1y=1.67,  perf_5y=2.64),
     ETF("AINF.PA", "iShares AI Infrastructure ETF USD Acc",           "thematic", "ia",       pea=False, zero_fees=True,  fmp="CHAT",    fmp_proxy=True,  perf_1y=1.12,  perf_5y=2.25),
     ETF("IART.PA", "iShares AI Innovation Active ETF USD Acc",        "thematic", "ia",       pea=False, zero_fees=True,  fmp="WTAI",    fmp_proxy=True,  perf_1y=0.86,  perf_5y=0.62),
