@@ -64,6 +64,36 @@ download_macro_data.py  → FRED : VIX, HY spread, yield curve, WTI, gold
                           → ./data/fred_{series}.parquet
                           + flow_proxies.parquet (dollar volume z-scores)
 
+download_ishares_fund_data.py  [À CRÉER]
+  Source : iShares.com — onglet "Data Download" sur chaque page produit
+  Format : XLS (XML spreadsheet), 5 sheets :
+    - Historical  → NAV par part + Shares Outstanding JOURNALIER depuis inception
+    - Holdings    → composition actuelle (snapshot du jour)
+    - Performance → returns mensuels
+    - Distributions → dividendes historiques
+  URL pattern :
+    ishares.com/us/products/{product_id}/fund/{ts}.ajax?fileType=xls&dataType=fund
+
+  Couverture : proxies iShares US de notre univers (téléchargement manuel navigateur)
+    EWY  (depuis 2000-05-09)   CSKR.PA proxy
+    EWT  (depuis 2000-06-23)   ITWN.PA proxy
+    EWZ  (depuis 2000-07-14)   IBZL.AS proxy
+    EWC  (depuis 2000-01-03)   ICAU.AS proxy
+    EWW  (depuis 2000-01-03)   IMEX.AS proxy
+    ILF  (depuis 2001-10-26)   LTAM.AS proxy
+    TLT  (depuis 2002-07-26)   DTLA.AS proxy
+    IEF  (depuis 2002-07-26)   IBTA.AS proxy
+    HYG  (depuis 2007-04-11)   IHYU.AS proxy
+    TIP  (depuis 2003-12-05)   ITPS.AS proxy
+    IEO  (depuis 2006-05-05)   IOGP.AS proxy
+    RING (depuis 2012-02-02)   commodity proxy
+    TUR  (depuis 2008-03-28)   ITKY.AS proxy
+    IBIT (depuis 2024-01-11)   IBTC.AS proxy
+  → ./data/ishares/{TICKER}_historical.parquet   (NAV + shares outstanding quotidien)
+
+  Note : ETF UCITS (.AS, .PA, .DE) non couverts — domiciliés en Irlande,
+         hors iShares US. Pour ceux-là, seul le dollar volume z-score est disponible.
+
 download_etf_holdings.py  [À CRÉER]
   FMP /v3/etf-holder/{symbol}          → top holdings + poids (mensuel)
   FMP /v3/etf-info/{symbol}            → AUM, expense ratio, sector weights
@@ -243,32 +273,48 @@ sector_sentiment_tech = mean(sentiment_etf(IUIT,t), sentiment_etf(SEMI,t), senti
 ### 4f. Mouvements institutionnels (smart money)
 
 ```python
-# Proxy 1 : dollar volume z-score (déjà dans flow_proxies.parquet)
+# Proxy 1 : Shares Outstanding iShares (source primaire — journalier depuis inception)
+# Téléchargement manuel via iShares.com "Data Download" → XLS → sheet "Historical"
+# Colonnes : As Of | NAV per Share | Ex-Dividends | Shares Outstanding | Non-FV NAV
+# Exemple EWY : 6 544 jours, 2000-05-09 → 2026-05-13
+# → ./data/ishares/{TICKER}_historical.parquet
+#
+# Signal directionnel institutionnel NET :
+shares_outstanding_change = shares_outstanding_t - shares_outstanding_t_minus_1
+shares_outstanding_z20    = z_score(shares_outstanding_change, 20d)
+#   > 0  : création nette de parts  → inflow institutionnel (bullish)
+#   < 0  : rachat net de parts      → outflow institutionnel (bearish)
+#
+# Disponible pour : EWY, EWT, EWZ, EWC, EWW, ILF, TLT, IEF, HYG, TIP,
+#                   IEO, RING, TUR, IBIT  (proxies iShares US)
+# Non disponible  : ETF UCITS (.AS, .PA, .DE) → proxy dollar volume z-score
+
+# Proxy 2 : dollar volume z-score (tous ETFs — déjà dans flow_proxies.parquet)
+# Signal d'intensité (pas directionnel seul, mais utile combiné au prix)
 dollar_vol_z20 = (close × volume - mean_20d) / std_20d
 rotation_z60   = dvol_risk_on_avg - dvol_risk_off_avg  (z-scoré 60j)
 
-# Proxy 2 : 13F institutional holdings (FMP, trimestriel)
-# FMP: /v4/institutional-ownership/symbol-ownership?symbol=QQQ
-# → variation de positions des grands fonds vs trimestre précédent
-inst_position_change_qtrly = shares_held_t - shares_held_t_minus_1q
-inst_concentration_change  = (nb_new_holders - nb_exiting_holders)
+# Proxy 3 : HY spread (FRED BAMLH0A0HYM2)
+# → les institutionnels fuient le crédit risqué en bear
+hy_spread_z60      = z_score(hy_spread, 60d)
+hy_spread_velocity = hy_spread_t - hy_spread_t_minus_5d
 
-# Proxy 3 : Put/Call ratio (CBOE, gratuit)
+# Proxy 4 : Put/Call ratio (CBOE, gratuit)
 # → peur institutionnelle mesurée via le marché des options
 put_call_ratio = put_vol / call_vol
 put_call_z20   = z_score(put_call_ratio, 20d)
 
-# Proxy 4 : HY spread (FRED BAMLH0A0HYM2)
-# → les institutionnels fuient le crédit risqué en bear
-hy_spread_z60  = z_score(hy_spread, 60d)
-hy_spread_velocity = hy_spread_t - hy_spread_t_minus_5d
+# Proxy 5 : 13F institutional holdings (FMP, trimestriel) — phase 4
+# FMP: /v4/institutional-ownership/symbol-ownership?symbol=QQQ
+inst_position_change_qtrly = shares_held_t - shares_held_t_minus_1q
 
 features_smart_money = {
+    "shares_outstanding_z20",  # flux nets iShares (journalier, signal direct) ✅
     "rotation_z60",             # rotation risk-on vs risk-off (OHLCV)
     "hy_spread_z60",            # stress crédit (FRED)
     "hy_spread_velocity",       # accélération du stress
-    "put_call_z20",             # peur institutionnelle (CBOE)
-    "inst_position_change",     # variation 13F (trimestriel, interpolé)
+    "put_call_z20",             # peur institutionnelle (CBOE) — phase 2
+    "inst_position_change",     # variation 13F (trimestriel, interpolé) — phase 4
     "yield_curve",              # 10Y-2Y (FRED T10Y2Y)
     "yield_curve_velocity",     # inversion/désinversion
 }
@@ -644,7 +690,10 @@ Frais trading (Boursorama) :
 - XGBoost simple sur scores techniques + régime
 - Backtest VectorBT sur données disponibles
 
-### Phase 2 — Holdings + analyst consensus
+### Phase 2 — Shares outstanding + Holdings + analyst consensus
+- `download_ishares_fund_data.py` : téléchargement manuel XLS iShares US
+  → NAV + shares outstanding journalier depuis inception pour 14 proxies
+  → feature `shares_outstanding_z20` (signal institutionnel direct)
 - `download_etf_holdings.py` : FMP /etf-holder mensuel
 - Calcul analyst_consensus_etf, upgrade_momentum, price_target_upside
 - Ajout features composition (sector_rotation_30d, top10_concentration)
