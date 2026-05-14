@@ -23,26 +23,67 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 DELAY = 2.0  # seconds between requests (be polite)
 
-# iShares US product IDs and slugs for each proxy ticker
+# iShares US product IDs and slugs for each ticker
 # URL: https://www.ishares.com/us/products/{pid}/{slug}
+#
+# Coverage map (UCITS ticker → US iShares proxy used for shares_outstanding):
+#   CSP1/CSPX  → IVV   (iShares Core S&P 500)
+#   WPEA       → ACWI  (iShares MSCI ACWI — World+EM)
+#   IEMA       → EEM   (iShares MSCI Emerging Markets)
+#   EXCH       → EMXC  (iShares MSCI EM ex China)
+#   IFFI       → EEMA  (iShares MSCI EM Asia — closest to Far East ex Japan)
+#   SJPE       → EWJ   (iShares MSCI Japan — unhedged; same flows)
+#   CSKR/EWY   → EWY   ✓ direct
+#   ITWN/EWT   → EWT   ✓ direct
+#   LTAM       → n/a   (ILF closed fund, no shares outstanding available)
+#   IBZL/EWZ   → EWZ   ✓ direct
+#   IMEX/EWW   → EWW   ✓ direct
+#   ICAU/EWC   → EWC   ✓ direct
+#   ITKY/TUR   → TUR   ✓ direct
+#   FXC/FXC.L  → FXI   (iShares China Large-Cap)
+#   SEMI       → SOXX  (iShares Semiconductor ETF)
+#   INRA/ICLN  → ICLN  (iShares Global Clean Energy)
+#   IGLN/GLD   → IAU   (iShares Gold Trust — iShares native vs SPDR)
+#   SXRS/GSG   → GSG   (iShares S&P GSCI Commodity)
+#   IOGP/IEO   → IEO   ✓ direct
+#   DTLA/TLT   → TLT   ✓ direct
+#   IBTA/IEF   → IEF   ✓ direct
+#   IHYU/HYG   → HYG   ✓ direct
+#   ITPS/TIP   → TIP   ✓ direct
+#   IBTC/IBIT  → IBIT  ✓ direct
+#
+# No US iShares equivalent for:
+#   EXX1.DE  (EU Banks), EXV1.DE (EU Tech), AINF.PA (AI Infra, proxy=CHAT),
+#   IART.PA (AI Innov, proxy=WTAI), ECAR.AS (EV, proxy=DRIV),
+#   CITY.AS (Smart City), IQQQ.DE (Water)
+
 ISHARES_PRODUCTS = {
-    # Geo — country
+    # --- Direct proxies (US-listed iShares ETFs already in universe) ---
     "EWY":  (239659, "ishares-msci-south-korea-etf"),
     "EWT":  (239691, "ishares-msci-taiwan-etf"),
     "EWZ":  (239513, "ishares-msci-brazil-etf"),
     "EWW":  (239690, "ishares-msci-mexico-capped-etf"),
     "EWC":  (239615, "ishares-msci-canada-etf"),
     "TUR":  (239689, "ishares-msci-turkey-etf"),
-    # Bonds / macro
     "TLT":  (239454, "ishares-20-plus-year-treasury-bond-etf"),
     "IEF":  (239456, "ishares-7-10-year-treasury-bond-etf"),
     "HYG":  (239565, "ishares-iboxx-high-yield-corporate-bond-etf"),
     "TIP":  (239467, "ishares-tips-bond-etf"),
-    # Commodities
     "IEO":  (239519, "ishares-us-oil-gas-exploration-production-etf"),
     "RING": (239654, "ishares-msci-global-gold-miners-etf"),
-    # Crypto
     "IBIT": (333016, "ishares-bitcoin-trust-etf"),
+    # --- US iShares equivalents for UCITS ETFs not directly covered ---
+    "IVV":  (239726, "ishares-core-s-p-500-etf"),          # CSP1/CSPX
+    "ACWI": (239600, "ishares-msci-acwi-etf"),             # WPEA (World)
+    "EEM":  (239637, "ishares-msci-emerging-markets-etf"), # IEMA
+    "EMXC": (288504, "ishares-msci-emerging-markets-ex-china-etf"),  # EXCH
+    "EEMA": (239629, "ishares-msci-em-asia-etf"),          # IFFI (Far East)
+    "EWJ":  (239665, "ishares-msci-japan-etf"),            # SJPE
+    "FXI":  (239536, "ishares-china-large-cap-etf"),       # FXC
+    "SOXX": (239705, "ishares-semiconductor-etf"),         # SEMI
+    "ICLN": (239738, "ishares-global-clean-energy-etf"),   # INRA
+    "IAU":  (239561, "ishares-gold-trust"),                # IGLN (Gold)
+    "GSG":  (239757, "ishares-sp-gsci-commodity-indexed-trust"),  # SXRS
     # Note: ILF (Latin America 40) is a closed/delisted fund — no download available
 }
 
