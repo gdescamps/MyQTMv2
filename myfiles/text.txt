@@ -110,3 +110,24 @@ myfiles/etf_plan.md en utilisant FMP
 
 -------------------------------------------
 
+
+Ok, on va faire une expérience. 
+On va ajouter un maximum de features, des crossovers A/B .
+Plusieurs périodes de moyenne mobile sur les différentes features.
+
+Sur toute la période d'apprentissage, les 26 ans, on va les diviser en 3 périodes entrelacées. On va entraîner 3 modèles.
+Entre les trois modèles, on va analyser l'importance des features et ne retenir que les features qui ont la plus grande stabilité dans l'importance entre les intervalles.
+
+mean / std
+
+Une fois qu'on a réalisé notre filtrage de features,
+
+On repart en Walk Forward On garde notre set de features jusqu'au bout.
+
+Par contre, dans la période de validation,
+
+On va utiliser les premiers intervalles comme Early Stop.
+
+Et les deux derniers pour mesurer la stabilité entre val et test
+
+L'optimisation msa se realise sur les 2 derniers intervalles de val 
