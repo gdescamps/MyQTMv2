@@ -318,21 +318,68 @@ score_per_etf = model.predict(X_today)
 - SHAP révèle les régimes capturés — interprétabilité équivalente
 - Phase 2 optionnelle : ajouter HMM si performances OOS insuffisantes
 
-### Sélection des features — identique MyQTM
+### Débruitage des features — identique MyQTM (intra-zone train)
 
-```python
-# Méthode MyQTM : importance = mean / std^power (débruite les features instables)
-# Reprise à l'identique depuis train.py
-feature_importance = mean_importance / (std_importance ** mean_std_power)
-# Seuil : top K% features → sous-ensemble débruité pour le modèle final
+Sur chaque zone train du Walk-Forward, 3 sous-fenêtres entrelacées :
+
+```
+ZONE TRAIN [2010 → 2022]
+  ├── sf1 : train [2010-2014] → eval [2014-2016]  → importance_sf1
+  ├── sf2 : train [2012-2016] → eval [2016-2018]  → importance_sf2
+  └── sf3 : train [2014-2018] → eval [2018-2020]  → importance_sf3
+
+# Méthode MyQTM (reprise à l'identique depuis train.py)
+feature_score = mean(importance_sf1, importance_sf2, importance_sf3) \
+              / std(importance_sf1,  importance_sf2, importance_sf3) ** mean_std_power
+
+# Feature stable sur les 3 sous-fenêtres → vrai signal
+# Feature importante sur 1 seule        → bruit ou artefact de régime → exclue
+selected_features = top_k_percent(feature_score)
 ```
 
-### Intervalles d'entraînement — identique MyQTM
+### Entraînement final avec early stopping
 
-```python
-# data_transform_split_intervals.py : fenêtres train/test interlacées
-# Permet de valider OOS sans look-ahead bias
-# Paramètre TS_SIZE = 6 (fenêtres glissantes de 6 mois)
+Une fois les features sélectionnées, le modèle final s'entraîne sur la zone train
+avec une **zone de validation réservée** pour le early stopping :
+
+```
+ZONE TRAIN [2010 → 2022]
+  ├── train early stop  : [2010 → 2021]   ← features débruitées seulement
+  └── val   early stop  : [2021 → 2022]   ← jamais vu pour la sélection features
+        → stoppe quand val_loss stagne (EvalF1Callback repris de MyQTM)
+
+ZONE TEST [2022 → 2023]  → backtest OOS ✅ (jamais touché)
+```
+
+**3 zones, 3 rôles distincts — pas de leakage :**
+```
+Sous-fenêtres sf1/sf2/sf3  [2010-2020]  → débruitage features
+Early stop val              [2021-2022]  → régularisation XGBoost
+Zone test Walk-Forward      [2022-2023]  → backtest OOS réel
+```
+
+### Backtest Walk-Forward Expanding
+
+```
+Paramètres :
+  MIN_TRAIN_YEARS = 3    # historique minimum avant premier step
+  TEST_WINDOW     = 1    # 1 an de test par step
+  STEP            = 6    # refit tous les 6 mois
+
+Step 1 : train [2010-2013] early_stop [2013]  | test [2013-2014]
+Step 2 : train [2010-2014] early_stop [2014]  | test [2014-2015]
+Step 3 : train [2010-2015] early_stop [2015]  | test [2015-2016]
+...
+Step N : train [2010-2025] early_stop [2025]  | test [2025-2026]
+
+Backtest OOS continu = concaténation des zones test
+→ courbe d'équité lisse sur 13 ans ✅
+→ chaque step refait la sélection de features (features peuvent changer)
+→ cohérent avec la production (expanding window = tout l'historique disponible)
+
+Note : ETFs récents (SEMI.AS depuis 2021, AINF.PA depuis 2024)
+→ entrent dans l'univers progressivement quand leur historique est suffisant
+→ pas de look-ahead sur leur existence
 ```
 
 ### Supervision des labels
