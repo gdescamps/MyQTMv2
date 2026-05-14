@@ -62,12 +62,14 @@ LABEL_COL = "label"
 XGB_PARAMS = dict(
     tree_method          = "hist",
     max_depth            = 4,
-    min_child_weight     = 50,
-    subsample            = 0.8,
-    colsample_bytree     = 0.8,
-    learning_rate        = 0.05,
-    n_estimators         = 2000,
-    early_stopping_rounds= 50,
+    min_child_weight     = 40,
+    subsample            = 0.744,
+    colsample_bytree     = 0.470,
+    learning_rate        = 0.088,
+    reg_alpha            = 0.0002,
+    reg_lambda           = 9.414,
+    n_estimators         = 1000,
+    early_stopping_rounds= 30,
     objective            = "reg:squarederror",
     eval_metric          = "rmse",
     verbosity            = 0,
@@ -108,7 +110,16 @@ def _try_gpu() -> str:
         return "cpu"
 
 
-def run_walk_forward(panel: pd.DataFrame, device: str) -> pd.DataFrame:
+def run_walk_forward(
+    panel: pd.DataFrame,
+    device: str,
+    xgb_params: dict | None = None,
+    verbose: bool = True,
+    save_models: bool = True,
+) -> pd.DataFrame:
+    params = {**XGB_PARAMS, **(xgb_params or {})}
+    params["device"] = device
+
     dates = panel.index.get_level_values("date").unique().sort_values()
     n = len(dates)
 
@@ -150,13 +161,14 @@ def run_walk_forward(panel: pd.DataFrame, device: str) -> pd.DataFrame:
         X_val  = X_all.loc[val_idx].values
         y_val  = y_train.loc[val_idx].values
 
-        model = xgb.XGBRegressor(device=device, **XGB_PARAMS)
+        model = xgb.XGBRegressor(**params)
         model.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], verbose=False)
         best_iter = model.best_iteration
 
-        model_dir = OUTPUTS / "models"
-        model_dir.mkdir(parents=True, exist_ok=True)
-        model.save_model(str(model_dir / f"step_{step_n:02d}.ubj"))
+        if save_models:
+            model_dir = OUTPUTS / "models"
+            model_dir.mkdir(parents=True, exist_ok=True)
+            model.save_model(str(model_dir / f"step_{step_n:02d}.ubj"))
 
         train_dates = dates[:train_end_pos]
         test_dates  = dates[train_end_pos:test_end_pos]
@@ -194,14 +206,15 @@ def run_walk_forward(panel: pd.DataFrame, device: str) -> pd.DataFrame:
         ic_log.append((step_n, val_ic, test_ic))
         step_n += 1
 
-        print(
-            f"  Step {step_n:2d}  "
-            f"[{dates[0].date()} → {train_dates[-1].date()}]  "
-            f"val_IC={val_ic:+.4f}  "
-            f"test [{test_dates[0].date()} → {test_dates[-1].date()}]  "
-            f"test_IC={test_ic:+.4f}  "
-            f"iter={best_iter}"
-        )
+        if verbose:
+            print(
+                f"  Step {step_n:2d}  "
+                f"[{dates[0].date()} → {train_dates[-1].date()}]  "
+                f"val_IC={val_ic:+.4f}  "
+                f"test [{test_dates[0].date()} → {test_dates[-1].date()}]  "
+                f"test_IC={test_ic:+.4f}  "
+                f"iter={best_iter}"
+            )
 
         train_end_pos += STEP
 
@@ -210,12 +223,13 @@ def run_walk_forward(panel: pd.DataFrame, device: str) -> pd.DataFrame:
 
     # IC summary
     ic_df = pd.DataFrame(ic_log, columns=["step", "val_ic", "test_ic"])
-    print(f"\n{'='*60}")
-    print(f"  {'Mean val IC':30s} {ic_df['val_ic'].mean():+.4f}")
-    print(f"  {'Mean test IC (true OOS)':30s} {ic_df['test_ic'].mean():+.4f}")
-    print(f"  {'IC stability (val/test corr)':30s} "
-          f"{ic_df['val_ic'].corr(ic_df['test_ic']):+.3f}")
-    print(f"{'='*60}")
+    if verbose:
+        print(f"\n{'='*60}")
+        print(f"  {'Mean val IC':30s} {ic_df['val_ic'].mean():+.4f}")
+        print(f"  {'Mean test IC (true OOS)':30s} {ic_df['test_ic'].mean():+.4f}")
+        print(f"  {'IC stability (val/test corr)':30s} "
+              f"{ic_df['val_ic'].corr(ic_df['test_ic']):+.3f}")
+        print(f"{'='*60}")
 
     return pd.concat(predictions).sort_index()
 
