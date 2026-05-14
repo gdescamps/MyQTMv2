@@ -2,10 +2,20 @@
 Walk-Forward Expanding XGBoost training for MyQTM-ETF.
 
 For each step in the walk-forward:
-  - Train XGBoost on all data up to train_end (with early stopping on last year)
-  - Predict on next TEST_WINDOW days → out-of-sample predictions
+  - Split the training period into interlaced monthly blocks (50/50):
+      Even blocks → XGBoost training
+      Odd blocks  → Early stopping + CMA-ES optimisation (in backtest.py)
+  - Predict on odd blocks (split="val") → used by CMA-ES in backtest.py
+  - Predict on next TEST_WINDOW days (split="test") → true OOS backtest
 
-Output: data/oos_predictions.parquet  (MultiIndex: date, etf_id → score)
+Interlaced split rationale:
+  - Val scores are OOS from XGBoost (model never saw those blocks) → unbiased
+  - Val covers all market regimes in the training period (not just recent)
+  - CMA-ES params found on val generalise better to the future test period
+
+Output: data/oos_predictions.parquet
+  MultiIndex: (date, etf_id)
+  Columns:    score, label, step, split ("val" | "test"), best_iter
 
 GPU: uses device='cuda' (NVIDIA GB10), falls back to CPU if unavailable.
 """
@@ -20,9 +30,9 @@ DATA = Path(__file__).parent / "data"
 
 # Walk-forward parameters
 MIN_TRAIN_ROWS = 750   # ~3 years of trading days before first test
-TEST_WINDOW    = 250   # ~1 year per test step
+TEST_WINDOW    = 125   # ~6 months per test step (non-overlapping with STEP)
 STEP           = 125   # refit every ~6 months
-VAL_ROWS       = 250   # last year of train = validation for early stopping
+BLOCK_ROWS     = 21    # alternating block size for interlaced train/val split (~1 month)
 
 FEATURE_COLS = [
     # Technical
@@ -77,15 +87,14 @@ def run_walk_forward(panel: pd.DataFrame, device: str) -> pd.DataFrame:
     dates = panel.index.get_level_values("date").unique().sort_values()
     n = len(dates)
 
-    # Feature matrix and labels aligned to panel
     available_cols = [c for c in FEATURE_COLS if c in panel.columns]
     X_all = panel[available_cols].astype(np.float32)
     y_all = panel[LABEL_COL].astype(np.float32)
 
-    # Map date → integer position
+    # Map each row to its date position (0-indexed integer)
     date_to_pos = {d: i for i, d in enumerate(dates)}
-    row_dates = panel.index.get_level_values("date")
-    row_pos   = pd.Series([date_to_pos[d] for d in row_dates], index=panel.index)
+    row_dates   = panel.index.get_level_values("date")
+    row_pos     = pd.Series([date_to_pos[d] for d in row_dates], index=panel.index)
 
     predictions = []
     step_n = 0
@@ -94,17 +103,19 @@ def run_walk_forward(panel: pd.DataFrame, device: str) -> pd.DataFrame:
     while train_end_pos + TEST_WINDOW <= n:
         test_end_pos = min(train_end_pos + TEST_WINDOW, n)
 
-        train_dates = dates[:train_end_pos]
-        val_dates   = dates[max(0, train_end_pos - VAL_ROWS):train_end_pos]
-        test_dates  = dates[train_end_pos:test_end_pos]
+        # --- Interlaced 50/50 split within training period ---
+        # Block index = date_position // BLOCK_ROWS
+        # Even blocks → XGBoost train | Odd blocks → val (early stop + CMA-ES)
+        in_train   = row_pos < train_end_pos
+        block_parity = (row_pos // BLOCK_ROWS) % 2
 
-        train_mask = row_pos < train_end_pos
-        val_mask   = row_pos >= (train_end_pos - VAL_ROWS)
-        train_val_mask = train_mask & val_mask
+        train_mask = in_train & (block_parity == 0)
+        val_mask   = in_train & (block_parity == 1)
+        test_mask  = (row_pos >= train_end_pos) & (row_pos < test_end_pos)
 
-        # Drop rows with NaN label
         tr_idx  = panel.index[train_mask & y_all.notna()]
-        val_idx = panel.index[train_val_mask & y_all.notna()]
+        val_idx = panel.index[val_mask   & y_all.notna()]
+        test_idx = panel.index[test_mask]
 
         if len(tr_idx) < 100 or len(val_idx) < 10:
             train_end_pos += STEP
@@ -123,29 +134,46 @@ def run_walk_forward(panel: pd.DataFrame, device: str) -> pd.DataFrame:
         )
         best_iter = model.best_iteration
 
-        # Predict on test window
-        test_mask = (row_pos >= train_end_pos) & (row_pos < test_end_pos)
-        test_idx  = panel.index[test_mask]
+        train_dates = dates[:train_end_pos]
+        test_dates  = dates[train_end_pos:test_end_pos]
+
+        # --- Predict on val blocks → for CMA-ES in backtest.py ---
+        if len(val_idx) > 0:
+            val_scores = model.predict(X_all.loc[val_idx].values)
+            val_df = pd.DataFrame(
+                {"score": val_scores, "label": y_all.loc[val_idx].values},
+                index=val_idx,
+            )
+            val_df["step"]      = step_n
+            val_df["split"]     = "val"
+            val_df["best_iter"] = best_iter
+            predictions.append(val_df)
+
+        # --- Predict on test window → true OOS backtest ---
         if len(test_idx) > 0:
-            X_test  = X_all.loc[test_idx].values
-            scores  = model.predict(X_test)
-            step_df = pd.DataFrame(
-                {"score": scores, "label": y_all.loc[test_idx].values},
+            test_scores = model.predict(X_all.loc[test_idx].values)
+            test_df = pd.DataFrame(
+                {"score": test_scores, "label": y_all.loc[test_idx].values},
                 index=test_idx,
             )
-            step_df["step"]      = step_n
-            step_df["best_iter"] = best_iter
-            predictions.append(step_df)
+            test_df["step"]      = step_n
+            test_df["split"]     = "test"
+            test_df["best_iter"] = best_iter
+            predictions.append(test_df)
 
         step_n += 1
-        print(f"  Step {step_n:2d}  train [{dates[0].date()} → {train_dates[-1].date()}]"
-              f"  test [{test_dates[0].date()} → {test_dates[-1].date()}]"
-              f"  best_iter={best_iter}  train_rows={len(tr_idx)}")
+        print(
+            f"  Step {step_n:2d}  "
+            f"train [{dates[0].date()} → {train_dates[-1].date()}]  "
+            f"val_blocks={val_mask.sum()}rows  "
+            f"test [{test_dates[0].date()} → {test_dates[-1].date()}]  "
+            f"best_iter={best_iter}"
+        )
 
         train_end_pos += STEP
 
     if not predictions:
-        raise RuntimeError("No OOS predictions produced — check MIN_TRAIN_ROWS vs data length")
+        raise RuntimeError("No predictions produced — check MIN_TRAIN_ROWS vs data length")
 
     return pd.concat(predictions).sort_index()
 
@@ -171,23 +199,31 @@ def main():
 
     device = _try_gpu()
     print(f"Device: {device.upper()}")
-    print(f"\nWalk-Forward: MIN_TRAIN={MIN_TRAIN_ROWS}d  TEST={TEST_WINDOW}d  STEP={STEP}d\n")
+    print(
+        f"\nWalk-Forward: MIN_TRAIN={MIN_TRAIN_ROWS}d  "
+        f"TEST={TEST_WINDOW}d  STEP={STEP}d  BLOCK={BLOCK_ROWS}d\n"
+    )
 
     oos = run_walk_forward(panel, device)
 
     out = DATA / "oos_predictions.parquet"
     oos.to_parquet(out)
 
-    # Quick IC (Information Coefficient = correlation between score and label)
-    valid = oos.dropna(subset=["score", "label"])
-    ic = valid.groupby(valid.index.get_level_values("date")).apply(
+    # IC on test predictions only (true OOS metric)
+    test_oos = oos[oos["split"] == "test"].dropna(subset=["score", "label"])
+    ic = test_oos.groupby(test_oos.index.get_level_values("date")).apply(
         lambda x: x["score"].corr(x["label"])
     ).mean()
 
-    print(f"\nOOS predictions: {len(oos)} rows  saved → {out.name}")
-    print(f"Mean daily IC (score vs label): {ic:.4f}")
-    print(f"Date range: {oos.index.get_level_values('date').min().date()} → "
-          f"{oos.index.get_level_values('date').max().date()}")
+    print(f"\nOOS predictions saved → {out.name}")
+    print(f"  val rows:  {(oos['split']=='val').sum()}")
+    print(f"  test rows: {(oos['split']=='test').sum()}")
+    print(f"Mean daily IC (test scores vs label): {ic:.4f}")
+    print(
+        f"Test date range: "
+        f"{test_oos.index.get_level_values('date').min().date()} → "
+        f"{test_oos.index.get_level_values('date').max().date()}"
+    )
 
 
 if __name__ == "__main__":

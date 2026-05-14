@@ -273,42 +273,52 @@ score_per_etf = model.predict(X_today)
 - SHAP révèle les régimes capturés — interprétabilité complète
 - Régularisation assurée par early stopping + hyperparamètres XGBoost (max_depth=3, min_child_weight)
 
-### Entraînement avec early stopping
+### Entraînement avec early stopping — split entrelacé 50/50
 
-Sur chaque step du Walk-Forward, le modèle s'entraîne sur la zone train
-avec une **zone de validation réservée** pour le early stopping :
+Sur chaque step du Walk-Forward, la **période d'entraînement** est divisée en
+blocs alternés (~1 mois chacun, BLOCK_ROWS = 21 jours) :
 
 ```
-ZONE TRAIN [2010 → 2022]
-  ├── train  : [2010 → 2021]
-  └── val    : [2021 → 2022]  → early stopping quand val_loss stagne
+PÉRIODE D'ENTRAÎNEMENT [2010 → 2022]  — blocs de 21 jours alternés :
+  Blocs pairs  (jan, mar, mai …) → XGBoost train
+  Blocs impairs (fév, avr, jun …) → Early stop + CMA-ES
 
-ZONE TEST [2022 → 2023]  → backtest OOS ✅ (jamais touché)
+PÉRIODE DE TEST [2022 → 2022.5]  → backtest OOS ✅ (jamais touché)
 ```
 
-**2 zones, 2 rôles — simple et sans leakage :**
+**Pourquoi entrelacé plutôt que premier/dernier 50% ?**
+- Les blocs val couvrent **toutes les phases de marché** de la période d'entraînement
+  (crise 2020, bull 2017, correction 2022…) — pas seulement la période récente
+- Les scores XGBoost sur les blocs val sont **non biaisés** : le modèle n'a jamais
+  vu ces blocs → les probabilités reflètent le comportement OOS réel du modèle
+- CMA-ES optimisé sur ces scores non biaisés **généralise mieux** au test futur
+- Si val = dernière année seulement, CMA-ES serait biaisé vers les conditions récentes
+
+**3 zones, 3 rôles distincts :**
 ```
-Train + early stop val  [2010-2022]  → apprentissage + régularisation
-Zone test Walk-Forward  [2022-2023]  → backtest OOS réel
+Blocs pairs  (50% de la période train)  → XGBoost training + early stopping
+Blocs impairs (50% de la période train) → CMA-ES optimization (scores OOS du modèle)
+Zone test walk-forward (future)         → backtest OOS réel avec params CMA-ES
 ```
 
 ### Backtest Walk-Forward Expanding
 
 ```
 Paramètres :
-  MIN_TRAIN_YEARS = 3    # historique minimum avant premier step
-  TEST_WINDOW     = 1    # 1 an de test par step
-  STEP            = 6    # refit tous les 6 mois
+  MIN_TRAIN_ROWS = 750   # ~3 ans de données avant premier step
+  TEST_WINDOW    = 125   # ~6 mois de test par step (non-overlapping)
+  STEP           = 125   # refit tous les 6 mois
+  BLOCK_ROWS     = 21    # taille des blocs alternés (~1 mois)
 
-Step 1 : train [2010-2013] early_stop [2013]  | test [2013-2014]
-Step 2 : train [2010-2014] early_stop [2014]  | test [2014-2015]
-Step 3 : train [2010-2015] early_stop [2015]  | test [2015-2016]
+Step 1 : train [2010-2013]  val_blocs entrelacés  | cmaes → params₁ | test [2013-2013.5]
+Step 2 : train [2010-2013.5] val_blocs entrelacés | cmaes → params₂ | test [2013.5-2014]
+Step 3 : train [2010-2014]  val_blocs entrelacés  | cmaes → params₃ | test [2014-2014.5]
 ...
-Step N : train [2010-2025] early_stop [2025]  | test [2025-2026]
+Step N : train [2010-2025]  val_blocs entrelacés  | cmaes → paramsN | test [2025-2025.5]
 
-Backtest OOS continu = concaténation des zones test
-→ courbe d'équité lisse sur 13 ans ✅
-→ cohérent avec la production (expanding window = tout l'historique disponible)
+Backtest OOS continu = concaténation des zones test (non-overlapping)
+→ courbe d'équité sur ~12 ans ✅
+→ chaque step a ses propres params CMA-ES → adaptation au régime courant
 
 Note : ETFs récents (SEMI.AS depuis 2021, AINF.PA depuis 2024)
 → entrent dans l'univers progressivement quand leur historique est suffisant
@@ -366,9 +376,11 @@ Si XGBoost gérait les deux, il pourrait allouer 90% equity même en crise
 Le sigmoid est un **disjoncteur macro** : VIX explose → exposition réduite
 indépendamment de ce que XGBoost pense de la rotation.
 
-### Optimisation des paramètres — CMA-ES adapté
+### Optimisation des paramètres — CMA-ES par step walk-forward
 
-CMA-ES optimise conjointement les deux fonctions (comme MyQTM `search_params.py`) :
+CMA-ES tourne **une fois par step walk-forward**, sur les blocs val (scores OOS non biaisés).
+Les params trouvés sont ensuite appliqués uniquement à la zone test de ce step.
+Pas de CMA-ES global sur toutes les données (ce serait du leakage).
 
 ```python
 INIT_SPACE = [
@@ -562,15 +574,14 @@ Frais trading (Boursorama) :
 - `parse_ishares_xls.py` : parser XLS iShares → shares outstanding parquet  [À CRÉER]
 - Feature engineering : technique (RSI, MA, momentum, volume) + régime FRED
 
-### Phase 2 — Modèle + backtest
+### Phase 2 — Modèle + backtest intégré CMA-ES
 - XGBoost avec features 3 piliers (technique + régime FRED + smart money SO)
-- Early stopping sur zone de validation réservée (dernière année de chaque train)
-- Walk-Forward Expanding backtest (MIN_TRAIN=3ans, TEST=1an, STEP=6mois)
-
-### Phase 3 — CMA-ES + optimisation allocation
-- CMA-ES sur paramètres sigmoid (p1_vix, p2_hy, equity_max…) + temperature + min_weight_change
-- Optimisation anti-overfit (dropout régimes comme MyQTM)
-- Validation OOS courbe d'équité lisse sur ~13 ans
+- Split entrelacé 50/50 (blocs de 21j) : blocs pairs=train, blocs impairs=val/CMA-ES
+- Early stopping sur les blocs val (même split que CMA-ES)
+- Walk-Forward Expanding : MIN_TRAIN=750j, TEST=125j, STEP=125j, BLOCK=21j
+- CMA-ES par step sur les blocs val (scores OOS non biaisés, couvrant toutes les phases)
+- Backtest OOS = concaténation des zones test avec params CMA-ES de chaque step
+- Courbe d'équité vraiment OOS sur ~12 ans ✅
 
 ### Phase 4 — Production
 - Scheduler daily (APScheduler)

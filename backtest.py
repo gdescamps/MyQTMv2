@@ -1,5 +1,15 @@
 """
-Portfolio backtest + CMA-ES allocation optimisation for MyQTM-ETF.
+Portfolio backtest + per-step CMA-ES allocation optimisation for MyQTM-ETF.
+
+Walk-forward structure (matches train.py):
+  For each step:
+    1. CMA-ES optimises allocation params on val predictions (split="val")
+       → These are XGBoost OOS scores (model never trained on those blocks)
+       → Interlaced monthly blocks → covers all market regimes in training period
+    2. Apply best params to test predictions (split="test") → true OOS returns
+
+This eliminates CMA-ES overfitting: the params are found on unbiased val scores
+and evaluated on a future test period never seen by CMA-ES.
 
 Allocation model:
   1. budget_régime = equity_max × (1 - sigmoid(p1×vix + p2×hy_z60 + p3))
@@ -7,11 +17,9 @@ Allocation model:
   3. defensive weights = softmax(scores[defensive], temperature) × (1 - equity_budget - cash_min)
   4. Cash = 1 - Σweights
 
-CMA-ES optimises 9 parameters to maximise OOS Sharpe ratio.
-
 Output:
-  data/backtest_results.parquet   (daily portfolio returns)
-  data/best_params.npy            (best CMA-ES parameters)
+  data/backtest_results.parquet   (daily portfolio returns, test periods only)
+  outputs/best_params.csv         (per-step CMA-ES params)
   outputs/backtest_equity.csv     (equity curve)
 """
 
@@ -25,13 +33,9 @@ DATA    = Path(__file__).parent / "data"
 OUTPUTS = Path(__file__).parent / "outputs"
 OUTPUTS.mkdir(exist_ok=True)
 
-# ETF sections classification for allocation
 EQUITY_SECTIONS    = {"geo", "sector_us", "thematic"}
 DEFENSIVE_SECTIONS = {"bond", "commodity", "crypto"}
 
-# CMA-ES parameter bounds and initial values
-# [p1_vix, p2_hy_z60, p3_bias, equity_max, cash_min, temperature, max_single_weight,
-#  min_weight_change, defensive_min]
 PARAM_NAMES = [
     "p1_vix", "p2_hy_z60", "p3_bias",
     "equity_max", "cash_min",
@@ -46,10 +50,10 @@ PARAM_BOUNDS = [
     (-3.00, 3.00),   # p3_bias
     ( 0.50, 0.95),   # equity_max
     ( 0.00, 0.20),   # cash_min
-    ( 0.50, 4.00),   # temperature (softmax concentration)
-    ( 0.05, 0.50),   # max_single_weight (cap per ETF)
-    ( 0.01, 0.10),   # min_weight_change (anti-churn threshold)
-    ( 0.05, 0.40),   # defensive_min when danger > 0.5
+    ( 0.50, 4.00),   # temperature
+    ( 0.05, 0.50),   # max_single_weight
+    ( 0.01, 0.10),   # min_weight_change
+    ( 0.05, 0.40),   # defensive_min
 ]
 
 
@@ -59,36 +63,13 @@ def sigmoid(x: np.ndarray) -> np.ndarray:
 
 def softmax(scores: np.ndarray, temperature: float) -> np.ndarray:
     s = scores / max(temperature, 1e-6)
-    s = s - s.max()  # numerical stability
+    s = s - s.max()
     e = np.exp(s)
     return e / e.sum()
 
 
 def clip_params(params: list) -> list:
     return [float(np.clip(v, lo, hi)) for v, (lo, hi) in zip(params, PARAM_BOUNDS)]
-
-
-def compute_daily_weights(
-    scores_eq: np.ndarray, scores_def: np.ndarray,
-    vix: float, hy_z60: float,
-    params: list,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Return (weights_equity, weights_defensive) for one day."""
-    p1, p2, p3, equity_max, cash_min, temp, max_w, _, def_min = params
-
-    danger        = sigmoid(p1 * vix + p2 * hy_z60 + p3)
-    equity_budget = equity_max * (1.0 - danger)
-    def_budget    = max(def_min * (danger > 0.5), 0) + (1.0 - equity_budget - cash_min) * (1 - danger)
-    def_budget    = float(np.clip(def_budget, 0, 1 - equity_budget - cash_min))
-
-    w_eq  = softmax(scores_eq,  temp) * equity_budget
-    w_def = softmax(scores_def, temp) * def_budget
-
-    # Cap individual weights
-    w_eq  = np.minimum(w_eq,  max_w)
-    w_def = np.minimum(w_def, max_w)
-
-    return w_eq, w_def
 
 
 def run_backtest(
@@ -103,34 +84,30 @@ def run_backtest(
 ) -> pd.Series:
     """
     Vectorised portfolio simulation.
-    scores_wide / labels_wide: DataFrame (dates × etf_ids)
-    is_equity / is_defensive:  bool arrays aligned to columns of wide tables
+    scores_wide / labels_wide : DataFrame (dates × etf_ids)
+    is_equity / is_defensive  : bool arrays aligned to columns
     Returns daily portfolio return series.
     """
     params = clip_params(params)
     p1, p2, p3, equity_max, cash_min, temp, max_w, min_change, def_min = params
 
     dates   = scores_wide.index
-    n_dates = len(dates)
     n_etfs  = scores_wide.shape[1]
 
-    scores = scores_wide.values   # (T, E)
-    labels = labels_wide.values   # (T, E)
+    scores = scores_wide.values
+    labels = labels_wide.values
 
-    # Danger signal per day
     vix    = vix_series.reindex(dates, method="ffill").fillna(20.0).values
     hy_z60 = hy_z60_series.reindex(dates, method="ffill").fillna(0.0).values
-    danger        = sigmoid(p1 * vix + p2 * hy_z60 + p3)              # (T,)
-    equity_budget = equity_max * (1.0 - danger)                        # (T,)
+    danger        = sigmoid(p1 * vix + p2 * hy_z60 + p3)
+    equity_budget = equity_max * (1.0 - danger)
     def_budget    = np.where(
         danger > 0.5,
         def_min + (1.0 - equity_budget - cash_min) * (1 - danger),
         (1.0 - equity_budget - cash_min) * (1 - danger),
-    ).clip(0, None)                                                     # (T,)
+    ).clip(0, None)
 
-    # Softmax weights per day
     def _softmax_masked(s: np.ndarray, mask: np.ndarray, T: float) -> np.ndarray:
-        """s: (T,E), mask: (E,) bool → (T,E) weights. NaN scores excluded per row."""
         out = np.zeros_like(s)
         if not mask.any():
             return out
@@ -150,37 +127,92 @@ def run_backtest(
 
     w_eq  = _softmax_masked(scores, is_equity,    temp) * equity_budget[:, None]
     w_def = _softmax_masked(scores, is_defensive, temp) * def_budget[:, None]
-    weights = w_eq + w_def
+    weights = np.minimum(w_eq + w_def, max_w)
 
-    # Cap per ETF
-    weights = np.minimum(weights, max_w)
-
-    # Anti-churn: keep previous weight if |delta| < min_change
+    # Anti-churn: hold previous weight if |delta| < min_change
     prev = np.zeros(n_etfs)
     final_weights = np.empty_like(weights)
-    for t in range(n_dates):
-        delta = weights[t] - prev
+    for t in range(len(dates)):
+        delta   = weights[t] - prev
         applied = np.where(np.abs(delta) > min_change, weights[t], prev)
         final_weights[t] = applied
         prev = applied
 
-    # Portfolio return = Σ w × label (nan-safe)
-    nan_mask  = np.isnan(labels)
-    safe_lbl  = np.where(nan_mask, 0.0, labels)
-    port_ret  = (final_weights * safe_lbl).sum(axis=1)
+    nan_mask = np.isnan(labels)
+    safe_lbl = np.where(nan_mask, 0.0, labels)
+    port_ret = (final_weights * safe_lbl).sum(axis=1)
 
-    # Transaction costs
-    turnover   = np.abs(np.diff(final_weights, axis=0, prepend=np.zeros((1, n_etfs)))).sum(axis=1)
-    port_ret  -= turnover * transaction_cost
+    turnover  = np.abs(np.diff(final_weights, axis=0, prepend=np.zeros((1, n_etfs)))).sum(axis=1)
+    port_ret -= turnover * transaction_cost
 
     return pd.Series(port_ret, index=dates, name="port_return")
 
 
-def sharpe(returns: pd.Series, min_obs: int = 50) -> float:
+def sharpe(returns: pd.Series, min_obs: int = 30) -> float:
     r = returns.dropna()
     if len(r) < min_obs or r.std() < 1e-10:
         return -10.0
     return float(r.mean() / r.std() * np.sqrt(252))
+
+
+def run_cmaes(
+    scores_wide: pd.DataFrame,
+    labels_wide: pd.DataFrame,
+    is_equity: np.ndarray,
+    is_defensive: np.ndarray,
+    vix_s: pd.Series,
+    hy_z60_s: pd.Series,
+    maxiter: int = 80,
+) -> tuple[list, float]:
+    """
+    Run CMA-ES on val predictions for one walk-forward step.
+    Returns (best_params, best_sharpe).
+    """
+    def objective(params: list) -> float:
+        returns = run_backtest(scores_wide, labels_wide, is_equity, is_defensive,
+                               vix_s, hy_z60_s, params)
+        return -sharpe(returns)
+
+    es = cma.CMAEvolutionStrategy(
+        PARAM_INIT,
+        PARAM_SIGMA0,
+        {
+            "maxiter": maxiter,
+            "tolx":    1e-4,
+            "tolfun":  1e-4,
+            "bounds":  [list(b[0] for b in PARAM_BOUNDS),
+                        list(b[1] for b in PARAM_BOUNDS)],
+            "verbose": -9,
+            "popsize": 16,
+        },
+    )
+
+    best_params = list(PARAM_INIT)
+    best_sharpe = -objective(PARAM_INIT)
+
+    while not es.stop():
+        solutions = es.ask()
+        fitnesses = [objective(x) for x in solutions]
+        es.tell(solutions, fitnesses)
+        step_best = -min(fitnesses)
+        if step_best > best_sharpe:
+            best_sharpe = step_best
+            best_params = list(solutions[np.argmin(fitnesses)])
+
+    return best_params, best_sharpe
+
+
+def _pivot_step(step_data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Pivot (date, etf_id) long → wide scores and labels."""
+    sw = step_data["score"].unstack("etf_id").sort_index()
+    lw = step_data["label"].unstack("etf_id").sort_index().reindex(columns=sw.columns)
+    return sw, lw
+
+
+def _section_arrays(etf_list: list, sections: dict) -> tuple[np.ndarray, np.ndarray]:
+    is_eq  = np.array([sections.get(e) in EQUITY_SECTIONS    for e in etf_list])
+    is_def = np.array([sections.get(e) in DEFENSIVE_SECTIONS for e in etf_list])
+    return is_eq, is_def
 
 
 def main():
@@ -188,13 +220,15 @@ def main():
     if not oos_path.exists():
         sys.exit("ERROR: data/oos_predictions.parquet not found — run train.py first")
 
-    print("Loading OOS predictions and features...")
+    print("Loading OOS predictions...")
     oos = pd.read_parquet(oos_path)
     oos = oos.reset_index()
     oos["date"] = pd.to_datetime(oos["date"])
     oos = oos.set_index(["date", "etf_id"])
 
-    # ETF section lookup
+    if "split" not in oos.columns:
+        sys.exit("ERROR: oos_predictions.parquet has no 'split' column — retrain with updated train.py")
+
     sys.path.insert(0, str(Path(__file__).parent))
     from etf import UNIVERSE
     sections = {e.bourso: e.section for e in UNIVERSE}
@@ -210,91 +244,68 @@ def main():
                 s = (s - m) / sd.replace(0, np.nan)
             macro[col] = s
 
-    print(f"OOS rows: {len(oos)}  dates: {oos.index.get_level_values('date').nunique()}")
+    vix_s    = macro.get("vix_level",     pd.Series(dtype=float))
+    hy_z60_s = macro.get("hy_spread_z60", pd.Series(dtype=float))
 
-    # Deduplicate: keep most recent step for each (date, etf_id)
-    if oos.index.duplicated().any():
-        oos = oos.sort_values("step").groupby(level=["date", "etf_id"]).last()
-        print(f"After dedup: {len(oos)} rows")
+    steps = sorted(oos["step"].unique())
+    print(f"Walk-forward steps: {len(steps)}  "
+          f"val rows: {(oos['split']=='val').sum()}  "
+          f"test rows: {(oos['split']=='test').sum()}\n")
 
-    # Pre-compute wide tables (dates × etf_ids) for vectorised backtest
-    print("Pivoting to wide format...")
-    scores_wide = oos["score"].unstack("etf_id").sort_index()
-    labels_wide = oos["label"].unstack("etf_id").sort_index()
-    # Align columns
-    all_etfs = scores_wide.columns.tolist()
-    labels_wide = labels_wide.reindex(columns=all_etfs)
+    all_test_returns = []
+    all_params_rows  = []
 
-    is_equity    = np.array([sections.get(e) in EQUITY_SECTIONS    for e in all_etfs])
-    is_defensive = np.array([sections.get(e) in DEFENSIVE_SECTIONS for e in all_etfs])
+    print(f"{'Step':>4}  {'Val period':>24}  {'Val↗':>7}  "
+          f"{'Test period':>24}  {'Test↗':>7}")
+    print("-" * 75)
 
-    # Macro series aligned to wide index
-    vix_s    = macro.get("vix_level",    pd.Series(20.0,  index=scores_wide.index))
-    hy_z60_s = macro.get("hy_spread_z60", pd.Series(0.0, index=scores_wide.index))
+    for step in steps:
+        val_data  = oos[(oos["step"] == step) & (oos["split"] == "val")]
+        test_data = oos[(oos["step"] == step) & (oos["split"] == "test")]
 
-    print(f"Wide: {scores_wide.shape[0]} dates × {scores_wide.shape[1]} ETFs")
+        if len(val_data) < 50 or len(test_data) == 0:
+            print(f"{step:4d}  SKIP (val={len(val_data)} rows, test={len(test_data)} rows)")
+            continue
 
-    # -----------------------------------------------------------------------
-    # CMA-ES optimisation
-    # -----------------------------------------------------------------------
-    def objective(params: list) -> float:
-        returns = run_backtest(scores_wide, labels_wide, is_equity, is_defensive,
-                               vix_s, hy_z60_s, params)
-        return -sharpe(returns)
+        # --- CMA-ES on val predictions ---
+        val_sw, val_lw = _pivot_step(val_data)
+        val_is_eq, val_is_def = _section_arrays(val_sw.columns.tolist(), sections)
+        best_params, val_sharpe = run_cmaes(val_sw, val_lw, val_is_eq, val_is_def, vix_s, hy_z60_s)
 
-    print("\n=== CMA-ES optimisation (9 parameters) ===")
-    es = cma.CMAEvolutionStrategy(
-        PARAM_INIT,
-        PARAM_SIGMA0,
-        {
-            "maxiter":   150,
-            "tolx":      1e-4,
-            "tolfun":    1e-4,
-            "bounds":    [list(b[0] for b in PARAM_BOUNDS),
-                          list(b[1] for b in PARAM_BOUNDS)],
-            "verbose":   -9,
-            "popsize":   16,
-        },
-    )
+        # --- Evaluate on test (true OOS) ---
+        test_sw, test_lw = _pivot_step(test_data)
+        test_is_eq, test_is_def = _section_arrays(test_sw.columns.tolist(), sections)
+        test_returns = run_backtest(test_sw, test_lw, test_is_eq, test_is_def,
+                                    vix_s, hy_z60_s, best_params)
+        test_sh = sharpe(test_returns)
 
-    best_params = PARAM_INIT
-    best_sharpe = -objective(PARAM_INIT)
-    iteration   = 0
+        val_dates  = val_data.index.get_level_values("date")
+        test_dates = test_data.index.get_level_values("date")
+        print(
+            f"{step:4d}  "
+            f"[{val_dates.min().date()} → {val_dates.max().date()}]  {val_sharpe:7.3f}  "
+            f"[{test_dates.min().date()} → {test_dates.max().date()}]  {test_sh:7.3f}"
+        )
 
-    while not es.stop():
-        solutions   = es.ask()
-        fitnesses   = [objective(x) for x in solutions]
-        es.tell(solutions, fitnesses)
-        iteration  += 1
+        all_test_returns.append(test_returns)
+        all_params_rows.append({"step": step, **dict(zip(PARAM_NAMES, best_params))})
 
-        step_best   = -min(fitnesses)
-        if step_best > best_sharpe:
-            best_sharpe = step_best
-            best_params = solutions[np.argmin(fitnesses)]
+    if not all_test_returns:
+        sys.exit("No test returns produced — check OOS predictions")
 
-        if iteration % 10 == 0:
-            print(f"  iter {iteration:3d}  best Sharpe={best_sharpe:.3f}  "
-                  f"sigma={es.sigma:.4f}")
-
-    print(f"\nCMA-ES done — best Sharpe: {best_sharpe:.4f}")
-    print("Best parameters:")
-    for name, val in zip(PARAM_NAMES, best_params):
-        print(f"  {name:<22} {val:.4f}")
-
-    # -----------------------------------------------------------------------
-    # Final backtest with best params
-    # -----------------------------------------------------------------------
-    print("\n=== Final backtest ===")
-    port_returns = run_backtest(scores_wide, labels_wide, is_equity, is_defensive,
-                                vix_s, hy_z60_s, best_params)
+    # --- Final backtest stats (true OOS: test periods only) ---
+    port_returns = pd.concat(all_test_returns).sort_index()
     eq_curve     = (1 + port_returns).cumprod()
 
-    total_ret  = eq_curve.iloc[-1] - 1
-    ann_ret    = (1 + total_ret) ** (252 / max(len(port_returns), 1)) - 1
-    ann_vol    = port_returns.std() * np.sqrt(252)
+    total_ret    = eq_curve.iloc[-1] - 1
+    n_years      = max(len(port_returns), 1) / 252
+    ann_ret      = (1 + total_ret) ** (1 / n_years) - 1
+    ann_vol      = port_returns.std() * np.sqrt(252)
     final_sharpe = sharpe(port_returns)
-    max_dd     = (eq_curve / eq_curve.cummax() - 1).min()
+    max_dd       = (eq_curve / eq_curve.cummax() - 1).min()
 
+    print("\n" + "=" * 75)
+    print("=== Final OOS backtest (test periods, CMA-ES per step) ===")
     print(f"  Period:       {port_returns.index[0].date()} → {port_returns.index[-1].date()}")
     print(f"  Total return: {total_ret:.1%}")
     print(f"  Ann. return:  {ann_ret:.1%}")
@@ -302,16 +313,18 @@ def main():
     print(f"  Sharpe:       {final_sharpe:.3f}")
     print(f"  Max drawdown: {max_dd:.1%}")
 
-    # Save results
+    # Save
     port_returns.to_frame().to_parquet(DATA / "backtest_results.parquet")
-    np.save(OUTPUTS / "best_params.npy", np.array(best_params))
+
+    params_df = pd.DataFrame(all_params_rows)
+    params_df.to_csv(OUTPUTS / "best_params.csv", index=False)
 
     eq_df = eq_curve.reset_index()
     eq_df.columns = ["date", "equity"]
     eq_df.to_csv(OUTPUTS / "backtest_equity.csv", index=False)
 
     print(f"\nSaved → data/backtest_results.parquet")
-    print(f"Saved → outputs/best_params.npy")
+    print(f"Saved → outputs/best_params.csv")
     print(f"Saved → outputs/backtest_equity.csv")
 
 
