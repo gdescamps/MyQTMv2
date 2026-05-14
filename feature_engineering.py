@@ -110,9 +110,11 @@ def compute_etf_features(ohlcv: pd.DataFrame, shares_df: pd.DataFrame | None) ->
     # ATR normalised
     f["atr_14"] = _atr_norm(h, l, c, 14)
 
-    # Volume dollar z-score (20d)
+    # Volume dollar z-scores
     dvol = c * v
+    f["volume_z5"]  = _z(dvol, 5)
     f["volume_z20"] = _z(dvol, 20)
+    f["volume_z60"] = _z(dvol, 60)
 
     # Shares outstanding z-scores from iShares XLS (smart money flows)
     if shares_df is not None and "shares_outstanding" in shares_df.columns:
