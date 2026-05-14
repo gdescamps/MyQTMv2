@@ -80,6 +80,7 @@ SECTOR_US = [
 # ---------------------------------------------------------------------------
 THEMATIC = [
     ETF("EXX1.DE", "iShares EURO STOXX Banks 30-15 ETF DE acc",       "thematic", "banks_eu", pea=True,  zero_fees=True,  fmp="EXX1.DE", fmp_proxy=False, perf_1y=0.31,  perf_5y=1.74),
+    ETF("EXV1.DE", "iShares STOXX Europe 600 Tech (DE) acc",          "thematic", "tech_eu",  pea=True,  zero_fees=True,  fmp="EXV1.DE", fmp_proxy=False, perf_1y=0.30,  perf_5y=1.64),
     ETF("SEMI.AS", "iShares MSCI Global Semiconductors ETF USD Acc",  "thematic", "semi",     pea=False, zero_fees=True,  fmp="SEMI.AS", fmp_proxy=False, perf_1y=1.67,  perf_5y=2.64),
     ETF("AINF.PA", "iShares AI Infrastructure ETF USD Acc",           "thematic", "ia",       pea=False, zero_fees=True,  fmp="CHAT",    fmp_proxy=True,  perf_1y=1.12,  perf_5y=2.25),
     ETF("IART.PA", "iShares AI Innovation Active ETF USD Acc",        "thematic", "ia",       pea=False, zero_fees=True,  fmp="WTAI",    fmp_proxy=True,  perf_1y=0.86,  perf_5y=0.62),

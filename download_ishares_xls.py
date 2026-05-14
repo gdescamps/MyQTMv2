@@ -90,6 +90,51 @@ ISHARES_PRODUCTS = {
 BASE_PRODUCT_URL = "https://www.ishares.com/us/products"
 DOWNLOAD_URL = "{base}/{pid}/{slug}/fund/1521942788811.ajax?fileType=xls&fileName={ticker}_fund&dataType=fund"
 
+# iShares UK/EU products — uses different timestamp and no "fund/" subdirectory
+# URL: https://www.ishares.com/uk/individual/en/products/{pid}/{slug}/{UK_TS}.ajax?fileType=xls&fileName={fname}&dataType=fund
+UK_BASE = "https://www.ishares.com/uk/individual/en/products"
+UK_TS = "1535604580409"
+
+UK_ISHARES_PRODUCTS = {
+    # ticker: (pid, slug, fname)
+    # --- Geographic ---
+    "ISF":  (251882, "ishares-core-ftse-100-ucits-etf",
+             "iShares-Core-FTSE-100-UCITS-ETF_fund"),
+    # --- S&P 500 Sector ETFs (UCITS) ---
+    "IUIT": (280510, "ishares-sp-500-information-technology-sector-ucits-etf",
+             "iShares-S-P-500-Information-Technology-Sector-UCITS-ETF_fund"),
+    "IUES": (280503, "ishares-sp-500-energy-sector-ucits-etf",
+             "iShares-S-P-500-Energy-Sector-UCITS-ETF_fund"),
+    "IUHC": (280507, "ishares-sp-500-health-care-sector-ucits-etf",
+             "iShares-S-P-500-Health-Care-Sector-UCITS-ETF_fund"),
+    "IUFS": (280523, "ishares-sp-500-financials-sector-ucits-etf",
+             "iShares-S-P-500-Financials-Sector-UCITS-ETF_fund"),
+    "IUCD": (280526, "ishares-sp-500-consumer-discretionary-sector-ucits-etf",
+             "iShares-S-P-500-Consumer-Discretionary-Sector-UCITS-ETF_fund"),
+    "IUII": (287109, "ishares-s-p-500-industrials-sector-ucits-etf",
+             "iShares-S-P-500-Industrials-Sector-UCITS-ETF_fund"),
+    "IUCS": (287102, "ishares-s-p-500-consumer-staples-sector-ucits-etf",
+             "iShares-S-P-500-Consumer-Staples-Sector-UCITS-ETF_fund"),
+    # --- Thematic ---
+    "EXX1": (251784, "ishares-euro-stoxx-banks-de",
+             "iShares-EURO-STOXX-Banks-DE_fund"),
+    "EXV1": (251961, "ishares-stoxx-europe-600-technology-ucits-etf-de",
+             "iShares-STOXX-Europe-600-Technology-UCITS-ETF-DE-EUR-Dist_fund"),
+    "AINF": (343289, "ishares-ai-infrastructure-ucits-etf",
+             "iShares-AI-Infrastructure-UCITS-ETF-USD-Acc_fund"),
+    "IART": (338781, "ishares-ai-innovation-active-ucits-etf",
+             "iShares-AI-Innovation-Active-UCITS-ETF-USD-Acc_fund"),
+    "ECAR": (307130, "ishares-electric-vehicles-and-driving-technology-ucits-etf-usd-acc",
+             "iShares-Electric-Vehicles-and-Driving-Technology-UCITS-ETF-USD-Acc_fund"),
+    "CITY": (310714, "ishares-smart-city-infrastructure-ucits-etf",
+             "iShares-Smart-City-Infrastructure-UCITS-ETF_fund"),
+    "IQQQ": (251913, "ishares-global-water-ucits-etf",
+             "iShares-Global-Water-UCITS-ETF_fund"),
+    # --- Already downloaded manually ---
+    # "CNX1": (253741, "ishares-nasdaq-100-ucits-etf",
+    #          "iShares-Nasdaq-100-UCITS-ETF-USD-Acc_fund"),
+}
+
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -141,29 +186,76 @@ def download_fund_xls(ticker: str, pid: int, slug: str, session: requests.Sessio
     return True
 
 
-def main():
-    print(f"Downloading {len(ISHARES_PRODUCTS)} iShares fund XLS files\n")
+def download_uk_fund_xls(ticker: str, pid: int, slug: str, fname: str, session: requests.Session) -> bool:
+    """Download iShares UK/EU fund XLS. Returns True on success."""
+    out_path = DATA_DIR / f"{ticker}_fund.xls"
+    if out_path.exists():
+        print(f"  SKIP  {ticker:<6}  (already downloaded)")
+        return True
 
+    product_url = f"{UK_BASE}/{pid}/{slug}"
+    xls_url = f"{UK_BASE}/{pid}/{slug}/{UK_TS}.ajax?fileType=xls&fileName={fname}&dataType=fund"
+
+    try:
+        session.get(product_url, headers=HEADERS, timeout=30)
+    except requests.RequestException as e:
+        print(f"  [ERROR] {ticker}: product page failed — {e}")
+        return False
+
+    time.sleep(0.5)
+
+    try:
+        r = session.get(xls_url, headers={**HEADERS, "Referer": product_url}, timeout=60)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        print(f"  [ERROR] {ticker}: XLS download failed — {e}")
+        return False
+
+    content = r.content
+    if b"<?xml" not in content[:200]:
+        print(f"  [ERROR] {ticker}: not SpreadsheetML — {len(content)} bytes")
+        return False
+
+    out_path.write_bytes(content)
+    print(f"  OK    {ticker:<6}  {len(content) // 1024} KB  → {out_path.name}")
+    return True
+
+
+def main():
     session = requests.Session()
     ok, skipped, failed = 0, 0, 0
+    total = len(ISHARES_PRODUCTS) + len(UK_ISHARES_PRODUCTS)
 
+    print(f"=== US iShares ({len(ISHARES_PRODUCTS)} funds) ===")
     for i, (ticker, (pid, slug)) in enumerate(ISHARES_PRODUCTS.items(), 1):
         print(f"[{i:2d}/{len(ISHARES_PRODUCTS)}] {ticker}", end="  ", flush=True)
-
         out_path = DATA_DIR / f"{ticker}_fund.xls"
         if out_path.exists():
             print(f"SKIP (already {out_path.stat().st_size // 1024} KB)")
             skipped += 1
             continue
-
         print("fetching...", end=" ", flush=True)
-        success = download_fund_xls(ticker, pid, slug, session)
-        if success:
+        if download_fund_xls(ticker, pid, slug, session):
             ok += 1
         else:
             failed += 1
-
         if i < len(ISHARES_PRODUCTS):
+            time.sleep(DELAY)
+
+    print(f"\n=== UK/EU iShares ({len(UK_ISHARES_PRODUCTS)} funds) ===")
+    for i, (ticker, (pid, slug, fname)) in enumerate(UK_ISHARES_PRODUCTS.items(), 1):
+        print(f"[{i:2d}/{len(UK_ISHARES_PRODUCTS)}] {ticker}", end="  ", flush=True)
+        out_path = DATA_DIR / f"{ticker}_fund.xls"
+        if out_path.exists():
+            print(f"SKIP (already {out_path.stat().st_size // 1024} KB)")
+            skipped += 1
+            continue
+        print("fetching...", end=" ", flush=True)
+        if download_uk_fund_xls(ticker, pid, slug, fname, session):
+            ok += 1
+        else:
+            failed += 1
+        if i < len(UK_ISHARES_PRODUCTS):
             time.sleep(DELAY)
 
     print(f"\nDone: {ok} downloaded, {skipped} skipped, {failed} failed")
