@@ -23,7 +23,7 @@ DATA = Path(__file__).parent / "data"
 
 # Map each ETF bourso ticker → iShares XLS ticker (for shares_outstanding)
 ISHARES_MAP = {
-    "CSP1.PA":  "IVV",   "CNX1.PA":  "CNX1",  "WPEA.PA":  "ACWI",
+    "CSP1.PA":  "IVV",   "CNX1.PA":  "IUIT",  "WPEA.PA":  "ACWI",
     "IEMA.AS":  "EEM",   "CSKR.PA":  "EWY",   "ITWN.PA":  "EWT",
     "IFFI.AS":  "EEMA",  "EXCH.AS":  "EMXC",  "SJPE.AS":  "EWJ",
     "IBZL.AS":  "EWZ",   "IMEX.AS":  "EWW",   "ICAU.AS":  "EWC",
