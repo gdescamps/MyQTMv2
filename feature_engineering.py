@@ -83,52 +83,88 @@ def compute_etf_features(ohlcv: pd.DataFrame, shares_df: pd.DataFrame | None) ->
     v = ohlcv.get("volume", pd.Series(np.nan, index=c.index))
 
     f = pd.DataFrame(index=c.index)
-
-    # Momentum
-    f["ret_1d"]  = c.pct_change(1)
-    f["ret_5d"]  = c.pct_change(5)
-    f["ret_20d"] = c.pct_change(20)
-    f["ret_60d"] = c.pct_change(60)
-
-    # Volatility (annualised)
     r1 = c.pct_change(1)
-    f["vol_20d"] = r1.rolling(20, min_periods=15).std() * np.sqrt(252)
-    f["vol_60d"] = r1.rolling(60, min_periods=40).std() * np.sqrt(252)
 
-    # RSI
-    f["rsi_14"] = _rsi(c, 14)
+    # ---- Momentum (multiple horizons) ----
+    for d in [1, 5, 10, 20, 40, 60, 120]:
+        f[f"ret_{d}d"] = c.pct_change(d)
 
-    # Moving averages
+    # ---- Volatility (multiple horizons, annualised) ----
+    for d in [5, 10, 20, 60, 120]:
+        f[f"vol_{d}d"] = r1.rolling(d, min_periods=max(d // 2, 3)).std() * np.sqrt(252)
+
+    # Volatility ratios (short/long)
+    f["vol_ratio_5v20"]  = f["vol_5d"]  / f["vol_20d"].replace(0, np.nan)
+    f["vol_ratio_5v60"]  = f["vol_5d"]  / f["vol_60d"].replace(0, np.nan)
+    f["vol_ratio_20v60"] = f["vol_20d"] / f["vol_60d"].replace(0, np.nan)
+
+    # ---- RSI (multiple periods) ----
+    for p in [7, 14, 21]:
+        f[f"rsi_{p}"] = _rsi(c, p)
+
+    # ---- Moving averages ----
+    ma10  = c.rolling(10,  min_periods=7).mean()
     ma20  = c.rolling(20,  min_periods=15).mean()
     ma50  = c.rolling(50,  min_periods=40).mean()
+    ma100 = c.rolling(100, min_periods=75).mean()
     ma200 = c.rolling(200, min_periods=150).mean()
-    f["price_vs_ma50"]  = c / ma50.replace(0, np.nan) - 1
-    f["price_vs_ma200"] = c / ma200.replace(0, np.nan) - 1
-    f["ma_20_slope"]    = ma20.pct_change(5)
-    f["ma_50_slope"]    = ma50.pct_change(20)
 
-    # ATR normalised
-    f["atr_14"] = _atr_norm(h, l, c, 14)
+    # Price vs MA
+    for ma, name in [(ma10, "10"), (ma20, "20"), (ma50, "50"), (ma100, "100"), (ma200, "200")]:
+        f[f"price_vs_ma{name}"] = c / ma.replace(0, np.nan) - 1
 
-    # Volume dollar z-scores
+    # MA slopes
+    f["ma_10_slope"] = ma10.pct_change(5)
+    f["ma_20_slope"] = ma20.pct_change(5)
+    f["ma_50_slope"] = ma50.pct_change(20)
+    f["ma_100_slope"] = ma100.pct_change(20)
+    f["ma_200_slope"] = ma200.pct_change(60)
+
+    # MA crossovers (A/B ratios)
+    f["ma10_vs_ma20"]  = ma10 / ma20.replace(0, np.nan) - 1
+    f["ma10_vs_ma50"]  = ma10 / ma50.replace(0, np.nan) - 1
+    f["ma20_vs_ma50"]  = ma20 / ma50.replace(0, np.nan) - 1
+    f["ma20_vs_ma100"] = ma20 / ma100.replace(0, np.nan) - 1
+    f["ma50_vs_ma100"] = ma50 / ma100.replace(0, np.nan) - 1
+    f["ma50_vs_ma200"] = ma50 / ma200.replace(0, np.nan) - 1
+    f["ma100_vs_ma200"] = ma100 / ma200.replace(0, np.nan) - 1
+
+    # ---- ATR (multiple periods) ----
+    for p in [7, 14, 21]:
+        f[f"atr_{p}"] = _atr_norm(h, l, c, p)
+
+    # ATR ratio (short/long)
+    f["atr_ratio_7v21"] = f["atr_7"] / f["atr_21"].replace(0, np.nan)
+
+    # ---- Volume dollar z-scores (multiple horizons) ----
     dvol = c * v
-    f["volume_z5"]  = _z(dvol, 5)
-    f["volume_z20"] = _z(dvol, 20)
-    f["volume_z60"] = _z(dvol, 60)
+    for d in [5, 10, 20, 60]:
+        f[f"volume_z{d}"] = _z(dvol, d)
 
-    # Shares outstanding z-scores from iShares XLS (smart money flows)
+    # Volume crossovers
+    f["vol_cross_5v20"]  = f["volume_z5"]  - f["volume_z20"]
+    f["vol_cross_5v60"]  = f["volume_z5"]  - f["volume_z60"]
+    f["vol_cross_20v60"] = f["volume_z20"] - f["volume_z60"]
+
+    # ---- Shares outstanding z-scores (smart money flows) ----
     if shares_df is not None and "shares_outstanding" in shares_df.columns:
         so = shares_df["shares_outstanding"].reindex(c.index, method="ffill")
         so_chg = so.diff(1)
-        f["shares_outstanding_z5"]  = _z(so_chg, 5)
-        f["shares_outstanding_z20"] = _z(so_chg, 20)
-        f["shares_outstanding_z60"] = _z(so_chg, 60)
+        for d in [5, 10, 20, 60]:
+            f[f"shares_outstanding_z{d}"] = _z(so_chg, d)
+        # Smart money crossovers
+        f["so_cross_5v20"]  = f["shares_outstanding_z5"]  - f["shares_outstanding_z20"]
+        f["so_cross_5v60"]  = f["shares_outstanding_z5"]  - f["shares_outstanding_z60"]
+        f["so_cross_20v60"] = f["shares_outstanding_z20"] - f["shares_outstanding_z60"]
     else:
-        f["shares_outstanding_z5"]  = np.nan
-        f["shares_outstanding_z20"] = np.nan
-        f["shares_outstanding_z60"] = np.nan
+        for d in [5, 10, 20, 60]:
+            f[f"shares_outstanding_z{d}"] = np.nan
+        f["so_cross_5v20"]  = np.nan
+        f["so_cross_5v60"]  = np.nan
+        f["so_cross_20v60"] = np.nan
 
-    # Forward return (label component) — shifted BACK 20 days (no lookahead)
+    # Forward returns (label candidates) — shifted BACK N days (no lookahead)
+    f["ret_10d_fwd"] = c.pct_change(10).shift(-10)
     f["ret_20d_fwd"] = c.pct_change(20).shift(-20)
 
     return f
@@ -151,25 +187,39 @@ def load_macro() -> pd.DataFrame:
     vix = _fred("vix", "vix")
     mac["vix_level"]           = vix
     mac["vix_velocity"]        = vix.diff(5)
-    mac["vix_reversion_force"] = _z(vix, 60) * -1   # positive = vix above norm (dangerous)
-    mac["vix_z5"]              = _z(vix, 5)
-    mac["vix_z20"]             = _z(vix, 20)
-    mac["vix_z60"]             = _z(vix, 60)
+    mac["vix_velocity_20"]     = vix.diff(20)
+    mac["vix_reversion_force"] = _z(vix, 60) * -1
+    for d in [5, 20, 60]:
+        mac[f"vix_z{d}"] = _z(vix, d)
+    mac["vix_cross_5v20"]  = _z(vix, 5) - _z(vix, 20)
+    mac["vix_cross_5v60"]  = _z(vix, 5) - _z(vix, 60)
+    mac["vix_cross_20v60"] = _z(vix, 20) - _z(vix, 60)
 
     hy = _fred("hy_spread", "hy")
-    mac["hy_spread"]          = hy
-    mac["hy_spread_z5"]       = _z(hy, 5)
-    mac["hy_spread_z20"]      = _z(hy, 20)
-    mac["hy_spread_z60"]      = _z(hy, 60)
-    mac["hy_spread_velocity"] = hy.diff(5)
+    mac["hy_spread"] = hy
+    for d in [5, 20, 60]:
+        mac[f"hy_spread_z{d}"] = _z(hy, d)
+    mac["hy_spread_velocity"]    = hy.diff(5)
+    mac["hy_spread_velocity_20"] = hy.diff(20)
+    mac["hy_cross_5v20"]  = _z(hy, 5) - _z(hy, 20)
+    mac["hy_cross_5v60"]  = _z(hy, 5) - _z(hy, 60)
+    mac["hy_cross_20v60"] = _z(hy, 20) - _z(hy, 60)
 
     yc = _fred("yield_curve", "yc")
-    mac["yield_curve"]          = yc
-    mac["yield_curve_velocity"] = yc.diff(20)
+    mac["yield_curve"] = yc
+    for d in [5, 20, 60]:
+        mac[f"yield_curve_z{d}"] = _z(yc, d)
+    mac["yield_curve_velocity"]    = yc.diff(5)
+    mac["yield_curve_velocity_20"] = yc.diff(20)
+    mac["yc_cross_5v20"]  = _z(yc, 5) - _z(yc, 20)
+    mac["yc_cross_20v60"] = _z(yc, 20) - _z(yc, 60)
 
     dxy = _fred("dxy", "dxy")
-    mac["dxy_ret_20d"] = dxy.pct_change(20)
-    mac["dxy_z60"]     = _z(dxy, 60)
+    for d in [5, 20, 60]:
+        mac[f"dxy_ret_{d}d"] = dxy.pct_change(d)
+        mac[f"dxy_z{d}"] = _z(dxy, d)
+    mac["dxy_cross_5v20"]  = _z(dxy, 5) - _z(dxy, 20)
+    mac["dxy_cross_20v60"] = _z(dxy, 20) - _z(dxy, 60)
 
     # SPX proxy (IVV or CSPX_AS)
     for ticker in ["IVV", "CSPX_AS", "QQQ"]:
@@ -248,10 +298,33 @@ def main():
     panel = pd.concat(panels)
     panel = panel.reset_index()  # columns: date, etf_id, section, features...
 
-    # Cross-sectional z-scores within section (same date, same section)
-    for col in ["ret_20d", "ret_5d"]:
-        panel[f"{col}_z_within_block"] = (
-            panel.groupby(["date", "section"])[col]
+    # Cross-sectional z-scores within section
+    for col in ["ret_5d", "ret_20d", "ret_60d"]:
+        if col in panel.columns:
+            panel[f"{col}_z_within_block"] = (
+                panel.groupby(["date", "section"])[col]
+                .transform(lambda x: (x - x.mean()) / max(x.std(), 1e-8))
+            )
+
+    # Cross-sectional z-scores vs full universe
+    for col in ["ret_5d", "ret_20d", "ret_60d", "ret_120d", "vol_20d", "vol_60d"]:
+        if col in panel.columns:
+            panel[f"{col}_z_xs"] = (
+                panel.groupby("date")[col]
+                .transform(lambda x: (x - x.mean()) / max(x.std(), 1e-8))
+            )
+
+    # Cross-sectional ranks
+    for col in ["ret_20d", "ret_60d", "ret_120d"]:
+        if col in panel.columns:
+            panel[f"{col}_rank"] = panel.groupby("date")[col].rank(pct=True)
+
+    # Momentum acceleration cross-sectional
+    panel["mom_accel_5v20"] = panel.get("ret_5d", 0) - panel.get("ret_20d", 0)
+    panel["mom_accel_20v60"] = panel.get("ret_20d", 0) - panel.get("ret_60d", 0)
+    for col in ["mom_accel_5v20", "mom_accel_20v60"]:
+        panel[f"{col}_z_xs"] = (
+            panel.groupby("date")[col]
             .transform(lambda x: (x - x.mean()) / max(x.std(), 1e-8))
         )
 
