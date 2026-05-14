@@ -253,48 +253,27 @@ score_per_etf = model.predict(X_today)
 
 **Avantages :**
 - Aucun leakage (variables macro observables à t, pas de modèle intermédiaire)
-- Moins de complexité (pas de HMM à entraîner en expanding window)
-- SHAP révèle les régimes capturés — interprétabilité équivalente
-- Phase 2 optionnelle : ajouter HMM si performances OOS insuffisantes
+- ~20 features pré-sélectionnées par la connaissance métier → pas besoin de sélection automatique
+- SHAP révèle les régimes capturés — interprétabilité complète
+- Régularisation assurée par early stopping + hyperparamètres XGBoost (max_depth=3, min_child_weight)
 
-### Débruitage des features — identique MyQTM (intra-zone train)
+### Entraînement avec early stopping
 
-Sur chaque zone train du Walk-Forward, 3 sous-fenêtres entrelacées :
-
-```
-ZONE TRAIN [2010 → 2022]
-  ├── sf1 : train [2010-2014] → eval [2014-2016]  → importance_sf1
-  ├── sf2 : train [2012-2016] → eval [2016-2018]  → importance_sf2
-  └── sf3 : train [2014-2018] → eval [2018-2020]  → importance_sf3
-
-# Méthode MyQTM (reprise à l'identique depuis train.py)
-feature_score = mean(importance_sf1, importance_sf2, importance_sf3) \
-              / std(importance_sf1,  importance_sf2, importance_sf3) ** mean_std_power
-
-# Feature stable sur les 3 sous-fenêtres → vrai signal
-# Feature importante sur 1 seule        → bruit ou artefact de régime → exclue
-selected_features = top_k_percent(feature_score)
-```
-
-### Entraînement final avec early stopping
-
-Une fois les features sélectionnées, le modèle final s'entraîne sur la zone train
+Sur chaque step du Walk-Forward, le modèle s'entraîne sur la zone train
 avec une **zone de validation réservée** pour le early stopping :
 
 ```
 ZONE TRAIN [2010 → 2022]
-  ├── train early stop  : [2010 → 2021]   ← features débruitées seulement
-  └── val   early stop  : [2021 → 2022]   ← jamais vu pour la sélection features
-        → stoppe quand val_loss stagne (EvalF1Callback repris de MyQTM)
+  ├── train  : [2010 → 2021]
+  └── val    : [2021 → 2022]  → early stopping quand val_loss stagne
 
 ZONE TEST [2022 → 2023]  → backtest OOS ✅ (jamais touché)
 ```
 
-**3 zones, 3 rôles distincts — pas de leakage :**
+**2 zones, 2 rôles — simple et sans leakage :**
 ```
-Sous-fenêtres sf1/sf2/sf3  [2010-2020]  → débruitage features
-Early stop val              [2021-2022]  → régularisation XGBoost
-Zone test Walk-Forward      [2022-2023]  → backtest OOS réel
+Train + early stop val  [2010-2022]  → apprentissage + régularisation
+Zone test Walk-Forward  [2022-2023]  → backtest OOS réel
 ```
 
 ### Backtest Walk-Forward Expanding
@@ -313,7 +292,6 @@ Step N : train [2010-2025] early_stop [2025]  | test [2025-2026]
 
 Backtest OOS continu = concaténation des zones test
 → courbe d'équité lisse sur 13 ans ✅
-→ chaque step refait la sélection de features (features peuvent changer)
 → cohérent avec la production (expanding window = tout l'historique disponible)
 
 Note : ETFs récents (SEMI.AS depuis 2021, AINF.PA depuis 2024)
@@ -568,10 +546,9 @@ Frais trading (Boursorama) :
 - `parse_ishares_xls.py` : parser XLS iShares → shares outstanding parquet  [À CRÉER]
 - Feature engineering : technique (RSI, MA, momentum, volume) + régime FRED
 
-### Phase 2 — Modèle + débruitage + backtest
+### Phase 2 — Modèle + backtest
 - XGBoost avec features 3 piliers (technique + régime FRED + smart money SO)
-- Débruitage features : 3 sous-fenêtres entrelacées → mean/std^power (identique MyQTM)
-- Early stopping sur zone de validation réservée
+- Early stopping sur zone de validation réservée (dernière année de chaque train)
 - Walk-Forward Expanding backtest (MIN_TRAIN=3ans, TEST=1an, STEP=6mois)
 
 ### Phase 3 — CMA-ES + optimisation allocation
