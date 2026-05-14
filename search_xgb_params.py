@@ -102,7 +102,7 @@ def main():
     print(f"\n{sep}")
     print(f"  Optuna TPE search -- {N_TRIALS} trials (~10 min)")
     print(f"  Objective: mean_test_IC + {STAB_WEIGHT} x stability")
-    print(f"  Baseline:  test_IC=+0.033  stability=+0.070  obj=+0.068")
+    print(f"  Baseline:  test_IC=+0.042  stability=+0.082  obj=+0.083")
     print(f"{sep}\n", flush=True)
 
     results = []
