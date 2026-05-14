@@ -168,58 +168,76 @@ price_target_upside   = Σ( weight_i × (target_price_i - price_i) / price_i )
 # → features stables 7j, mis à jour chaque lundi
 ```
 
-### 4d. Rotation de composition — signal précoce
+### 4d. Recomposition historique de l'ETF — stockage time-aware
 
 ```python
-# FMP: /etf-holder → snapshot mensuel des poids sectoriels
-# Variation de composition = signal avant le prix
+# FMP: /etf-holder → snapshot mensuel, TOUS les snapshots conservés
+# → pas seulement le dernier, mais tout l'historique de composition
 
-sector_rotation_30d = etf_sector_weight_t - etf_sector_weight_t_minus_30d
-# Ex : si XLK perd du poids dans le S&P 500 → rotation défensive imminente
+# Stockage : data/holdings/{ETF_TICKER}.parquet
+# Colonnes  : [date_snapshot, composant, poids, secteur]
 
-features_composition = {
-    "top10_concentration",          # Σ poids top 10 (stabilité/risque)
-    "tech_weight_etf",              # poids secteur tech dans l'ETF
-    "tech_weight_delta_30d",        # variation poids tech sur 30j
-    "geo_us_weight",                # exposition US (pour ETF monde/EM)
-    "holdings_count",               # nombre de lignes (diversification)
-}
+# Pour chaque date t du backtest, utiliser le dernier snapshot ≤ t
+def get_weights(etf, date_t):
+    snapshots = holdings[etf]
+    last_date = max(d for d in snapshots if d <= date_t)
+    return snapshots[last_date]   # poids connus à date_t, sans look-ahead ✅
+
+# CRITIQUE pour le backtest : utiliser les poids actuels (2024) pour
+# recalculer le sentiment en 2020 = look-ahead bias
+# → on doit toujours utiliser get_weights(etf, date_t)
 ```
 
-### 4e. Sentiment — news composants via LLM
+**Features de rotation dérivées de la recomposition :**
+```python
+# Variation de composition = signal avant le prix
+w_t    = get_weights(etf, t)
+w_t30  = get_weights(etf, t - 30j)
+
+sector_rotation_30d  = tech_weight(w_t) - tech_weight(w_t30)
+top10_concentration  = sum(sorted(w_t.values())[-10:])
+geo_us_weight        = w_t.get("US", 0)
+holdings_count       = len(w_t)
+# Ex : si XLK perd du poids dans le S&P 500 → rotation défensive imminente
+```
+
+### 4e. Sentiment composite time-aware — news composants via LLM
 
 Adapté de MyQTM (`data_transform_stock_news_to_sentiment_scores.py`) :
 
 ```python
-# MyQTM utilise Gemini (GCP) pour scorer les news
-# Pour les ETF : on score les news des top 10 composants
-#
 # Pipeline :
-# 1. FMP /stock_news?tickers={top10} → news des composants (daily)
-# 2. Filtre RELIABLE_NEWS_SITES (repris de MyQTM config.py)
-# 3. Score via LLM (Gemini Flash ≈ $0.0001/news) → cache pickle
-# 4. Agrégation pondérée par poids dans l'ETF
+# 1. get_weights(etf, date_t)           → poids composants à date_t (§4d)
+# 2. FMP /stock_news?tickers={top10}    → news des composants (daily)
+# 3. Filtre RELIABLE_NEWS_SITES          → repris de MyQTM config.py
+# 4. Score LLM (Gemini Flash ~$0.0001)  → cache pickle (identique MyQTM)
+# 5. Agrégation pondérée par poids historiques
 
-sentiment_etf = Σ( weight_i × sentiment_score_i × decay(age_news) )
-                  pour i in top_10_holdings
+# Sentiment composite tenant compte de la recomposition dans le temps
+sentiment_etf_t = Σ( get_weights(etf, t)[i] × llm_score_i_t × decay(age_news) )
+                    pour i in top_10_holdings(etf, t)
+
+# Exemple :
+#   2020 : NVDA pèse 4% dans SEMI.AS → score NVDA pondéré à 4%
+#   2024 : NVDA pèse 9% dans SEMI.AS → score NVDA pondéré à 9%
+#   → sentiment composite reflète fidèlement l'exposition réelle à chaque date
 
 features_sentiment = {
-    "sentiment_weighted",      # score agrégé pondéré
-    "sentiment_zscore_20d",    # déviation vs 20j (choc vs baseline)
-    "sentiment_velocity",      # variation 3j du sentiment
-    "news_volume_z20",         # volume de news (attention du marché)
-    "novelty_score",           # nouveauté sémantique (nouveau thème?)
+    "sentiment_weighted",      # score agrégé pondéré (recomposition aware)
+    "sentiment_zscore_20d",    # déviation vs 20j
+    "sentiment_velocity",      # variation 3j
+    "news_volume_z20",         # volume de news
+    "novelty_score",           # nouveauté sémantique
 }
 
-# Coût estimé : ~20 composants × 5 news/j × $0.0001 = $0.01/jour ✅
+# Coût : ~20 composants × 5 news/j × $0.0001 = $0.01/jour ✅
 # Cache : llm_cache.pkl (identique MyQTM)
 ```
 
-**Sentiment géographique et sectoriel :**
+**Sentiment géographique et sectoriel (cross-ETF) :**
 ```python
-# Agrégation cross-ETF pour détecter des thèmes globaux
-geo_sentiment_asia = average(sentiment_etf(CSKR), sentiment_etf(ITWN), sentiment_etf(IFFI))
-sector_sentiment_tech = average(sentiment_etf(IUIT), sentiment_etf(SEMI), sentiment_etf(CNX1))
+geo_sentiment_asia    = mean(sentiment_etf(CSKR,t), sentiment_etf(ITWN,t), sentiment_etf(IFFI,t))
+sector_sentiment_tech = mean(sentiment_etf(IUIT,t), sentiment_etf(SEMI,t), sentiment_etf(CNX1,t))
 ```
 
 ### 4f. Mouvements institutionnels (smart money)
