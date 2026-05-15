@@ -226,6 +226,23 @@ def compute_etf_features(ohlcv: pd.DataFrame, shares_df: pd.DataFrame | None) ->
         f["so_ret_20d"]      = np.nan
         f["so_ret_60d"]      = np.nan
 
+    # ---- Expanding (since inception) statistics ----
+    cum_ret = c / c.iloc[0]
+    days_since_start = pd.Series(np.arange(1, len(c) + 1), index=c.index, dtype=float)
+    f["ann_ret_since_start"] = cum_ret ** (252 / days_since_start.clip(lower=1)) - 1
+
+    cum_max = c.expanding().max()
+    drawdown_series = c / cum_max - 1
+    f["max_dd_since_start"] = drawdown_series.expanding().min()
+
+    f["vol_since_start"] = r1.expanding(min_periods=60).std() * np.sqrt(252)
+
+    expanding_mean = r1.expanding(min_periods=60).mean() * 252
+    expanding_std = r1.expanding(min_periods=60).std() * np.sqrt(252)
+    f["sharpe_since_start"] = expanding_mean / expanding_std.replace(0, np.nan)
+
+    f["current_dd"] = drawdown_series
+
     # Forward returns (label candidates) — shifted BACK N days (no lookahead)
     f["ret_5d_fwd"]  = c.pct_change(5).shift(-5)
     f["ret_10d_fwd"] = c.pct_change(10).shift(-10)
@@ -355,6 +372,18 @@ def main():
         # Join macro (forward-fill FRED on OHLCV trading days)
         mac_aligned = macro.reindex(feat.index, method="ffill")
         feat = feat.join(mac_aligned, how="left")
+
+        # VIX level at max drawdown dates (expanding + rolling windows)
+        if "vix_level" in feat.columns:
+            c_etf = ohlcv["close"] if "close" in ohlcv.columns else ohlcv["adj_close"]
+            c_etf = c_etf.reindex(feat.index)
+
+            # Expanding (since inception)
+            cum_max_etf = c_etf.expanding().max()
+            dd_etf = c_etf / cum_max_etf - 1
+            expanding_min_dd = dd_etf.expanding().min()
+            is_new_max_dd = dd_etf == expanding_min_dd
+            feat["vix_at_max_dd"] = feat["vix_level"].where(is_new_max_dd).ffill()
 
         # Join flow proxies
         if not flow.empty:

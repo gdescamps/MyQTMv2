@@ -1,14 +1,8 @@
 """
-Nested grid search: feature power × top N × XGBoost depth.
+Grid search over XGBoost model params with fixed feature selection.
 
-Outer loop: v1-aligned feature selection (6 models, normalize, zero filter)
-  - mean / std^power, power in [1.2 .. 1.7]
-  - top N in [100, 125, 150, 175]
-  - Full history 2005-2026, embargo 5d, blocks 21d
-
-Inner loop: train model A only on last 30 test steps
-  - depth in [3, 4, 5, 6, 7]
-  - evaluate: mean test IC, stability (val/test corr), gap
+Fixed: power=1.3, cap=90, depth=7
+Search: min_child_weight, subsample, colsample_bytree, learning_rate, reg_alpha, reg_lambda
 
 Output: myfiles/search_results.csv
 """
@@ -19,6 +13,7 @@ import numpy as np
 import pandas as pd
 import xgboost as xgb
 from pathlib import Path
+from itertools import product
 
 sys.path.insert(0, str(Path(__file__).parent))
 from train import (XGB_PARAMS, _try_gpu, LABEL_COL, _zscore_per_date,
@@ -31,17 +26,27 @@ OUTPUTS = Path(__file__).parent / "outputs"
 MYFILES = Path(__file__).parent / "myfiles"
 MYFILES.mkdir(exist_ok=True)
 
-# Search grid
-POWER_RANGE = np.arange(1.2, 1.75, 0.1)  # [1.2, 1.3, 1.4, 1.5, 1.6, 1.7]
-TOP_N_RANGE = [100, 125, 150, 175]
-DEPTH_RANGE = [3, 4, 5, 6, 7]
+# Fixed feature selection
+POWER = 1.3
+TOP_N = 90
+DEPTH = 7
 N_LAST_STEPS = 30
 
+# Search grid for XGB params
+PARAM_GRID = {
+    "min_child_weight": [20, 41, 60, 80],
+    "subsample":        [0.6, 0.7, 0.838, 0.9],
+    "colsample_bytree": [0.5, 0.678, 0.8, 1.0],
+    "learning_rate":    [0.02, 0.04, 0.06],
+    "reg_alpha":        [0.001, 0.1, 1.0],
+    "reg_lambda":       [0.5, 1.674, 5.0],
+}
 
-def select_features_v1(panel, feature_cols, device, power, top_n, row_pos):
-    """V1-aligned: 6 models, normalize by max, zero filter, top N by mean/std^power."""
+
+def select_features_v2(panel, feature_cols, power, top_n, row_pos, device):
+    """V2: 3 interlaced periods, no normalization, no zero filter, top N."""
     block_idx = row_pos // BLOCK_ROWS
-    block_parity = block_idx % 2
+    block_id = block_idx % 3
     pos_in_block = row_pos % BLOCK_ROWS
     not_embargoed = (pos_in_block >= EMBARGO_ROWS) & (pos_in_block < BLOCK_ROWS - EMBARGO_ROWS)
 
@@ -49,68 +54,40 @@ def select_features_v1(panel, feature_cols, device, power, top_n, row_pos):
     y_all = panel[LABEL_COL].astype(np.float32)
     y_z = _zscore_per_date(y_all).astype(np.float32)
 
-    valid = y_all.notna() & not_embargoed
-    mask_A = (block_parity == 0) & valid
-    mask_B = (block_parity == 1) & valid
-    idx_A = panel.index[mask_A]
-    idx_B = panel.index[mask_B]
-
-    def split_3(idx):
-        positions = row_pos.loc[idx].values
-        sorted_order = np.argsort(positions)
-        splits = np.array_split(sorted_order, 3)
-        return [idx[s] for s in splits]
-
-    subs_A = split_3(idx_A)
-    subs_B = split_3(idx_B)
-
     params = {**XGB_PARAMS, "device": device}
+
     importances = {}
-    model_names = []
+    for period in range(3):
+        train_mask = (block_id != period) & y_all.notna() & not_embargoed
+        val_mask = (block_id == period) & y_all.notna() & not_embargoed
+        tr_idx = panel.index[train_mask]
+        val_idx = panel.index[val_mask]
 
-    for i, sub_idx in enumerate(subs_A):
-        name = f"sub{i+1}A"
-        model_names.append(name)
+        if len(tr_idx) < 100 or len(val_idx) < 10:
+            continue
+
         model = xgb.XGBRegressor(**params)
-        model.fit(X_all.loc[sub_idx].values, y_z.loc[sub_idx].values,
-                  eval_set=[(X_all.loc[idx_B].values, y_z.loc[idx_B].values)],
+        model.fit(X_all.loc[tr_idx].values, y_z.loc[tr_idx].values,
+                  eval_set=[(X_all.loc[val_idx].values, y_z.loc[val_idx].values)],
                   verbose=False)
-        importances[name] = model.feature_importances_
+        importances[f"period_{period}"] = model.feature_importances_
 
-    for i, sub_idx in enumerate(subs_B):
-        name = f"sub{i+1}B"
-        model_names.append(name)
-        model = xgb.XGBRegressor(**params)
-        model.fit(X_all.loc[sub_idx].values, y_z.loc[sub_idx].values,
-                  eval_set=[(X_all.loc[idx_A].values, y_z.loc[idx_A].values)],
-                  verbose=False)
-        importances[name] = model.feature_importances_
-
-    imp_df = pd.DataFrame(importances, index=feature_cols)
-
-    for col in model_names:
-        col_max = imp_df[col].max()
-        if col_max > 0:
-            imp_df[col] = imp_df[col] / col_max
-
-    # Zero filter
-    imp_df = imp_df[(imp_df[model_names] > 0).all(axis=1)]
-
-    if len(imp_df) < 5:
+    if len(importances) < 2:
         return []
 
-    imp_df["mean"] = imp_df[model_names].mean(axis=1)
-    imp_df["std"] = imp_df[model_names].std(axis=1)
-    imp_df["score"] = imp_df["mean"] / (imp_df["std"] ** power)
+    imp_df = pd.DataFrame(importances, index=feature_cols)
+    imp_df["mean"] = imp_df.mean(axis=1)
+    imp_df["std"] = imp_df.std(axis=1)
+    imp_df["score"] = imp_df["mean"] / (imp_df["std"].replace(0, np.nan) ** power)
     imp_df = imp_df.sort_values("score", ascending=False)
+    imp_df = imp_df[imp_df["score"].notna() & (imp_df["mean"] > 0)]
 
-    actual_top = min(top_n, len(imp_df))
-    return imp_df.index[:actual_top].tolist()
+    return imp_df.index[:min(top_n, len(imp_df))].tolist()
 
 
-def run_last_n_steps(panel, feature_cols, device, depth, n_steps, row_pos):
-    """Train model A only on last N test steps, return IC metrics."""
-    params = {**XGB_PARAMS, "device": device, "max_depth": depth}
+def run_last_n_steps(panel, feature_cols, device, xgb_override, n_steps, row_pos):
+    """Train model A only on last N test steps with custom XGB params."""
+    params = {**XGB_PARAMS, "device": device, "max_depth": DEPTH, **xgb_override}
 
     dates = panel.index.get_level_values("date").unique().sort_values()
     n = len(dates)
@@ -198,69 +175,111 @@ def main():
     all_feature_cols = get_all_feature_cols(panel)
     print(f"Panel: {len(panel)} rows, {len(all_feature_cols)} candidate features", flush=True)
 
-    # Precompute row_pos once
+    # Precompute row_pos
     dates = panel.index.get_level_values("date").unique().sort_values()
     date_to_pos = {d: i for i, d in enumerate(dates)}
     row_dates = panel.index.get_level_values("date")
     row_pos = pd.Series([date_to_pos[d] for d in row_dates], index=panel.index)
 
-    total = len(POWER_RANGE) * len(TOP_N_RANGE) * len(DEPTH_RANGE)
-    print(f"\nSearch: {len(POWER_RANGE)} powers × {len(TOP_N_RANGE)} caps × "
-          f"{len(DEPTH_RANGE)} depths = {total} combos")
-    print(f"Last {N_LAST_STEPS} steps (~{N_LAST_STEPS} months)")
-    print(f"{'power':>6} {'cap':>4} {'depth':>5} {'n_feat':>6} {'val_IC':>8} "
-          f"{'test_IC':>8} {'stab':>6} {'gap':>6}")
-    print("-" * 65)
+    # Feature selection (once)
+    print(f"\nFeature selection: power={POWER}, cap={TOP_N}", flush=True)
+    selected = select_features_v2(panel, all_feature_cols, POWER, TOP_N, row_pos, device)
+    available = [c for c in selected if c in panel.columns]
+    print(f"Selected: {len(available)} features", flush=True)
 
-    results = []
-    done = 0
+    # Build param combos — search pairs to keep tractable
+    # Phase 1: subsample × colsample × min_child_weight
+    # Phase 2: learning_rate × reg_alpha × reg_lambda (with best from phase 1)
 
-    # Cache feature selections per (power, top_n) to avoid recomputing
-    feat_cache = {}
+    # Phase 1
+    phase1 = list(product(
+        PARAM_GRID["min_child_weight"],
+        PARAM_GRID["subsample"],
+        PARAM_GRID["colsample_bytree"],
+    ))
 
-    for power in POWER_RANGE:
-        for top_n in TOP_N_RANGE:
-            key = (round(power, 1), top_n)
-            selected = select_features_v1(panel, all_feature_cols, device, power, top_n, row_pos)
-            feat_cache[key] = selected
-            n_feat = len(selected)
+    print(f"\n=== Phase 1: min_child_weight × subsample × colsample ({len(phase1)} combos) ===")
+    print(f"{'mcw':>4} {'sub':>5} {'col':>5} {'val_IC':>8} {'test_IC':>8} {'stab':>6} {'gap':>6}")
+    print("-" * 50)
 
-            if n_feat < 5:
-                print(f"{power:6.1f} {top_n:4d}  -- too few features ({n_feat}), skip",
-                      flush=True)
-                done += len(DEPTH_RANGE)
-                continue
+    results_p1 = []
+    for i, (mcw, sub, col) in enumerate(phase1):
+        override = {"min_child_weight": mcw, "subsample": sub, "colsample_bytree": col}
+        metrics = run_last_n_steps(panel, available, device, override, N_LAST_STEPS, row_pos)
+        row = {"min_child_weight": mcw, "subsample": sub, "colsample_bytree": col, **metrics}
+        results_p1.append(row)
+        print(f"{mcw:4d} {sub:5.2f} {col:5.3f} "
+              f"{metrics['mean_val_ic']:+8.4f} {metrics['mean_test_ic']:+8.4f} "
+              f"{metrics['ic_stability']:6.3f} {metrics['val_test_gap']:6.4f}  "
+              f"[{i+1}/{len(phase1)}]", flush=True)
 
-            for depth in DEPTH_RANGE:
-                done += 1
-                available = [c for c in selected if c in panel.columns]
-                metrics = run_last_n_steps(panel, available, device, depth, N_LAST_STEPS, row_pos)
+    df1 = pd.DataFrame(results_p1)
+    df1["composite"] = df1["mean_test_ic"] * df1["ic_stability"].clip(0, 1) - df1["val_test_gap"]
+    df1 = df1.sort_values("composite", ascending=False)
 
-                row = {"power": round(power, 1), "top_n": top_n, "depth": depth,
-                       "n_features": len(available), **metrics}
-                results.append(row)
+    best_mcw = df1.iloc[0]["min_child_weight"]
+    best_sub = df1.iloc[0]["subsample"]
+    best_col = df1.iloc[0]["colsample_bytree"]
 
-                print(f"{power:6.1f} {top_n:4d} {depth:5d} {len(available):6d} "
-                      f"{metrics['mean_val_ic']:+8.4f} {metrics['mean_test_ic']:+8.4f} "
-                      f"{metrics['ic_stability']:6.3f} {metrics['val_test_gap']:6.4f}  "
-                      f"[{done}/{total}]", flush=True)
+    print(f"\nPhase 1 best: mcw={int(best_mcw)} sub={best_sub:.2f} col={best_col:.3f}  "
+          f"test_IC={df1.iloc[0]['mean_test_ic']:+.4f}  stab={df1.iloc[0]['ic_stability']:.3f}")
+    print("\nTop 5 phase 1:")
+    print(df1.head(5).to_string(index=False))
 
-    res_df = pd.DataFrame(results)
-    res_df["composite"] = (
-        res_df["mean_test_ic"] * res_df["ic_stability"].clip(0, 1) - res_df["val_test_gap"]
-    )
-    res_df = res_df.sort_values("composite", ascending=False)
-    res_df.to_csv(MYFILES / "search_results.csv", index=False)
+    # Phase 2: learning_rate × reg_alpha × reg_lambda (with best phase 1)
+    phase2 = list(product(
+        PARAM_GRID["learning_rate"],
+        PARAM_GRID["reg_alpha"],
+        PARAM_GRID["reg_lambda"],
+    ))
 
-    print(f"\n{'='*65}")
-    print("Top 10 by composite (test_IC × stability - gap):")
-    print(res_df.head(10).to_string(index=False))
-    print(f"\nBest: power={res_df.iloc[0]['power']:.1f}  "
-          f"cap={int(res_df.iloc[0]['top_n'])}  "
-          f"depth={int(res_df.iloc[0]['depth'])}  "
-          f"n_feat={int(res_df.iloc[0]['n_features'])}  "
-          f"test_IC={res_df.iloc[0]['mean_test_ic']:+.4f}  "
-          f"stability={res_df.iloc[0]['ic_stability']:.3f}")
+    print(f"\n=== Phase 2: lr × alpha × lambda ({len(phase2)} combos) ===")
+    print(f"{'lr':>5} {'alpha':>6} {'lambda':>6} {'val_IC':>8} {'test_IC':>8} {'stab':>6} {'gap':>6}")
+    print("-" * 55)
+
+    results_p2 = []
+    for i, (lr, alpha, lam) in enumerate(phase2):
+        override = {
+            "min_child_weight": int(best_mcw),
+            "subsample": best_sub,
+            "colsample_bytree": best_col,
+            "learning_rate": lr,
+            "reg_alpha": alpha,
+            "reg_lambda": lam,
+        }
+        metrics = run_last_n_steps(panel, available, device, override, N_LAST_STEPS, row_pos)
+        row = {"learning_rate": lr, "reg_alpha": alpha, "reg_lambda": lam, **metrics}
+        results_p2.append(row)
+        print(f"{lr:5.3f} {alpha:6.3f} {lam:6.3f} "
+              f"{metrics['mean_val_ic']:+8.4f} {metrics['mean_test_ic']:+8.4f} "
+              f"{metrics['ic_stability']:6.3f} {metrics['val_test_gap']:6.4f}  "
+              f"[{i+1}/{len(phase2)}]", flush=True)
+
+    df2 = pd.DataFrame(results_p2)
+    df2["composite"] = df2["mean_test_ic"] * df2["ic_stability"].clip(0, 1) - df2["val_test_gap"]
+    df2 = df2.sort_values("composite", ascending=False)
+
+    print(f"\nPhase 2 best: lr={df2.iloc[0]['learning_rate']:.3f} "
+          f"alpha={df2.iloc[0]['reg_alpha']:.3f} lambda={df2.iloc[0]['reg_lambda']:.3f}  "
+          f"test_IC={df2.iloc[0]['mean_test_ic']:+.4f}  stab={df2.iloc[0]['ic_stability']:.3f}")
+    print("\nTop 5 phase 2:")
+    print(df2.head(5).to_string(index=False))
+
+    # Save all results
+    all_results = pd.concat([
+        df1.assign(phase="p1_struct"),
+        df2.assign(phase="p2_reg"),
+    ], ignore_index=True)
+    all_results.to_csv(MYFILES / "search_results.csv", index=False)
+
+    print(f"\n{'='*60}")
+    print(f"Final best params (d={DEPTH}, power={POWER}, cap={TOP_N}):")
+    print(f"  min_child_weight = {int(best_mcw)}")
+    print(f"  subsample        = {best_sub:.3f}")
+    print(f"  colsample_bytree = {best_col:.3f}")
+    print(f"  learning_rate    = {df2.iloc[0]['learning_rate']:.3f}")
+    print(f"  reg_alpha        = {df2.iloc[0]['reg_alpha']:.3f}")
+    print(f"  reg_lambda       = {df2.iloc[0]['reg_lambda']:.3f}")
 
 
 if __name__ == "__main__":
