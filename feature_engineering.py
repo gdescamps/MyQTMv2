@@ -50,6 +50,8 @@ ISHARES_MAP = {
     "EXV1.DE":  "EXV1",   # Europe Tech — smart money since 2002
     "EWC":      "EWC",    # Canada — smart money since 1996
     "EWZ":      "EWZ",    # Brazil — smart money since 2000
+    "EWW":      "EWW",    # Mexico — smart money since 1996
+    "FXI":      "FXI",    # China — smart money since 2004
 }
 
 

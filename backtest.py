@@ -328,6 +328,7 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         ax2.grid(True, alpha=0.3)
 
     plt.tight_layout()
+    fig1.savefig(out_dir / "backtest_equity_7_etf.png", dpi=150, bbox_inches="tight")
     fig1.savefig(out_dir / "backtest_equity.png", dpi=150, bbox_inches="tight")
     plt.close(fig1)
 
