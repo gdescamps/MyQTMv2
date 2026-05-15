@@ -147,8 +147,8 @@ def run_backtest(
 
     # Daily P&L: fixed allocation earns daily returns
     port_ret = (fixed_weights * safe_ret).sum(axis=1)
-    # Transaction cost only on day 1 (rebalancement)
-    port_ret[0] -= turnover_initial * transaction_cost
+    # Transaction costs disabled
+    # port_ret[0] -= turnover_initial * transaction_cost
 
     weights = fixed_weights  # for weight tracking
 
@@ -259,26 +259,49 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
     title = (f"MyQTM-ETF — Walk-Forward OOS  "
              f"(Sharpe={sh:.2f}  Ann={ann_ret:.1%}  Vol={ann_vol:.1%}  MaxDD={max_dd:.1%})")
 
+    # --- Unified color map (ticker → color), shared between panels ---
+    etf_color_map = {
+        "IVV": "#ff7f0e",     # S&P 500 = orange
+        "SOXX": "#9467bd",    # Semiconductors = violet
+        "GLD": "#d4af37",     # Gold = gold
+        "EEM": "#2ca02c",     # Emerging = green
+        "TLT": "#17becf",     # Treasury = cyan
+        "IEO": "#8b4513",     # Oil & Gas = brown
+        "EXX1.DE": "#e377c2", # Euro Banks = pink
+        "QQQ": "#2ca02c",     # Nasdaq = green
+    }
+    # Tickers to show in bold on equity chart (besides portfolio)
+    BOLD_TICKERS = {"IVV", "GLD", "IEO"}
+
     # --- PNG 1: Equity curves + VIX + Allocation ---
-    fig1, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 12),
+    fig1, (ax1, ax2) = plt.subplots(2, 1, figsize=(18, 13),
                                      gridspec_kw={"height_ratios": [3, 2]}, sharex=True)
-    fig1.suptitle(title, fontsize=12, fontweight="bold")
-    ax1.plot(eq_curve.index, eq_curve.values, lw=2.0, color="#d62728", label="Portfolio")
-    for ticker, name, color in [("IVV", "S&P 500", "#ff7f0e"),
-                                 ("SOXX", "Semiconductors", "#9467bd"),
-                                 ("EEM", "Emerging Markets", "#2ca02c"),
-                                 ("GLD", "Gold", "#d4af37"),
-                                 ("TLT", "Treasury 20y+", "#17becf"),
-                                 ("IEO", "Oil & Gas", "#8b4513")]:
+    fig1.suptitle(title, fontsize=13, fontweight="bold")
+
+    # Portfolio: very bold red
+    ax1.plot(eq_curve.index, eq_curve.values, lw=3.5, color="#d62728", label="Portfolio", zorder=10)
+
+    # All ETF curves with same colors as allocation
+    from etf import UNIVERSE as _UNIVERSE
+    for etf in _UNIVERSE:
+        ticker = etf.bourso
+        color = etf_color_map.get(ticker, "#7f7f7f")
         bm = _load_benchmark(ticker, eq_curve.index)
         if bm is not None:
-            ax1.plot(bm.index, bm.values, lw=1.2, color=color, alpha=0.7, label=name)
+            is_bold = ticker in BOLD_TICKERS
+            lw = 2.8 if is_bold else 1.0
+            alpha = 0.9 if is_bold else 0.5
+            zorder = 5 if is_bold else 2
+            label = BY_BOURSO[ticker].name[:30] if ticker in BY_BOURSO else ticker
+            ax1.plot(bm.index, bm.values, lw=lw, color=color, alpha=alpha,
+                     label=label, zorder=zorder)
+
     ax1.set_yscale("log")
     ax1.set_ylabel("Equity (log scale, base 1)")
     ax1.yaxis.set_major_formatter(mtick.FuncFormatter(lambda x, _: f"{x:.1f}x"))
     ax1.grid(True, alpha=0.3, which="both")
     ax1.set_facecolor("#f8f8f8")
-    ax1.legend(fontsize=10, loc="upper left")
+    ax1.legend(fontsize=9, loc="upper left")
     vix_path = DATA / "fred_vix.parquet"
     if vix_path.exists():
         vix_raw = pd.read_parquet(vix_path).iloc[:, 0]
@@ -288,30 +311,26 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         ax1b.set_ylabel("VIX", color="#d62728", fontsize=9)
         ax1b.tick_params(axis="y", labelcolor="#d62728", labelsize=8)
         ax1b.set_ylim(0, 80)
-    # Panel 2: Allocation detail
+
+    # Panel 2: Allocation — only allocated ETFs, sorted by decreasing avg allocation
     if len(weights_df) > 0:
         w = weights_df.reindex(eq_curve.index, method="ffill").fillna(0)
         cash = (1 - w.sum(axis=1)).clip(0, 1)
-        col_names = {e: BY_BOURSO[e].name[:45] if e in BY_BOURSO else e for e in w.columns}
-        w_named = w.rename(columns=col_names)
-        avg_w = w_named.mean().sort_values(ascending=False)
-        top_etfs = avg_w[avg_w > 0.001].index.tolist()
-        plot_data = w_named[top_etfs].copy()
+
+        # Sort columns by average allocation (descending), keep only allocated ETFs
+        avg_w = w.mean().sort_values(ascending=False)
+        allocated = avg_w[avg_w > 0.001].index.tolist()
+        w_sorted = w[allocated]
+
+        # Rename to display names
+        col_names = {e: BY_BOURSO[e].name[:45] if e in BY_BOURSO else e for e in w_sorted.columns}
+        w_named = w_sorted.rename(columns=col_names)
+
+        plot_data = w_named.copy()
         plot_data["Cash"] = cash
 
-        # Colors matching equity chart benchmarks
-        etf_color_map = {
-            "IVV": "#ff7f0e",    # S&P 500 = orange
-            "SOXX": "#9467bd",   # Semiconductors = violet
-            "GLD": "#d4af37",    # Gold = gold
-            "EEM": "#2ca02c",    # Emerging = green
-            "TLT": "#17becf",    # Treasury = cyan
-            "IEO": "#8b4513",    # Oil & Gas = brown
-            "EXX1.DE": "#e377c2", # Euro Banks = pink
-            "QQQ": "#2ca02c",    # Nasdaq = green
-        }
+        # Build color list matching allocation order
         color_map = {}
-        from etf import UNIVERSE as _UNIVERSE
         for etf in _UNIVERSE:
             name = BY_BOURSO[etf.bourso].name[:45] if etf.bourso in BY_BOURSO else etf.bourso
             color_map[name] = etf_color_map.get(etf.bourso, "#7f7f7f")
@@ -333,8 +352,8 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
     n_etfs = len(weights_df.columns) if len(weights_df) > 0 else 0
     depth = 2  # current XGB max_depth
     fname = f"backtest_{sha}_{n_etfs}etf_d{depth}.png"
-    fig1.savefig(out_dir / fname, dpi=150, bbox_inches="tight")
-    fig1.savefig(out_dir / "backtest_equity.png", dpi=150, bbox_inches="tight")
+    fig1.savefig(out_dir / fname, dpi=300, bbox_inches="tight")
+    fig1.savefig(out_dir / "backtest_equity.png", dpi=300, bbox_inches="tight")
     plt.close(fig1)
 
 
