@@ -26,14 +26,14 @@ sys.path.insert(0, str(Path(__file__).parent))
 import train as train_mod
 from train import run_walk_forward, _try_gpu, FEATURE_COLS, LABEL_COL
 
-# Override MIN_TRAIN_ROWS for faster search (~20 steps instead of 95)
-train_mod.MIN_TRAIN_ROWS = 5500
+# Use all steps for full evaluation
+# train_mod.MIN_TRAIN_ROWS = 5500
 
 DATA    = Path(__file__).parent / "data"
 OUTPUTS = Path(__file__).parent / "outputs"
 OUTPUTS.mkdir(exist_ok=True)
 
-N_TRIALS    = 25
+N_TRIALS    = 10
 STAB_WEIGHT = 0.5
 GAP_WEIGHT  = 0.5   # penalty for val_cma - test IC gap
 
@@ -71,13 +71,13 @@ def compute_objective(oos: pd.DataFrame) -> tuple[float, float, float, float, fl
 
 def make_trial_params(trial: optuna.Trial) -> dict:
     return dict(
-        max_depth         = 2,
-        min_child_weight  = trial.suggest_int  ("min_child_weight",  20, 200, log=True),
-        subsample         = trial.suggest_float("subsample",         0.70, 0.95),
-        colsample_bytree  = trial.suggest_float("colsample_bytree",  0.50, 0.90),
-        learning_rate     = trial.suggest_float("learning_rate",     0.01, 0.06, log=True),
-        reg_alpha         = trial.suggest_float("reg_alpha",         1e-4,  0.5, log=True),
-        reg_lambda        = trial.suggest_float("reg_lambda",        0.10,  5.0, log=True),
+        max_depth         = 3,
+        min_child_weight  = trial.suggest_int  ("min_child_weight",  20, 250, log=True),
+        subsample         = trial.suggest_float("subsample",         0.60, 0.95),
+        colsample_bytree  = trial.suggest_float("colsample_bytree",  0.40, 0.90),
+        learning_rate     = trial.suggest_float("learning_rate",     0.01, 0.10, log=True),
+        reg_alpha         = trial.suggest_float("reg_alpha",         1e-4,  2.0, log=True),
+        reg_lambda        = trial.suggest_float("reg_lambda",        0.10, 10.0, log=True),
         n_estimators      = 1000,
         early_stopping_rounds = 30,
     )
@@ -129,6 +129,7 @@ def main():
                 xgb_params=trial_params,
                 verbose=False,
                 save_models=False,
+                dual_model=False,
             )
         except Exception as e:
             print(f"  [{trial.number:2d}/{N_TRIALS}] ERROR: {e}", flush=True)

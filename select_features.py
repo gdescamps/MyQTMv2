@@ -112,20 +112,14 @@ def main():
     imp_df.to_csv(OUTPUTS / "feature_selection.csv")
 
     # Select features: stability > threshold (mean/std > 2 = consistent across periods)
-    MIN_STABILITY = 1.0
-    MIN_IMPORTANCE = 0.005  # at least 0.5% average importance
+    MIN_STABILITY = 0.707   # includes smart money features (stability = 1/sqrt(2))
+    MIN_IMPORTANCE = 0.003  # lowered to keep smart money (so_ret_60d=0.0035)
     selected = imp_df[
         (imp_df["stability"] >= MIN_STABILITY) &
         (imp_df["mean"] >= MIN_IMPORTANCE)
     ].index.tolist()
 
-    # Force-include smart money features (important at depth>=3 but invisible at depth=2)
-    FORCE_INCLUDE = [f for f in feature_cols if "so_" in f or "shares_outstanding" in f
-                     or "rotation" in f or "GLD_dvol" in f]
-    for f in FORCE_INCLUDE:
-        if f in imp_df.index and f not in selected and imp_df.loc[f, "mean"] > 0:
-            selected.append(f)
-            print(f"  FORCED: {f} (mean={imp_df.loc[f, 'mean']:.4f}, stab={imp_df.loc[f, 'stability']:.1f})")
+    # No forced features — pure stability filter
 
     print(f"\n{'='*60}")
     print(f"  Feature selection: {len(selected)} / {len(feature_cols)} features kept")

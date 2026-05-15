@@ -121,7 +121,14 @@ CRYPTO = [
 # ---------------------------------------------------------------------------
 # Full universe
 # ---------------------------------------------------------------------------
-UNIVERSE: list[ETF] = GEO + SECTOR_US + THEMATIC + COMMODITY + BOND + CRYPTO
+UNIVERSE_FULL: list[ETF] = GEO + SECTOR_US + THEMATIC + COMMODITY + BOND + CRYPTO
+# US ETFs mode: max history with smart money
+UNIVERSE: list[ETF] = [
+    ETF("IVV", "iShares Core S&P 500 ETF", "geo", "us", pea=False, zero_fees=False, fmp="IVV", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("SOXX", "iShares Semiconductor ETF", "thematic", "semi", pea=False, zero_fees=False, fmp="SOXX", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EEM", "iShares MSCI Emerging Markets ETF", "geo", "em", pea=False, zero_fees=False, fmp="EEM", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("GLD", "SPDR Gold Shares", "commodity", "gold", pea=False, zero_fees=False, fmp="GLD", fmp_proxy=False, perf_1y=None, perf_5y=None),
+]
 
 # Quick lookup dicts
 BY_BOURSO: dict[str, ETF] = {e.bourso: e for e in UNIVERSE}

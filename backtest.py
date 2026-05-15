@@ -40,21 +40,20 @@ OUTPUTS.mkdir(exist_ok=True)
 EQUITY_SECTIONS    = {"geo", "sector_us", "thematic"}
 DEFENSIVE_SECTIONS = {"bond", "commodity", "crypto"}
 
-# Geo/sector concentration: only 1 line allowed, redirect to best of these 3
-GEO_SECTOR_REDIRECT = ["CSP1.PA", "CNX1.PA", "WPEA.PA"]  # SP500, Nasdaq, MSCI World
+# Geo/sector redirect disabled — allocation libre
+GEO_SECTOR_REDIRECT = []
 
 PARAM_NAMES = [
-    "p1_vix", "p2_hy_z60", "p3_bias",
     "temperature_A", "temperature_B",
+    "seuil_A", "seuil_B",
 ]
-PARAM_INIT   = [-0.10, -0.30, -0.5, 1.5, 1.5]
-PARAM_SIGMA0 = 0.15
+PARAM_INIT   = [1.5, 1.5, 1.0, 1.0]
+PARAM_SIGMA0 = 0.3
 PARAM_BOUNDS = [
-    (-0.20, -0.02),  # p1_vix — must be negative (VIX increases danger)
-    (-0.80, -0.05),  # p2_hy_z60 — must be negative (HY stress increases danger)
-    (-1.50, 1.00),   # p3_bias — tighter range, can't fully disable soupape
-    ( 0.05, 4.00),   # temperature_A
-    ( 0.05, 4.00),   # temperature_B
+    ( 0.05, 4.00),   # temperature_A — softmax concentration model A
+    ( 0.05, 4.00),   # temperature_B — softmax concentration model B
+    ( 0.00, 5.00),   # seuil_A — confidence threshold model A (higher = more cash)
+    ( 0.00, 5.00),   # seuil_B — confidence threshold model B (higher = more cash)
 ]
 
 
@@ -77,10 +76,6 @@ def run_backtest(
     scores_wide_A: pd.DataFrame,
     scores_wide_B: pd.DataFrame | None,
     daily_returns_wide: pd.DataFrame,
-    is_equity: np.ndarray,
-    is_defensive: np.ndarray,
-    vix_series: pd.Series,
-    hy_z60_series: pd.Series,
     params: list,
     transaction_cost: float = 0.0022,
     prev_weights: np.ndarray | None = None,
@@ -92,7 +87,7 @@ def run_backtest(
     Returns daily portfolio return series.
     """
     params = clip_params(params)
-    p1, p2, p3, temp_A, temp_B = params
+    temp_A, temp_B, seuil_A, seuil_B = params
 
     dates   = scores_wide_A.index
     n_etfs  = scores_wide_A.shape[1]
@@ -102,64 +97,60 @@ def run_backtest(
     scores_B = scores_wide_B.values if scores_wide_B is not None else scores_A
     daily_ret = daily_returns_wide.values
 
-    vix    = vix_series.reindex(dates, method="ffill").fillna(20.0).values
-    hy_z60 = hy_z60_series.reindex(dates, method="ffill").fillna(0.0).values
-    danger        = sigmoid(p1 * vix + p2 * hy_z60 + p3)
-    equity_budget = 1.0 - danger
-    def_budget    = danger
-
-    def _softmax_masked(s: np.ndarray, mask: np.ndarray, T: float) -> np.ndarray:
+    def _softmax_all(s: np.ndarray, T: float) -> np.ndarray:
+        """Softmax over all ETFs (no equity/defensive split)."""
         out = np.zeros_like(s)
-        if not mask.any():
-            return out
-        s_m = s[:, mask].copy() / max(T, 1e-6)
-        for i in range(s_m.shape[0]):
-            row = s_m[i]
+        s_t = s.copy() / max(T, 1e-6)
+        for i in range(s_t.shape[0]):
+            row = s_t[i]
             valid = ~np.isnan(row)
             if not valid.any():
                 continue
             row_v = row[valid] - row[valid].max()
             e = np.exp(row_v)
             probs = e / e.sum()
-            result = np.zeros(len(row))
-            result[valid] = probs
-            out[i, np.where(mask)[0]] = result
+            out[i, valid] = probs
         return out
 
-    # Compute target weights (vectorized)
-    w_eq_A  = _softmax_masked(scores_A, is_equity,    temp_A) * equity_budget[:, None]
-    w_def_A = _softmax_masked(scores_A, is_defensive, temp_A) * def_budget[:, None]
-    w_eq_B  = _softmax_masked(scores_B, is_equity,    temp_B) * equity_budget[:, None]
-    w_def_B = _softmax_masked(scores_B, is_defensive, temp_B) * def_budget[:, None]
-    weights = 0.5 * (w_eq_A + w_def_A) + 0.5 * (w_eq_B + w_def_B)
+    # Compute target weights per model
+    alloc_A = _softmax_all(scores_A, temp_A)
+    alloc_B = _softmax_all(scores_B, temp_B)
 
-    # Geo/sector redirect
-    from etf import BY_BOURSO
-    redirect_indices = [i for i, e in enumerate(etf_list) if e in GEO_SECTOR_REDIRECT]
-    geo_sector_other = [i for i, e in enumerate(etf_list)
-                        if BY_BOURSO.get(e) and BY_BOURSO[e].section in ("geo", "sector_us")
-                        and e not in GEO_SECTOR_REDIRECT]
-    if redirect_indices and geo_sector_other:
-        for t in range(len(dates)):
-            extra = weights[t, geo_sector_other].sum()
-            weights[t, geo_sector_other] = 0.0
-            if extra > 0:
-                avg_s = (scores_A[t, redirect_indices] + scores_B[t, redirect_indices]) / 2
-                valid_s = ~np.isnan(avg_s)
-                if valid_s.any():
-                    weights[t, redirect_indices[np.nanargmax(avg_s)]] += extra
+    # Confidence based on score strength
+    # Single ETF: use absolute score (positive = bullish → invest)
+    # Multi ETF: use score spread (high spread = strong opinion → invest)
+    if n_etfs == 1:
+        conf_A = scores_A[:, 0] / max(temp_A, 1e-6)
+        conf_B = scores_B[:, 0] / max(temp_B, 1e-6)
+    else:
+        conf_A = (np.nanmax(scores_A, axis=1) - np.nanmin(scores_A, axis=1)) / max(temp_A, 1e-6)
+        conf_B = (np.nanmax(scores_B, axis=1) - np.nanmin(scores_B, axis=1)) / max(temp_B, 1e-6)
+    invest_A = sigmoid(conf_A - seuil_A)  # 0 = full cash, 1 = full invest
+    invest_B = sigmoid(conf_B - seuil_B)
+
+    # Scale allocations by confidence
+    alloc_A *= invest_A[:, None]
+    alloc_B *= invest_B[:, None]
+
+    # Average allocations from A and B
+    weights = 0.5 * alloc_A + 0.5 * alloc_B
+    # Remaining = cash (implicit: 1 - sum(weights))
+
+    # Fix allocation to first day of step (hold for entire period)
+    fixed_weights = np.tile(weights[0], (len(dates), 1))
 
     # Portfolio simulation with real daily returns
     safe_ret = np.where(np.isnan(daily_ret), 0.0, daily_ret)
-    turnover = np.abs(np.diff(weights, axis=0, prepend=(
-        prev_weights[None, :] if prev_weights is not None else np.zeros((1, n_etfs))
-    ))).sum(axis=1)
+    turnover_initial = np.abs(
+        fixed_weights[0] - (prev_weights if prev_weights is not None else np.zeros(n_etfs))
+    ).sum()
 
-    # Daily P&L: positions at weight_{t} earn return_{t+1}
-    # Use weight from previous day to compute today's return (hold overnight)
-    w_prev = np.vstack([prev_weights if prev_weights is not None else np.zeros(n_etfs),
-                        weights[:-1]])
-    port_ret = (w_prev * safe_ret).sum(axis=1) - turnover * transaction_cost
+    # Daily P&L: fixed allocation earns daily returns
+    port_ret = (fixed_weights * safe_ret).sum(axis=1)
+    # Transaction cost only on day 1 (rebalancement)
+    port_ret[0] -= turnover_initial * transaction_cost
+
+    weights = fixed_weights  # for weight tracking
 
     ret_series = pd.Series(port_ret, index=dates, name="port_return")
     weights_df = pd.DataFrame(weights, index=dates, columns=etf_list)
@@ -177,29 +168,25 @@ def run_cmaes(
     scores_wide_A: pd.DataFrame,
     scores_wide_B: pd.DataFrame,
     daily_returns_wide: pd.DataFrame,
-    is_equity: np.ndarray,
-    is_defensive: np.ndarray,
-    vix_s: pd.Series,
-    hy_z60_s: pd.Series,
-    maxiter: int = 50,
+    maxiter: int = 100,
 ) -> tuple[list, float]:
     """
     Run CMA-ES on val predictions for one walk-forward step.
-    Returns (best_params, best_sharpe).
+    Returns (best_params, best_objective).
     """
     def objective(params: list) -> float:
-        returns, _ = run_backtest(scores_wide_A, scores_wide_B, daily_returns_wide,
-                                  is_equity, is_defensive, vix_s, hy_z60_s, params)
+        returns, _ = run_backtest(scores_wide_A, scores_wide_B, daily_returns_wide, params)
         r = returns.dropna()
         if len(r) < 30 or r.std() < 1e-10:
             return 10.0
         ann_ret = r.mean() * 252
-        ann_vol = r.std() * np.sqrt(252)
         eq = (1 + r).cumprod()
         max_dd = abs((eq / eq.cummax() - 1).min())
         if max_dd < 1e-10:
             max_dd = 1e-10
-        return -(ann_ret / (max_dd * ann_vol))
+        # ret^2 / |max_dd| — rewards high returns quadratically
+        sign = 1.0 if ann_ret >= 0 else -1.0
+        return -(sign * ann_ret ** 2 / max_dd)
 
     es = cma.CMAEvolutionStrategy(
         PARAM_INIT,
@@ -272,12 +259,14 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
     title = (f"MyQTM-ETF — Walk-Forward OOS  "
              f"(Sharpe={sh:.2f}  Ann={ann_ret:.1%}  Vol={ann_vol:.1%}  MaxDD={max_dd:.1%})")
 
-    # --- PNG 1: Equity curves + VIX ---
-    fig1, ax1 = plt.subplots(figsize=(16, 7))
+    # --- PNG 1: Equity curves + VIX + Allocation ---
+    fig1, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 12),
+                                     gridspec_kw={"height_ratios": [3, 2]}, sharex=True)
     fig1.suptitle(title, fontsize=12, fontweight="bold")
-    ax1.plot(eq_curve.index, eq_curve.values, lw=2.0, color="#1f77b4", label="Portfolio")
-    for ticker, name, color in [("CSPX_AS", "S&P 500", "#ff7f0e"),
-                                 ("QQQ", "Nasdaq", "#2ca02c"),
+    ax1.plot(eq_curve.index, eq_curve.values, lw=2.0, color="#d62728", label="Portfolio")
+    for ticker, name, color in [("IVV", "S&P 500", "#ff7f0e"),
+                                 ("SOXX", "Semiconductors", "#9467bd"),
+                                 ("EEM", "Emerging Markets", "#2ca02c"),
                                  ("GLD", "Gold", "#d4af37")]:
         bm = _load_benchmark(ticker, eq_curve.index)
         if bm is not None:
@@ -297,45 +286,30 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         ax1b.set_ylabel("VIX", color="#d62728", fontsize=9)
         ax1b.tick_params(axis="y", labelcolor="#d62728", labelsize=8)
         ax1b.set_ylim(0, 80)
-    plt.tight_layout()
-    fig1.savefig(out_dir / "backtest_equity.png", dpi=150, bbox_inches="tight")
-    plt.close(fig1)
-
-    # --- PNG 2: Allocation detail per ETF (full names) ---
+    # Panel 2: Allocation detail
     if len(weights_df) > 0:
         w = weights_df.reindex(eq_curve.index, method="ffill").fillna(0)
         cash = (1 - w.sum(axis=1)).clip(0, 1)
-        # Use full ETF names
         col_names = {e: BY_BOURSO[e].name[:45] if e in BY_BOURSO else e for e in w.columns}
         w_named = w.rename(columns=col_names)
-        # Sort by average weight
         avg_w = w_named.mean().sort_values(ascending=False)
         top_etfs = avg_w[avg_w > 0.001].index.tolist()
         plot_data = w_named[top_etfs].copy()
         plot_data["Cash"] = cash
 
-        fig2, ax2 = plt.subplots(figsize=(16, 8))
-        fig2.suptitle("Portfolio Allocation Detail", fontsize=12, fontweight="bold")
-
-        # Color map: defensive = yellow/orange/brown, equity = blues/greens
-        from etf import UNIVERSE as _UNIVERSE
+        # Colors matching equity chart benchmarks
+        etf_color_map = {
+            "IVV": "#ff7f0e",    # S&P 500 = orange (same as equity chart)
+            "SOXX": "#9467bd",   # Semiconductors = violet (same as equity chart)
+            "GLD": "#d4af37",    # Gold = gold (same as equity chart)
+            "EEM": "#2ca02c",    # Emerging = green
+            "QQQ": "#2ca02c",    # Nasdaq = green
+        }
         color_map = {}
+        from etf import UNIVERSE as _UNIVERSE
         for etf in _UNIVERSE:
             name = BY_BOURSO[etf.bourso].name[:45] if etf.bourso in BY_BOURSO else etf.bourso
-            if etf.theme == "gold":
-                color_map[name] = "#FFD700"       # gold = jaune or
-            elif etf.theme == "gold_miners":
-                color_map[name] = "#DAA520"       # gold miners = jaune fonce
-            elif etf.theme == "oil":
-                color_map[name] = "#8B4513"       # petrole = marron
-            elif etf.theme == "commodity":
-                color_map[name] = "#FF8C00"       # matieres = orange
-            elif etf.section == "thematic":
-                color_map[name] = "#9467bd"       # thematic = violet
-            elif etf.section == "geo":
-                color_map[name] = "#1f77b4"       # geo = bleu
-            elif etf.section == "sector_us":
-                color_map[name] = "#2ca02c"       # sector = vert
+            color_map[name] = etf_color_map.get(etf.bourso, "#7f7f7f")
         color_map["Cash"] = "#e8e8e8"
 
         colors = [color_map.get(c, "#7f7f7f") for c in plot_data.columns]
@@ -344,64 +318,14 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         ax2.set_ylabel("Allocation")
         ax2.set_ylim(0, 1)
         ax2.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
-        ax2.legend(fontsize=7, loc="center left", bbox_to_anchor=(1.01, 0.5), ncol=1)
+        ax2.legend(fontsize=8, loc="center left", bbox_to_anchor=(1.01, 0.5), ncol=1)
         ax2.set_facecolor("#f8f8f8")
         ax2.grid(True, alpha=0.3)
-        plt.tight_layout()
-        fig2.savefig(out_dir / "backtest_allocation.png", dpi=150, bbox_inches="tight")
-        plt.close(fig2)
 
-    # --- PNG 3: ETF P&L in $ (from 10,000$ capital) ---
-    INITIAL_CAPITAL = 10000.0
-    if len(weights_df) > 0 and len(port_returns) > 0:
-        w = weights_df.reindex(port_returns.index, method="ffill").fillna(0)
-        # Load real daily returns
-        from etf import UNIVERSE
-        daily_ret_etf = {}
-        for etf in UNIVERSE:
-            fmp_file = DATA / f"{etf.fmp.replace('.', '_')}.parquet"
-            if fmp_file.exists():
-                df = pd.read_parquet(fmp_file)
-                col = "close" if "close" in df.columns else "adj_close"
-                dr = df[col].pct_change(1)
-                dr.index = pd.to_datetime(dr.index).tz_localize(None)
-                daily_ret_etf[etf.bourso] = dr
-        dr_panel = pd.DataFrame(daily_ret_etf).reindex(port_returns.index).fillna(0)
+    plt.tight_layout()
+    fig1.savefig(out_dir / "backtest_equity.png", dpi=150, bbox_inches="tight")
+    plt.close(fig1)
 
-        common_etfs = [e for e in w.columns if e in dr_panel.columns]
-        if common_etfs:
-            # Per-ETF P&L in $ = sum over days of (weight × daily_return × portfolio_value_that_day)
-            eq = (1 + port_returns).cumprod() * INITIAL_CAPITAL
-            # Weighted daily $ contribution per ETF
-            daily_pnl = w[common_etfs] * dr_panel[common_etfs]
-            # Scale by portfolio value each day
-            daily_pnl_dollar = daily_pnl.multiply(eq.shift(1).fillna(INITIAL_CAPITAL), axis=0)
-            contrib_dollar = daily_pnl_dollar.sum()  # cumulative $ P&L per ETF
-            contrib_dollar = contrib_dollar.sort_values()
-
-            bar_colors = ["#d62728" if v < 0 else "#2ca02c" for v in contrib_dollar.values]
-            etf_names = [BY_BOURSO[e].name[:50] if e in BY_BOURSO else e for e in contrib_dollar.index]
-
-            total_gain = contrib_dollar[contrib_dollar > 0].sum()
-            total_loss = contrib_dollar[contrib_dollar < 0].sum()
-            net = total_gain + total_loss
-
-            fig3, ax3 = plt.subplots(figsize=(12, max(8, len(contrib_dollar) * 0.35)))
-            fig3.suptitle(
-                f"ETF P&L ($10,000 initial) — Gain: +${total_gain:,.0f}  Loss: -${abs(total_loss):,.0f}  Net: ${net:+,.0f}",
-                fontsize=11, fontweight="bold")
-            ax3.barh(range(len(contrib_dollar)), contrib_dollar.values, color=bar_colors, alpha=0.8, height=0.7)
-            ax3.set_yticks(range(len(contrib_dollar)))
-            ax3.set_yticklabels(etf_names, fontsize=8)
-            ax3.set_xlabel("P&L Contribution ($)")
-            ax3.axvline(0, color="black", linewidth=0.5)
-            ax3.set_facecolor("#f8f8f8")
-            ax3.grid(True, alpha=0.3, axis="x")
-            # Format x-axis as dollars
-            ax3.xaxis.set_major_formatter(mtick.FuncFormatter(lambda x, _: f"${x:,.0f}"))
-            plt.tight_layout()
-            fig3.savefig(out_dir / "backtest_pnl.png", dpi=150, bbox_inches="tight")
-            plt.close(fig3)
 
 
 def main():
@@ -451,7 +375,7 @@ def main():
     print(f"Loaded daily returns for {len(daily_returns_all)} ETFs")
 
     # Filter steps: only keep test periods starting from START_YEAR
-    START_YEAR = 2014
+    START_YEAR = 2007
     all_steps = sorted(oos["step"].unique())
     steps = []
     for s in all_steps:
@@ -485,13 +409,11 @@ def main():
         if len(val_sw_A) > 1250:
             val_sw_A = val_sw_A.iloc[-1250:]
             val_sw_B = val_sw_B.iloc[-1250:]
-        val_is_eq, val_is_def = _section_arrays(val_sw_A.columns.tolist(), sections)
         val_dr = daily_ret_panel.reindex(index=val_sw_A.index, columns=val_sw_A.columns).fillna(0)
-        best_params, val_sharpe = run_cmaes(val_sw_A, val_sw_B, val_dr, val_is_eq, val_is_def, vix_s, hy_z60_s)
+        best_params, val_sharpe = run_cmaes(val_sw_A, val_sw_B, val_dr)
 
         # --- Evaluate on test (true OOS) ---
         test_sw_A, test_sw_B = _pivot_step(test_data)
-        test_is_eq, test_is_def = _section_arrays(test_sw_A.columns.tolist(), sections)
 
         # Remap carry_weights to current ETF columns
         prev_w = None
@@ -504,9 +426,7 @@ def main():
         # Daily returns for test period
         test_dr = daily_ret_panel.reindex(index=test_sw_A.index, columns=test_sw_A.columns).fillna(0)
         test_returns, test_weights = run_backtest(test_sw_A, test_sw_B, test_dr,
-                                                   test_is_eq, test_is_def,
-                                                   vix_s, hy_z60_s, best_params,
-                                                   prev_weights=prev_w)
+                                                   best_params, prev_weights=prev_w)
 
         # Save final weights for next step
         carry_weights = dict(zip(test_weights.columns, test_weights.iloc[-1].values))

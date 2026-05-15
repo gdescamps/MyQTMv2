@@ -37,6 +37,11 @@ ISHARES_MAP = {
     "RING":     "RING",  "IOGP.AS":  "IEO",   "DTLA.AS":  "TLT",
     "IBTA.AS":  "IEF",   "IHYU.AS":  "HYG",   "ITPS.AS":  "TIP",
     "IBTC.AS":  "IBIT",
+    "QQQ":      "IUIT",   # US Nasdaq proxy → IUIT smart money
+    "GLD":      "IAU",    # US Gold proxy → IAU smart money
+    "IVV":      "IVV",    # S&P 500 — direct smart money since 2000
+    "SOXX":     "SOXX",   # Semiconductors — smart money since 2001
+    "EEM":      "EEM",    # Emerging Markets — smart money since 2003
 }
 
 
@@ -214,6 +219,7 @@ def compute_etf_features(ohlcv: pd.DataFrame, shares_df: pd.DataFrame | None) ->
     # Forward returns (label candidates) — shifted BACK N days (no lookahead)
     f["ret_10d_fwd"] = c.pct_change(10).shift(-10)
     f["ret_20d_fwd"] = c.pct_change(20).shift(-20)
+    f["ret_90d_fwd"] = c.pct_change(90).shift(-90)
 
     return f
 
@@ -413,9 +419,13 @@ def main():
         panel["so_x_mom_20d"] = so_z_xs * panel["ret_20d_z_xs"]
 
     # Label: forward ret_20d vs universe mean on same date
-    panel["label"] = panel.groupby("date")["ret_20d_fwd"].transform(
-        lambda x: x - x.mean()
-    )
+    # Label: absolute forward return (no demeaning for single-ETF mode)
+    if panel["etf_id"].nunique() == 1:
+        panel["label"] = panel["ret_90d_fwd"]
+    else:
+        panel["label"] = panel.groupby("date")["ret_90d_fwd"].transform(
+            lambda x: x - x.mean()
+        )
 
     # Set MultiIndex
     panel = panel.set_index(["date", "etf_id"]).sort_index()

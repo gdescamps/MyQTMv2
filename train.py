@@ -37,47 +37,32 @@ STEP           = 63    # refit every ~3 months
 BLOCK_ROWS     = 21    # ~1 month alternating blocks for interlaced train/val
 
 FEATURE_COLS = [
+    # Macro
+    "yield_curve", "yc_x_vix",
+    "hy_spread", "hy_spread_velocity_20",
+    "dxy_ret_20d", "ret_spx_60d",
     # Momentum
-    "ret_120d", "ret_250d",
-    # Momentum ratios
+    "ret_1d", "ret_5d", "ret_20d", "ret_60d", "ret_120d", "ret_250d",
     "mom_ratio_60v120", "mom_ratio_20v120",
+    "mom_accel_20dv60d",
     # Volatility
-    "vol_60d", "vol_120d",
+    "vol_20d", "vol_60d", "vol_120d",
     # RSI
-    "rsi_21",
-    # Moving averages: price distance
-    "price_vs_ma200",
-    # Moving averages: slopes
+    "rsi_14", "rsi_21",
+    # Moving averages
+    "price_vs_ma50", "price_vs_ma200",
     "ma_50_slope", "ma_100_slope", "ma_200_slope",
-    # Moving averages: crossovers
     "ma20_vs_ma50", "ma50_vs_ma100", "ma50_vs_ma200", "ma100_vs_ma200",
     # ATR
-    "atr_21",
+    "atr_14", "atr_21",
     # Drawdown / Distribution
-    "drawdown_250", "kurtosis_60",
+    "drawdown_60", "drawdown_250", "kurtosis_60",
     # Volume
-    "volume_z5", "volume_z10",
-    # Macro / regime
-    "hy_spread", "hy_spread_velocity_20",
-    "yield_curve",
-    "yc_x_vix",
-    "dxy_ret_20d",
-    "ret_spx_60d",
-    # Smart money (forced)
+    "volume_z5", "volume_z10", "volume_z20",
+    # Smart money
+    "shares_outstanding_z5", "shares_outstanding_z20", "shares_outstanding_z60",
     "so_cross_20v60", "so_cross_20v120",
     "so_ret_20d", "so_ret_60d",
-    "shares_outstanding_z20_rank",
-    # Cross-sectional z-scores
-    "vol_20d_z_xs", "vol_60d_z_xs", "vol_120d_z_xs",
-    "ret_60d_z_xs", "ret_120d_z_xs", "ret_250d_z_xs",
-    "atr_14_z_xs", "drawdown_60_z_xs",
-    # Cross-sectional ranks
-    "ret_250d_rank",
-    # Momentum acceleration cross-sectional
-    "mom_accel_20dv60d",
-    "mom_accel_5dv60d_z_xs", "mom_accel_60dv120d_z_xs",
-    # Non-linearities
-    "ret_120d_z_xs_sq",
 ]
 
 LABEL_COL = "label"
@@ -108,7 +93,7 @@ def _zscore_per_date(y: pd.Series) -> pd.Series:
     the loss regardless of its cross-sectional return variance.
     """
     return y.groupby(level="date").transform(
-        lambda x: (x - x.mean()) / (x.std() + 1e-8)
+        lambda x: (x - x.mean()) / max(x.std(), 1e-8) if len(x) > 1 else 0.0
     )
 
 
