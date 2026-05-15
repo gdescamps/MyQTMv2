@@ -74,7 +74,7 @@ def main():
     y_all = panel[LABEL_COL].astype(np.float32)
     y_z = _zscore_per_date(y_all).astype(np.float32)
 
-    params = {**XGB_PARAMS, "device": device, "max_depth": 2}
+    params = {**XGB_PARAMS, "device": device, "max_depth": 3}
 
     importances = {}
     for period in range(3):
