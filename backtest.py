@@ -181,7 +181,7 @@ def run_cmaes(
     is_defensive: np.ndarray,
     vix_s: pd.Series,
     hy_z60_s: pd.Series,
-    maxiter: int = 80,
+    maxiter: int = 50,
 ) -> tuple[list, float]:
     """
     Run CMA-ES on val predictions for one walk-forward step.
@@ -316,7 +316,29 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
 
         fig2, ax2 = plt.subplots(figsize=(16, 8))
         fig2.suptitle("Portfolio Allocation Detail", fontsize=12, fontweight="bold")
-        colors = plt.cm.tab20.colors[:len(plot_data.columns) - 1] + ((0.85, 0.85, 0.85),)
+
+        # Color map: defensive = yellow/orange/brown, equity = blues/greens
+        from etf import UNIVERSE as _UNIVERSE
+        color_map = {}
+        for etf in _UNIVERSE:
+            name = BY_BOURSO[etf.bourso].name[:45] if etf.bourso in BY_BOURSO else etf.bourso
+            if etf.theme == "gold":
+                color_map[name] = "#FFD700"       # gold = jaune or
+            elif etf.theme == "gold_miners":
+                color_map[name] = "#DAA520"       # gold miners = jaune fonce
+            elif etf.theme == "oil":
+                color_map[name] = "#8B4513"       # petrole = marron
+            elif etf.theme == "commodity":
+                color_map[name] = "#FF8C00"       # matieres = orange
+            elif etf.section == "thematic":
+                color_map[name] = "#9467bd"       # thematic = violet
+            elif etf.section == "geo":
+                color_map[name] = "#1f77b4"       # geo = bleu
+            elif etf.section == "sector_us":
+                color_map[name] = "#2ca02c"       # sector = vert
+        color_map["Cash"] = "#e8e8e8"
+
+        colors = [color_map.get(c, "#7f7f7f") for c in plot_data.columns]
         ax2.stackplot(plot_data.index, plot_data.values.T,
                       labels=plot_data.columns, colors=colors, alpha=0.85)
         ax2.set_ylabel("Allocation")
@@ -329,33 +351,57 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         fig2.savefig(out_dir / "backtest_allocation.png", dpi=150, bbox_inches="tight")
         plt.close(fig2)
 
-    # --- PNG 3: ETF P&L winners/losers (full names) ---
+    # --- PNG 3: ETF P&L in $ (from 10,000$ capital) ---
+    INITIAL_CAPITAL = 10000.0
     if len(weights_df) > 0 and len(port_returns) > 0:
-        oos_path = DATA / "oos_predictions.parquet"
-        if oos_path.exists():
-            oos = pd.read_parquet(oos_path)
-            test_oos = oos[oos["split"] == "test"].dropna(subset=["label"])
-            w = weights_df.reindex(port_returns.index, method="ffill").fillna(0)
-            etf_labels = test_oos["label"].unstack("etf_id").reindex(port_returns.index).fillna(0)
-            common_etfs = [e for e in w.columns if e in etf_labels.columns]
-            if common_etfs:
-                contrib = (w[common_etfs] * etf_labels[common_etfs]).sum()
-                contrib = contrib.sort_values()
-                bar_colors = ["#d62728" if v < 0 else "#2ca02c" for v in contrib.values]
-                etf_names = [BY_BOURSO[e].name[:50] if e in BY_BOURSO else e for e in contrib.index]
+        w = weights_df.reindex(port_returns.index, method="ffill").fillna(0)
+        # Load real daily returns
+        from etf import UNIVERSE
+        daily_ret_etf = {}
+        for etf in UNIVERSE:
+            fmp_file = DATA / f"{etf.fmp.replace('.', '_')}.parquet"
+            if fmp_file.exists():
+                df = pd.read_parquet(fmp_file)
+                col = "close" if "close" in df.columns else "adj_close"
+                dr = df[col].pct_change(1)
+                dr.index = pd.to_datetime(dr.index).tz_localize(None)
+                daily_ret_etf[etf.bourso] = dr
+        dr_panel = pd.DataFrame(daily_ret_etf).reindex(port_returns.index).fillna(0)
 
-                fig3, ax3 = plt.subplots(figsize=(12, max(8, len(contrib) * 0.35)))
-                fig3.suptitle("ETF P&L Contribution (Winners & Losers)", fontsize=12, fontweight="bold")
-                ax3.barh(range(len(contrib)), contrib.values, color=bar_colors, alpha=0.8, height=0.7)
-                ax3.set_yticks(range(len(contrib)))
-                ax3.set_yticklabels(etf_names, fontsize=8)
-                ax3.set_xlabel("P&L Contribution (weighted return)")
-                ax3.axvline(0, color="black", linewidth=0.5)
-                ax3.set_facecolor("#f8f8f8")
-                ax3.grid(True, alpha=0.3, axis="x")
-                plt.tight_layout()
-                fig3.savefig(out_dir / "backtest_pnl.png", dpi=150, bbox_inches="tight")
-                plt.close(fig3)
+        common_etfs = [e for e in w.columns if e in dr_panel.columns]
+        if common_etfs:
+            # Per-ETF P&L in $ = sum over days of (weight × daily_return × portfolio_value_that_day)
+            eq = (1 + port_returns).cumprod() * INITIAL_CAPITAL
+            # Weighted daily $ contribution per ETF
+            daily_pnl = w[common_etfs] * dr_panel[common_etfs]
+            # Scale by portfolio value each day
+            daily_pnl_dollar = daily_pnl.multiply(eq.shift(1).fillna(INITIAL_CAPITAL), axis=0)
+            contrib_dollar = daily_pnl_dollar.sum()  # cumulative $ P&L per ETF
+            contrib_dollar = contrib_dollar.sort_values()
+
+            bar_colors = ["#d62728" if v < 0 else "#2ca02c" for v in contrib_dollar.values]
+            etf_names = [BY_BOURSO[e].name[:50] if e in BY_BOURSO else e for e in contrib_dollar.index]
+
+            total_gain = contrib_dollar[contrib_dollar > 0].sum()
+            total_loss = contrib_dollar[contrib_dollar < 0].sum()
+            net = total_gain + total_loss
+
+            fig3, ax3 = plt.subplots(figsize=(12, max(8, len(contrib_dollar) * 0.35)))
+            fig3.suptitle(
+                f"ETF P&L ($10,000 initial) — Gain: +${total_gain:,.0f}  Loss: -${abs(total_loss):,.0f}  Net: ${net:+,.0f}",
+                fontsize=11, fontweight="bold")
+            ax3.barh(range(len(contrib_dollar)), contrib_dollar.values, color=bar_colors, alpha=0.8, height=0.7)
+            ax3.set_yticks(range(len(contrib_dollar)))
+            ax3.set_yticklabels(etf_names, fontsize=8)
+            ax3.set_xlabel("P&L Contribution ($)")
+            ax3.axvline(0, color="black", linewidth=0.5)
+            ax3.set_facecolor("#f8f8f8")
+            ax3.grid(True, alpha=0.3, axis="x")
+            # Format x-axis as dollars
+            ax3.xaxis.set_major_formatter(mtick.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+            plt.tight_layout()
+            fig3.savefig(out_dir / "backtest_pnl.png", dpi=150, bbox_inches="tight")
+            plt.close(fig3)
 
 
 def main():
@@ -405,7 +451,7 @@ def main():
     print(f"Loaded daily returns for {len(daily_returns_all)} ETFs")
 
     # Filter steps: only keep test periods starting from START_YEAR
-    START_YEAR = 2003
+    START_YEAR = 2014
     all_steps = sorted(oos["step"].unique())
     steps = []
     for s in all_steps:
@@ -433,10 +479,13 @@ def main():
             print(f"{step:4d}  SKIP (val={len(val_data)} rows, test={len(test_data)} rows)")
             continue
 
-        # --- CMA-ES on val predictions (A + B scores) ---
+        # --- CMA-ES on val predictions (last 5 years only) ---
         val_sw_A, val_sw_B = _pivot_step(val_data)
+        # Limit val to last 5 years (~1250 trading days)
+        if len(val_sw_A) > 1250:
+            val_sw_A = val_sw_A.iloc[-1250:]
+            val_sw_B = val_sw_B.iloc[-1250:]
         val_is_eq, val_is_def = _section_arrays(val_sw_A.columns.tolist(), sections)
-        # Daily returns for val period
         val_dr = daily_ret_panel.reindex(index=val_sw_A.index, columns=val_sw_A.columns).fillna(0)
         best_params, val_sharpe = run_cmaes(val_sw_A, val_sw_B, val_dr, val_is_eq, val_is_def, vix_s, hy_z60_s)
 
