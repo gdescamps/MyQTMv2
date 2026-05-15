@@ -168,3 +168,133 @@ L'optimisation msa se realise sur les 2 derniers intervalles de val
 | 38 | CITY.AS | iShares Smart City Infra ETF USD Acc | thematic | -0.083 | 10 |
 | 39 | ITWN.PA | iShares MSCI Taiwan ETF USD Dist | geo | -0.118 | 95 |
 | 40 | IBTC.AS | iShares Physical Bitcoin ETP USD Acc | crypto | -0.199 | 10 |
+
+
+-------------------------------------------
+
+Supprimer les coûts de transaction lors du rééquilibrage de portefeuille.
+Je ne veux plus de frais de transaction sur le rééquilibrage du portefeuille.
+
+-------------------------------------------
+
+Dans le graphique du backtest, 
+au niveau de l'allocation du portefeuille affiche uniquement les ETF alloués par ordre décroissant d'allocation.
+Dans le graphique affiche toutes les courbes des ETF.
+Exactement avec la même couleur d'allocation.
+Ceci affiche en très gras le portefeuille actuel en rouge.
+Affiche en très gras dans la couleur du portefeuille d'allocation le SP500, le gold, oil & gas
+Augmente la résolution du graphique.
+Appuyez la légende du graphique valeur de l'ETF sur le dernier point connu.
+
+
+Au niveau de la légende des ETF pour la location.
+Faire pareil, simplifier les labels des ETF.
+Affiche tous les ETF avec une pastille de couleur plus large, avec une font plus grande 
+Mais affiche les ETF par ordre de volume d'allocation sur tout l'historique. Par exemple, si on alloue tout le temps le SP500, ça représente le plus gros volume de position depuis le début du backtest. Affiche-le en premier, etc.
+
+encode le graphique en JPEG ne pas proposer le png pour que le téléchargement soit plus rapide.
+Augmente la taille de la légende pour le graphique.
+Mettre la légende du graphique en avant-plan avec une légère opacité.
+Augmente la taille des labels des ETF à droite des courbes. Essaye de les ordonner pour éviter qu'ils se chevauchent lorsque leur valeur relative est très proche.
+
+Est-ce que tu peux compresser l'image JPEG pour réduire significativement la taille du fichier ?
+
+-------------------------------------------
+
+Lors de l'allocation du portefeuille, on alloue le portefeuille par fraction de 500 dollars entière.
+En partant d'un capital initial de 10 000$.
+
+
+Réaliser une prédiction du portefeuille toutes les semaines plutot que tous les trimestres.
+changer la réallocation portefeuille seulement s'il y a une différence significative 
+Entre l'allocation courante.
+est la nouvelle prédiction du portefeuille
+Pour changer, il faut qu'il y ait au moins 50% de changement
+Par rapport au portefeuille alloué .
+
+-------------------------------------------
+
+Par contre forcez la mise à jour du portefeuille lorsqu'il y a un nouveau modèle.
+Ne pas appliquer le filtre qui demande au moins 50% de changement du portefeuille lorsqu'il y a un nouveau modèle.
+Car on veut accepter tout de suite un modèle frais et une mise à jour du CMAES.
+
+
+-------------------------------------------
+
+Est-ce que tu peux me redonner la taille des blocs et la séquence des blocs, l'enchaînement modèle A, modèle B ? 
+Donc la taille des blocs d'apprentissage, les tailles des blocs de validation et la taille du bloc de test.
+
+
+-------------------------------------------
+
+Changez le label, passez de 90 jours à 5 jours.
+Changer les blocs de test à 1 mois.
+Le step est de 1 mois.
+Créer un embargo de 5 jours entre les blocs précédents qu'on va alterner pour entraîner le model A et B.
+Si le modèle B précède immédiatement le bloc de test, on utilisera toujours le modèle A.
+Les blocs gardent une longueur d'un mois.
+
+faire un filtrage avec ce label à 5 jours.
+Et l'embargo à 5 jours et le block de 1 mois 
+En utilisant le maximum de features avec les feature non lineaires
+
+-------------------------------------------
+
+
+
+-------------------------------------------
+
+est ce que tu peux regarder le filtrage des features dans ./MyQTM 
+est ce que tu fais la meme chose dans MyQTMv2?
+
+
+-------------------------------------------
+
+commiter 
+le z90 -> z5
+embargo 5d entre Train et Val et Test 
+tous les block a 1mois
+model A entraine loin de Test 
+model A+B pour le CMAES continue uniquement 
+prediction de Test uniquement avec le model A 
+
+commiter le nouveau filtrage de feature basé sur MyQTMv1
+
+-------------------------------------------
+
+commente la progression de la nouvelle recherche il y a des best 
+
+-------------------------------------------
+
+Ajouter comme feature le rendement annualiser depuis le debut du training 
+pour chaque ETF et le max drawdown, sa volatilité, sharpe ratio.
+le max dd, le vix du  max dd    	
+
+-------------------------------------------
+
+Realiser la boucle de recherche suivante :
+En gardant l'embargo 5 jours et les blocs d'un mois.
+Créer une recherche d'hyperparam sur le filtrage des features de 2005 a 2026
+Utiliser filtrage des features v2 
+sort les feats sur :  mean / std ^ hyperparam hyperparam [1.2 : 1.7]
+	cap le nombre de features : [ 80, 90, 100, 110, 120] :
+		Sur cette sélection de features (power et cap ):
+		En testant les 30 derniers steps du benchmark seulement du model A eloigné de test
+		Faire une nouvelle recherche d'hyperparamètres d = [ 5, 6, 7] et 
+		retenir le best test ic vs stabilité vs gap
+
+-------------------------------------------
+
+relance le train et backtest avec ce nouveau best 
+
+-------------------------------------------
+
+sur le backtest j'ai toujours 50% de cash dispo 
+
+-------------------------------------------
+
+est ce que tu peux trier la liste des etf dans la legende du graphique en fonction de leur return depuis le debut, x2, x1.5, x1.3 etc 
+
+-------------------------------------------
+
+est ce que tu confirme qu'il n'y a qu'une seule reallocation par mois ?
