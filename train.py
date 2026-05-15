@@ -38,37 +38,56 @@ BLOCK_ROWS     = 21    # ~1 month alternating blocks for interlaced train/val
 
 FEATURE_COLS = [
     # Momentum
-    "ret_40d", "ret_120d",
+    "ret_20d", "ret_60d", "ret_120d", "ret_250d",
+    # Momentum ratios
+    "mom_ratio_60v120", "mom_ratio_20v120",
     # Volatility
-    "vol_20d", "vol_60d", "vol_120d",
+    "vol_10d", "vol_20d", "vol_60d", "vol_120d",
+    "vol_ratio_10v120", "vol_ratio_20v120",
+    # RSI
+    "rsi_21", "rsi_60",
     # Moving averages: price distance
-    "price_vs_ma100", "price_vs_ma200",
+    "price_vs_ma200",
     # Moving averages: slopes
-    "ma_10_slope", "ma_50_slope", "ma_100_slope", "ma_200_slope",
+    "ma_20_slope", "ma_50_slope", "ma_100_slope", "ma_200_slope",
     # Moving averages: crossovers
-    "ma10_vs_ma20", "ma20_vs_ma50", "ma20_vs_ma100",
-    "ma50_vs_ma100", "ma50_vs_ma200", "ma100_vs_ma200",
+    "ma10_vs_ma50", "ma20_vs_ma50", "ma50_vs_ma100", "ma50_vs_ma200", "ma100_vs_ma200",
     # ATR
     "atr_14", "atr_21",
+    # Bollinger / Drawdown / Distribution
+    "bb_position_120", "drawdown_250", "kurtosis_60",
+    # Volume
+    "volume_z5", "volume_z10", "vol_cross_20v60",
     # Macro / regime
-    "hy_spread", "hy_spread_velocity_20",
-    "yield_curve",
-    "dxy_ret_20d", "dxy_ret_60d", "dxy_z60",
-    "ret_spx_20d",
+    "vix_level", "vix_squared",
+    "hy_spread", "hy_spread_z60", "hy_spread_velocity_20",
+    "hy_cross_5v60", "hy_cross_20v60",
+    "yield_curve", "yield_curve_z60", "yield_curve_velocity_20",
+    "yc_x_vix",
+    "dxy_ret_20d", "dxy_ret_60d", "dxy_z60", "dxy_cross_20v60",
+    "ret_spx_20d", "ret_spx_60d", "spx_vol_20d", "spx_drawdown_60",
     # Smart money
-    "so_cross_20v60",
-    # Cross-sectional
-    "vol_20d_z_xs", "vol_60d_z_xs",
-    "ret_120d_z_xs", "ret_120d_rank",
-    "mom_accel_20v60_z_xs",
-    "volume_z5",
+    "so_cross_20v120", "so_cross_60v120", "so_ret_20d", "so_ret_60d",
+    # Cross-sectional z-scores
+    "vol_20d_z_xs", "vol_60d_z_xs", "vol_120d_z_xs",
+    "ret_60d_z_xs", "ret_120d_z_xs", "ret_250d_z_xs",
+    "atr_14_z_xs", "drawdown_60_z_xs",
+    "ret_60d_z_within_block",
+    # Cross-sectional ranks
+    "ret_120d_rank", "ret_250d_rank", "vol_20d_rank",
+    # Momentum acceleration cross-sectional
+    "mom_accel_20dv60d", "mom_accel_60dv120d",
+    "mom_accel_5dv20d_z_xs", "mom_accel_5dv60d_z_xs", "mom_accel_20dv60d_z_xs",
+    # Non-linearities
+    "ret_60d_z_xs_sq", "ret_120d_z_xs_sq",
+    "mom_x_vol_20d", "mom_x_vol_60d",
 ]
 
 LABEL_COL = "label"
 
 XGB_PARAMS = dict(
     tree_method          = "hist",
-    max_depth            = 2,
+    max_depth            = 3,
     min_child_weight     = 41,
     subsample            = 0.838,
     colsample_bytree     = 0.678,
@@ -149,93 +168,103 @@ def run_walk_forward(
 
         in_train     = row_pos < train_end_pos
         block_parity = (row_pos // BLOCK_ROWS) % 2
-
-        train_mask   = in_train & (block_parity == 0)
-        val_mask     = in_train & (block_parity == 1)
-        val_es_mask  = val_mask
-        val_cma_mask = val_mask
         test_mask    = (row_pos >= train_end_pos) & (row_pos < test_end_pos)
+        test_idx     = panel.index[test_mask]
 
-        tr_idx      = panel.index[train_mask   & y_all.notna()]
-        val_es_idx  = panel.index[val_es_mask  & y_all.notna()]
-        val_cma_idx = panel.index[val_cma_mask & y_all.notna()]
-        test_idx    = panel.index[test_mask]
+        # Model A: train on even blocks, val on odd blocks
+        train_A_mask = in_train & (block_parity == 0)
+        val_A_mask   = in_train & (block_parity == 1)
+        # Model B: train on odd blocks, val on even blocks (opposite phase)
+        train_B_mask = in_train & (block_parity == 1)
+        val_B_mask   = in_train & (block_parity == 0)
 
-        if len(tr_idx) < 100 or len(val_es_idx) < 10:
+        tr_A_idx  = panel.index[train_A_mask & y_all.notna()]
+        val_A_idx = panel.index[val_A_mask   & y_all.notna()]
+        tr_B_idx  = panel.index[train_B_mask & y_all.notna()]
+        val_B_idx = panel.index[val_B_mask   & y_all.notna()]
+
+        if len(tr_A_idx) < 100 or len(val_A_idx) < 10:
             train_end_pos += STEP
             continue
 
-        # Train on z-scored labels; early stopping on val_ES (interlaced)
-        X_tr     = X_all.loc[tr_idx].values
-        y_tr     = y_train.loc[tr_idx].values
-        X_val_es = X_all.loc[val_es_idx].values
-        y_val_es = y_train.loc[val_es_idx].values
+        # Train Model A (even→train, odd→val_ES)
+        model_A = xgb.XGBRegressor(**params)
+        model_A.fit(X_all.loc[tr_A_idx].values, y_train.loc[tr_A_idx].values,
+                     eval_set=[(X_all.loc[val_A_idx].values, y_train.loc[val_A_idx].values)],
+                     verbose=False)
 
-        model = xgb.XGBRegressor(**params)
-        model.fit(X_tr, y_tr, eval_set=[(X_val_es, y_val_es)], verbose=False)
-        best_iter = model.best_iteration
+        # Train Model B (odd→train, even→val_ES)
+        model_B = xgb.XGBRegressor(**params)
+        model_B.fit(X_all.loc[tr_B_idx].values, y_train.loc[tr_B_idx].values,
+                     eval_set=[(X_all.loc[val_B_idx].values, y_train.loc[val_B_idx].values)],
+                     verbose=False)
+
+        best_iter_A = model_A.best_iteration
+        best_iter_B = model_B.best_iteration
 
         if save_models:
             model_dir = OUTPUTS / "models"
             model_dir.mkdir(parents=True, exist_ok=True)
-            model.save_model(str(model_dir / f"step_{step_n:02d}.ubj"))
+            model_A.save_model(str(model_dir / f"step_{step_n:02d}_A.ubj"))
+            model_B.save_model(str(model_dir / f"step_{step_n:02d}_B.ubj"))
 
         train_dates = dates[:train_end_pos]
         test_dates  = dates[train_end_pos:test_end_pos]
 
-        # IC on train (in-sample)
-        train_ic = float("nan")
-        if len(tr_idx) > 0:
-            train_scores = model.predict(X_all.loc[tr_idx].values)
-            train_ic = _daily_ic(train_scores, y_all.loc[tr_idx].values, tr_idx)
+        # Val predictions: A predicts on odd blocks (its val), B predicts on even blocks (its val)
+        # Together they cover ALL blocks → continuous val for CMA-ES
+        val_ic = float("nan")
+        all_val_idx = panel.index[in_train & y_all.notna()]
+        if len(all_val_idx) > 0:
+            scores_A_val = model_A.predict(X_all.loc[all_val_idx].values)
+            scores_B_val = model_B.predict(X_all.loc[all_val_idx].values)
+            # For CMA-ES: save both scores, backtest will use them with separate temperatures
+            val_ic_A = _daily_ic(scores_A_val, y_all.loc[all_val_idx].values, all_val_idx)
+            val_ic_B = _daily_ic(scores_B_val, y_all.loc[all_val_idx].values, all_val_idx)
+            val_ic = (val_ic_A + val_ic_B) / 2
 
-        # IC on val_es (early stopping set — seen by XGBoost for ES)
-        val_es_ic = float("nan")
-        if len(val_es_idx) > 0:
-            val_es_scores = model.predict(X_all.loc[val_es_idx].values)
-            val_es_ic = _daily_ic(val_es_scores, y_all.loc[val_es_idx].values, val_es_idx)
-
-        # Predict on val_cma blocks (CMA-ES + stability — never used for training or ES)
-        val_cma_ic = float("nan")
-        if len(val_cma_idx) > 0:
-            val_scores = model.predict(X_all.loc[val_cma_idx].values)
-            val_cma_ic = _daily_ic(val_scores, y_all.loc[val_cma_idx].values, val_cma_idx)
-            val_df     = pd.DataFrame(
-                {"score": val_scores, "label": y_all.loc[val_cma_idx].values},
-                index=val_cma_idx,
-            )
+            val_df = pd.DataFrame({
+                "score_A": scores_A_val,
+                "score_B": scores_B_val,
+                "score": (scores_A_val + scores_B_val) / 2,
+                "label": y_all.loc[all_val_idx].values,
+            }, index=all_val_idx)
             val_df["step"]      = step_n
             val_df["split"]     = "val"
-            val_df["best_iter"] = best_iter
-            val_df["val_ic"]    = val_cma_ic
+            val_df["best_iter"] = best_iter_A
+            val_df["val_ic"]    = val_ic
             predictions.append(val_df)
 
-        # Predict on test window (save original labels)
+        # Test predictions: both models predict, saved separately
         test_ic = float("nan")
         if len(test_idx) > 0:
-            test_scores = model.predict(X_all.loc[test_idx].values)
-            test_ic     = _daily_ic(test_scores, y_all.loc[test_idx].values, test_idx)
-            test_df     = pd.DataFrame(
-                {"score": test_scores, "label": y_all.loc[test_idx].values},
-                index=test_idx,
-            )
+            scores_A_test = model_A.predict(X_all.loc[test_idx].values)
+            scores_B_test = model_B.predict(X_all.loc[test_idx].values)
+            avg_scores = (scores_A_test + scores_B_test) / 2
+            test_ic = _daily_ic(avg_scores, y_all.loc[test_idx].values, test_idx)
+
+            test_df = pd.DataFrame({
+                "score_A": scores_A_test,
+                "score_B": scores_B_test,
+                "score": avg_scores,
+                "label": y_all.loc[test_idx].values,
+            }, index=test_idx)
             test_df["step"]      = step_n
             test_df["split"]     = "test"
-            test_df["best_iter"] = best_iter
-            test_df["val_ic"]    = val_cma_ic
+            test_df["best_iter"] = best_iter_A
+            test_df["val_ic"]    = val_ic
             predictions.append(test_df)
 
-        ic_log.append((step_n, train_ic, val_es_ic, val_cma_ic, test_ic))
+        ic_log.append((step_n, val_ic, val_ic, val_ic, test_ic))
         step_n += 1
 
         if verbose:
             print(
                 f"  Step {step_n:2d}  "
-                f"train={train_ic:+.4f}  "
-                f"val={val_es_ic:+.4f}  "
+                f"val={val_ic:+.4f}  "
                 f"test={test_ic:+.4f}  "
                 f"[{test_dates[0].date()} → {test_dates[-1].date()}]  "
-                f"iter={best_iter}"
+                f"iter_A={best_iter_A} iter_B={best_iter_B}"
             )
 
         train_end_pos += STEP
