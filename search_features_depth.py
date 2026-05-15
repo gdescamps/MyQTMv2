@@ -1,8 +1,8 @@
 """
-Grid search over XGBoost model params with fixed feature selection.
+Grid search over feature selection hyperparams (power × cap) with fixed XGB params.
 
-Fixed: power=1.3, cap=90, depth=7
-Search: min_child_weight, subsample, colsample_bytree, learning_rate, reg_alpha, reg_lambda
+Search: power [1.2..1.7] × cap [80..120], depth=7, last 100 steps model A only.
+Composite score: test_IC × stability(clip 0,1) - val_test_gap
 
 Output: myfiles/search_results.csv
 """
@@ -26,21 +26,12 @@ OUTPUTS = Path(__file__).parent / "outputs"
 MYFILES = Path(__file__).parent / "myfiles"
 MYFILES.mkdir(exist_ok=True)
 
-# Fixed feature selection
-POWER = 1.3
-TOP_N = 90
 DEPTH = 7
-N_LAST_STEPS = 30
+N_LAST_STEPS = 100
 
-# Search grid for XGB params
-PARAM_GRID = {
-    "min_child_weight": [20, 41, 60, 80],
-    "subsample":        [0.6, 0.7, 0.838, 0.9],
-    "colsample_bytree": [0.5, 0.678, 0.8, 1.0],
-    "learning_rate":    [0.02, 0.04, 0.06],
-    "reg_alpha":        [0.001, 0.1, 1.0],
-    "reg_lambda":       [0.5, 1.674, 5.0],
-}
+# Search grid
+POWER_GRID = [1.2, 1.3, 1.4, 1.5, 1.6, 1.7]
+CAP_GRID   = [80, 90, 100, 110, 120]
 
 
 def select_features_v2(panel, feature_cols, power, top_n, row_pos, device):
@@ -181,105 +172,62 @@ def main():
     row_dates = panel.index.get_level_values("date")
     row_pos = pd.Series([date_to_pos[d] for d in row_dates], index=panel.index)
 
-    # Feature selection (once)
-    print(f"\nFeature selection: power={POWER}, cap={TOP_N}", flush=True)
-    selected = select_features_v2(panel, all_feature_cols, POWER, TOP_N, row_pos, device)
-    available = [c for c in selected if c in panel.columns]
-    print(f"Selected: {len(available)} features", flush=True)
+    combos = list(product(POWER_GRID, CAP_GRID))
+    total = len(combos)
+    print(f"\n=== Search: power × cap ({total} combos), d={DEPTH}, last {N_LAST_STEPS} steps ===")
+    print(f"{'power':>5} {'cap':>4} {'#feat':>5} {'val_IC':>8} {'test_IC':>8} "
+          f"{'stab':>6} {'gap':>6} {'composite':>9}  {'best':>4}")
+    print("-" * 70)
 
-    # Build param combos — search pairs to keep tractable
-    # Phase 1: subsample × colsample × min_child_weight
-    # Phase 2: learning_rate × reg_alpha × reg_lambda (with best from phase 1)
+    results = []
+    best_composite = -999
 
-    # Phase 1
-    phase1 = list(product(
-        PARAM_GRID["min_child_weight"],
-        PARAM_GRID["subsample"],
-        PARAM_GRID["colsample_bytree"],
-    ))
+    for i, (power, cap) in enumerate(combos):
+        # Feature selection v2
+        selected = select_features_v2(panel, all_feature_cols, power, cap, row_pos, device)
+        available = [c for c in selected if c in panel.columns]
+        n_feat = len(available)
 
-    print(f"\n=== Phase 1: min_child_weight × subsample × colsample ({len(phase1)} combos) ===")
-    print(f"{'mcw':>4} {'sub':>5} {'col':>5} {'val_IC':>8} {'test_IC':>8} {'stab':>6} {'gap':>6}")
-    print("-" * 50)
+        if n_feat < 10:
+            print(f"{power:5.1f} {cap:4d} {n_feat:5d}  SKIP (too few features)  [{i+1}/{total}]",
+                  flush=True)
+            continue
 
-    results_p1 = []
-    for i, (mcw, sub, col) in enumerate(phase1):
-        override = {"min_child_weight": mcw, "subsample": sub, "colsample_bytree": col}
+        # Train model A on last N steps
+        override = {"max_depth": DEPTH}
         metrics = run_last_n_steps(panel, available, device, override, N_LAST_STEPS, row_pos)
-        row = {"min_child_weight": mcw, "subsample": sub, "colsample_bytree": col, **metrics}
-        results_p1.append(row)
-        print(f"{mcw:4d} {sub:5.2f} {col:5.3f} "
+
+        composite = (metrics["mean_test_ic"] * max(0, min(1, metrics["ic_stability"]))
+                     - metrics["val_test_gap"])
+        is_best = composite > best_composite
+        if is_best:
+            best_composite = composite
+
+        row = {"power": power, "cap": cap, "n_features": n_feat, **metrics,
+               "composite": composite}
+        results.append(row)
+
+        print(f"{power:5.1f} {cap:4d} {n_feat:5d} "
               f"{metrics['mean_val_ic']:+8.4f} {metrics['mean_test_ic']:+8.4f} "
-              f"{metrics['ic_stability']:6.3f} {metrics['val_test_gap']:6.4f}  "
-              f"[{i+1}/{len(phase1)}]", flush=True)
+              f"{metrics['ic_stability']:6.3f} {metrics['val_test_gap']:6.4f} "
+              f"{composite:+9.5f}  {'★' if is_best else '':>4}  "
+              f"[{i+1}/{total}]", flush=True)
 
-    df1 = pd.DataFrame(results_p1)
-    df1["composite"] = df1["mean_test_ic"] * df1["ic_stability"].clip(0, 1) - df1["val_test_gap"]
-    df1 = df1.sort_values("composite", ascending=False)
+    df = pd.DataFrame(results).sort_values("composite", ascending=False)
+    df.to_csv(MYFILES / "search_results.csv", index=False)
 
-    best_mcw = df1.iloc[0]["min_child_weight"]
-    best_sub = df1.iloc[0]["subsample"]
-    best_col = df1.iloc[0]["colsample_bytree"]
+    print(f"\n{'='*70}")
+    print("Top 10 results:")
+    print(df.head(10).to_string(index=False))
 
-    print(f"\nPhase 1 best: mcw={int(best_mcw)} sub={best_sub:.2f} col={best_col:.3f}  "
-          f"test_IC={df1.iloc[0]['mean_test_ic']:+.4f}  stab={df1.iloc[0]['ic_stability']:.3f}")
-    print("\nTop 5 phase 1:")
-    print(df1.head(5).to_string(index=False))
-
-    # Phase 2: learning_rate × reg_alpha × reg_lambda (with best phase 1)
-    phase2 = list(product(
-        PARAM_GRID["learning_rate"],
-        PARAM_GRID["reg_alpha"],
-        PARAM_GRID["reg_lambda"],
-    ))
-
-    print(f"\n=== Phase 2: lr × alpha × lambda ({len(phase2)} combos) ===")
-    print(f"{'lr':>5} {'alpha':>6} {'lambda':>6} {'val_IC':>8} {'test_IC':>8} {'stab':>6} {'gap':>6}")
-    print("-" * 55)
-
-    results_p2 = []
-    for i, (lr, alpha, lam) in enumerate(phase2):
-        override = {
-            "min_child_weight": int(best_mcw),
-            "subsample": best_sub,
-            "colsample_bytree": best_col,
-            "learning_rate": lr,
-            "reg_alpha": alpha,
-            "reg_lambda": lam,
-        }
-        metrics = run_last_n_steps(panel, available, device, override, N_LAST_STEPS, row_pos)
-        row = {"learning_rate": lr, "reg_alpha": alpha, "reg_lambda": lam, **metrics}
-        results_p2.append(row)
-        print(f"{lr:5.3f} {alpha:6.3f} {lam:6.3f} "
-              f"{metrics['mean_val_ic']:+8.4f} {metrics['mean_test_ic']:+8.4f} "
-              f"{metrics['ic_stability']:6.3f} {metrics['val_test_gap']:6.4f}  "
-              f"[{i+1}/{len(phase2)}]", flush=True)
-
-    df2 = pd.DataFrame(results_p2)
-    df2["composite"] = df2["mean_test_ic"] * df2["ic_stability"].clip(0, 1) - df2["val_test_gap"]
-    df2 = df2.sort_values("composite", ascending=False)
-
-    print(f"\nPhase 2 best: lr={df2.iloc[0]['learning_rate']:.3f} "
-          f"alpha={df2.iloc[0]['reg_alpha']:.3f} lambda={df2.iloc[0]['reg_lambda']:.3f}  "
-          f"test_IC={df2.iloc[0]['mean_test_ic']:+.4f}  stab={df2.iloc[0]['ic_stability']:.3f}")
-    print("\nTop 5 phase 2:")
-    print(df2.head(5).to_string(index=False))
-
-    # Save all results
-    all_results = pd.concat([
-        df1.assign(phase="p1_struct"),
-        df2.assign(phase="p2_reg"),
-    ], ignore_index=True)
-    all_results.to_csv(MYFILES / "search_results.csv", index=False)
-
-    print(f"\n{'='*60}")
-    print(f"Final best params (d={DEPTH}, power={POWER}, cap={TOP_N}):")
-    print(f"  min_child_weight = {int(best_mcw)}")
-    print(f"  subsample        = {best_sub:.3f}")
-    print(f"  colsample_bytree = {best_col:.3f}")
-    print(f"  learning_rate    = {df2.iloc[0]['learning_rate']:.3f}")
-    print(f"  reg_alpha        = {df2.iloc[0]['reg_alpha']:.3f}")
-    print(f"  reg_lambda       = {df2.iloc[0]['reg_lambda']:.3f}")
+    best = df.iloc[0]
+    print(f"\n{'='*70}")
+    print(f"BEST: power={best['power']:.1f}  cap={int(best['cap'])}  "
+          f"#feat={int(best['n_features'])}")
+    print(f"  test_IC    = {best['mean_test_ic']:+.4f}")
+    print(f"  stability  = {best['ic_stability']:.3f}")
+    print(f"  val/test gap = {best['val_test_gap']:.4f}")
+    print(f"  composite  = {best['composite']:+.5f}")
 
 
 if __name__ == "__main__":
