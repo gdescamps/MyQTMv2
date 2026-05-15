@@ -122,12 +122,15 @@ CRYPTO = [
 # Full universe
 # ---------------------------------------------------------------------------
 UNIVERSE_FULL: list[ETF] = GEO + SECTOR_US + THEMATIC + COMMODITY + BOND + CRYPTO
-# US ETFs mode: max history with smart money
+# Extended US/EU ETFs with smart money
 UNIVERSE: list[ETF] = [
     ETF("IVV", "iShares Core S&P 500 ETF", "geo", "us", pea=False, zero_fees=False, fmp="IVV", fmp_proxy=False, perf_1y=None, perf_5y=None),
     ETF("SOXX", "iShares Semiconductor ETF", "thematic", "semi", pea=False, zero_fees=False, fmp="SOXX", fmp_proxy=False, perf_1y=None, perf_5y=None),
     ETF("EEM", "iShares MSCI Emerging Markets ETF", "geo", "em", pea=False, zero_fees=False, fmp="EEM", fmp_proxy=False, perf_1y=None, perf_5y=None),
     ETF("GLD", "SPDR Gold Shares", "commodity", "gold", pea=False, zero_fees=False, fmp="GLD", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("TLT", "iShares 20+ Year Treasury Bond ETF", "bond", "us_lt", pea=False, zero_fees=False, fmp="TLT", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("IEO", "iShares U.S. Oil & Gas Exploration ETF", "commodity", "oil", pea=False, zero_fees=False, fmp="IEO", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EXX1.DE", "iShares EURO STOXX Banks 30-15 ETF", "thematic", "banks_eu", pea=False, zero_fees=False, fmp="EXX1.DE", fmp_proxy=False, perf_1y=None, perf_5y=None),
 ]
 
 # Quick lookup dicts

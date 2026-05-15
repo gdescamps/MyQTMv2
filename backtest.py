@@ -267,7 +267,9 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
     for ticker, name, color in [("IVV", "S&P 500", "#ff7f0e"),
                                  ("SOXX", "Semiconductors", "#9467bd"),
                                  ("EEM", "Emerging Markets", "#2ca02c"),
-                                 ("GLD", "Gold", "#d4af37")]:
+                                 ("GLD", "Gold", "#d4af37"),
+                                 ("TLT", "Treasury 20y+", "#17becf"),
+                                 ("IEO", "Oil & Gas", "#8b4513")]:
         bm = _load_benchmark(ticker, eq_curve.index)
         if bm is not None:
             ax1.plot(bm.index, bm.values, lw=1.2, color=color, alpha=0.7, label=name)
@@ -299,10 +301,13 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
 
         # Colors matching equity chart benchmarks
         etf_color_map = {
-            "IVV": "#ff7f0e",    # S&P 500 = orange (same as equity chart)
-            "SOXX": "#9467bd",   # Semiconductors = violet (same as equity chart)
-            "GLD": "#d4af37",    # Gold = gold (same as equity chart)
+            "IVV": "#ff7f0e",    # S&P 500 = orange
+            "SOXX": "#9467bd",   # Semiconductors = violet
+            "GLD": "#d4af37",    # Gold = gold
             "EEM": "#2ca02c",    # Emerging = green
+            "TLT": "#17becf",    # Treasury = cyan
+            "IEO": "#8b4513",    # Oil & Gas = brown
+            "EXX1.DE": "#e377c2", # Euro Banks = pink
             "QQQ": "#2ca02c",    # Nasdaq = green
         }
         color_map = {}
@@ -375,7 +380,7 @@ def main():
     print(f"Loaded daily returns for {len(daily_returns_all)} ETFs")
 
     # Filter steps: only keep test periods starting from START_YEAR
-    START_YEAR = 2007
+    START_YEAR = 2008
     all_steps = sorted(oos["step"].unique())
     steps = []
     for s in all_steps:

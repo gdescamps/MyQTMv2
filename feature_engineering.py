@@ -42,6 +42,9 @@ ISHARES_MAP = {
     "IVV":      "IVV",    # S&P 500 — direct smart money since 2000
     "SOXX":     "SOXX",   # Semiconductors — smart money since 2001
     "EEM":      "EEM",    # Emerging Markets — smart money since 2003
+    "TLT":      "TLT",    # Treasury 20y+ — smart money since 2002
+    "IEO":      "IEO",    # Oil & Gas — smart money since 2006
+    "EXX1.DE":  "EXX1",   # Euro Banks — smart money since 2002
 }
 
 

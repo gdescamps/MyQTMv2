@@ -31,7 +31,7 @@ DATA    = Path(__file__).parent / "data"
 OUTPUTS = Path(__file__).parent / "outputs"
 
 # Walk-forward parameters
-MIN_TRAIN_ROWS = 750   # ~3 years of trading days before first test
+MIN_TRAIN_ROWS = 1500  # ~6 years of trading days before first test
 TEST_WINDOW    = 63    # ~3 months per test step
 STEP           = 63    # refit every ~3 months
 BLOCK_ROWS     = 21    # ~1 month alternating blocks for interlaced train/val
