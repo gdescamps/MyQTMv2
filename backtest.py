@@ -40,24 +40,21 @@ OUTPUTS.mkdir(exist_ok=True)
 EQUITY_SECTIONS    = {"geo", "sector_us", "thematic"}
 DEFENSIVE_SECTIONS = {"bond", "commodity", "crypto"}
 
+# Geo/sector concentration: only 1 line allowed, redirect to best of these 3
+GEO_SECTOR_REDIRECT = ["CSP1.PA", "CNX1.PA", "WPEA.PA"]  # SP500, Nasdaq, MSCI World
+
 PARAM_NAMES = [
     "p1_vix", "p2_hy_z60", "p3_bias",
-    "equity_max", "cash_min",
-    "temperature", "max_single_weight",
-    "min_weight_change", "defensive_min",
+    "temperature_A", "temperature_B",
 ]
-PARAM_INIT   = [-0.05, -0.20, 0.0, 0.80, 0.05, 1.5, 0.25, 0.03, 0.10]
+PARAM_INIT   = [-0.10, -0.30, -0.5, 1.5, 1.5]
 PARAM_SIGMA0 = 0.15
 PARAM_BOUNDS = [
-    (-0.20, 0.00),   # p1_vix
-    (-0.80, 0.00),   # p2_hy_z60
-    (-3.00, 3.00),   # p3_bias
-    ( 0.50, 0.95),   # equity_max
-    ( 0.00, 0.20),   # cash_min
-    ( 0.10, 4.00),   # temperature
-    ( 0.05, 0.50),   # max_single_weight
-    ( 0.01, 0.10),   # min_weight_change
-    ( 0.05, 0.40),   # defensive_min
+    (-0.20, -0.02),  # p1_vix — must be negative (VIX increases danger)
+    (-0.80, -0.05),  # p2_hy_z60 — must be negative (HY stress increases danger)
+    (-1.50, 1.00),   # p3_bias — tighter range, can't fully disable soupape
+    ( 0.05, 4.00),   # temperature_A
+    ( 0.05, 4.00),   # temperature_B
 ]
 
 
@@ -77,7 +74,8 @@ def clip_params(params: list) -> list:
 
 
 def run_backtest(
-    scores_wide: pd.DataFrame,
+    scores_wide_A: pd.DataFrame,
+    scores_wide_B: pd.DataFrame | None,
     labels_wide: pd.DataFrame,
     is_equity: np.ndarray,
     is_defensive: np.ndarray,
@@ -94,23 +92,20 @@ def run_backtest(
     Returns daily portfolio return series.
     """
     params = clip_params(params)
-    p1, p2, p3, equity_max, cash_min, temp, max_w, min_change, def_min = params
+    p1, p2, p3, temp_A, temp_B = params
 
-    dates   = scores_wide.index
-    n_etfs  = scores_wide.shape[1]
+    dates   = scores_wide_A.index
+    n_etfs  = scores_wide_A.shape[1]
 
-    scores = scores_wide.values
-    labels = labels_wide.values
+    scores_A = scores_wide_A.values
+    scores_B = scores_wide_B.values if scores_wide_B is not None else scores_A
+    labels   = labels_wide.values
 
     vix    = vix_series.reindex(dates, method="ffill").fillna(20.0).values
     hy_z60 = hy_z60_series.reindex(dates, method="ffill").fillna(0.0).values
     danger        = sigmoid(p1 * vix + p2 * hy_z60 + p3)
-    equity_budget = equity_max * (1.0 - danger)
-    def_budget    = np.where(
-        danger > 0.5,
-        def_min + (1.0 - equity_budget - cash_min) * (1 - danger),
-        (1.0 - equity_budget - cash_min) * (1 - danger),
-    ).clip(0, None)
+    equity_budget = 1.0 - danger
+    def_budget    = danger   # defensive = danger level (0% calm, 100% crisis)
 
     def _softmax_masked(s: np.ndarray, mask: np.ndarray, T: float) -> np.ndarray:
         out = np.zeros_like(s)
@@ -130,18 +125,43 @@ def run_backtest(
             out[i, np.where(mask)[0]] = result
         return out
 
-    w_eq  = _softmax_masked(scores, is_equity,    temp) * equity_budget[:, None]
-    w_def = _softmax_masked(scores, is_defensive, temp) * def_budget[:, None]
-    weights = np.minimum(w_eq + w_def, max_w)
+    # Model A allocation (temp_A)
+    w_eq_A  = _softmax_masked(scores_A, is_equity,    temp_A) * equity_budget[:, None]
+    w_def_A = _softmax_masked(scores_A, is_defensive, temp_A) * def_budget[:, None]
 
-    # Anti-churn: hold previous weight if |delta| < min_change
-    prev = prev_weights if prev_weights is not None else np.zeros(n_etfs)
-    final_weights = np.empty_like(weights)
-    for t in range(len(dates)):
-        delta   = weights[t] - prev
-        applied = np.where(np.abs(delta) > min_change, weights[t], prev)
-        final_weights[t] = applied
-        prev = applied
+    # Model B allocation (temp_B)
+    w_eq_B  = _softmax_masked(scores_B, is_equity,    temp_B) * equity_budget[:, None]
+    w_def_B = _softmax_masked(scores_B, is_defensive, temp_B) * def_budget[:, None]
+
+    # Average allocations from A and B
+    weights = 0.5 * (w_eq_A + w_def_A) + 0.5 * (w_eq_B + w_def_B)
+
+    # Geo/sector concentration rule: collapse all geo+sector_us weight into best of SP500/Nasdaq/World
+    etf_list = scores_wide_A.columns.tolist()
+    redirect_indices = [i for i, e in enumerate(etf_list) if e in GEO_SECTOR_REDIRECT]
+    geo_sector_indices = [i for i, e in enumerate(etf_list)
+                          if is_equity[i] and e not in GEO_SECTOR_REDIRECT
+                          and not any(e == t for t in GEO_SECTOR_REDIRECT)]
+    # Identify geo+sector ETFs (not thematic, not redirect targets)
+    from etf import BY_BOURSO
+    geo_sector_other = [i for i, e in enumerate(etf_list)
+                        if BY_BOURSO.get(e) and BY_BOURSO[e].section in ("geo", "sector_us")
+                        and e not in GEO_SECTOR_REDIRECT]
+
+    if redirect_indices and geo_sector_other:
+        for t in range(len(dates)):
+            # Sum all geo+sector weight (excluding the 3 redirect targets)
+            extra_weight = weights[t, geo_sector_other].sum()
+            # Zero out the geo+sector others
+            weights[t, geo_sector_other] = 0.0
+            # Add extra weight to the best scoring redirect target
+            if redirect_indices:
+                avg_scores_t = (scores_A[t, redirect_indices] + scores_B[t, redirect_indices]) / 2
+                best_idx = redirect_indices[np.nanargmax(avg_scores_t)]
+                weights[t, best_idx] += extra_weight
+
+    # No anti-churn: apply weights directly
+    final_weights = weights
 
     nan_mask = np.isnan(labels)
     safe_lbl = np.where(nan_mask, 0.0, labels)
@@ -163,7 +183,8 @@ def sharpe(returns: pd.Series, min_obs: int = 30) -> float:
 
 
 def run_cmaes(
-    scores_wide: pd.DataFrame,
+    scores_wide_A: pd.DataFrame,
+    scores_wide_B: pd.DataFrame,
     labels_wide: pd.DataFrame,
     is_equity: np.ndarray,
     is_defensive: np.ndarray,
@@ -176,8 +197,8 @@ def run_cmaes(
     Returns (best_params, best_sharpe).
     """
     def objective(params: list) -> float:
-        returns, _ = run_backtest(scores_wide, labels_wide, is_equity, is_defensive,
-                                  vix_s, hy_z60_s, params)
+        returns, _ = run_backtest(scores_wide_A, scores_wide_B, labels_wide,
+                                  is_equity, is_defensive, vix_s, hy_z60_s, params)
         r = returns.dropna()
         if len(r) < 30 or r.std() < 1e-10:
             return 10.0
@@ -218,11 +239,16 @@ def run_cmaes(
     return best_params, best_sharpe
 
 
-def _pivot_step(step_data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Pivot (date, etf_id) long → wide scores and labels."""
-    sw = step_data["score"].unstack("etf_id").sort_index()
-    lw = step_data["label"].unstack("etf_id").sort_index().reindex(columns=sw.columns)
-    return sw, lw
+def _pivot_step(step_data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Pivot (date, etf_id) long → wide scores_A, scores_B, labels."""
+    if "score_A" in step_data.columns:
+        sw_A = step_data["score_A"].unstack("etf_id").sort_index()
+        sw_B = step_data["score_B"].unstack("etf_id").sort_index()
+    else:
+        sw_A = step_data["score"].unstack("etf_id").sort_index()
+        sw_B = sw_A
+    lw = step_data["label"].unstack("etf_id").sort_index().reindex(columns=sw_A.columns)
+    return sw_A, sw_B, lw
 
 
 def _section_arrays(etf_list: list, sections: dict) -> tuple[np.ndarray, np.ndarray]:
@@ -438,24 +464,25 @@ def main():
             print(f"{step:4d}  SKIP (val={len(val_data)} rows, test={len(test_data)} rows)")
             continue
 
-        # --- CMA-ES on val predictions ---
-        val_sw, val_lw = _pivot_step(val_data)
-        val_is_eq, val_is_def = _section_arrays(val_sw.columns.tolist(), sections)
-        best_params, val_sharpe = run_cmaes(val_sw, val_lw, val_is_eq, val_is_def, vix_s, hy_z60_s)
+        # --- CMA-ES on val predictions (A + B scores) ---
+        val_sw_A, val_sw_B, val_lw = _pivot_step(val_data)
+        val_is_eq, val_is_def = _section_arrays(val_sw_A.columns.tolist(), sections)
+        best_params, val_sharpe = run_cmaes(val_sw_A, val_sw_B, val_lw, val_is_eq, val_is_def, vix_s, hy_z60_s)
 
         # --- Evaluate on test (true OOS) ---
-        test_sw, test_lw = _pivot_step(test_data)
-        test_is_eq, test_is_def = _section_arrays(test_sw.columns.tolist(), sections)
+        test_sw_A, test_sw_B, test_lw = _pivot_step(test_data)
+        test_is_eq, test_is_def = _section_arrays(test_sw_A.columns.tolist(), sections)
 
         # Remap carry_weights to current ETF columns
         prev_w = None
         if carry_weights is not None:
-            prev_w = np.zeros(len(test_sw.columns))
-            for i, etf in enumerate(test_sw.columns):
+            prev_w = np.zeros(len(test_sw_A.columns))
+            for i, etf in enumerate(test_sw_A.columns):
                 if etf in carry_weights:
                     prev_w[i] = carry_weights[etf]
 
-        test_returns, test_weights = run_backtest(test_sw, test_lw, test_is_eq, test_is_def,
+        test_returns, test_weights = run_backtest(test_sw_A, test_sw_B, test_lw,
+                                                   test_is_eq, test_is_def,
                                                    vix_s, hy_z60_s, best_params,
                                                    prev_weights=prev_w)
 
