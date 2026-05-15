@@ -26,12 +26,13 @@ OUTPUTS = Path(__file__).parent / "outputs"
 MYFILES = Path(__file__).parent / "myfiles"
 MYFILES.mkdir(exist_ok=True)
 
-DEPTH = 7
-N_LAST_STEPS = 100
+N_LAST_STEPS = 999  # all steps
 
 # Search grid
-POWER_GRID = [1.2, 1.3, 1.4, 1.5, 1.6, 1.7]
-CAP_GRID   = [80, 90, 100, 110, 120]
+POWER_GRID    = [1.3]
+CAP_GRID      = [110]
+DEPTH_GRID    = [5, 6, 7]
+ROLLING_GRID  = [1250, 750, 500]  # 5y, 3y, 2y
 
 
 def select_features_v2(panel, feature_cols, power, top_n, row_pos, device):
@@ -76,9 +77,10 @@ def select_features_v2(panel, feature_cols, power, top_n, row_pos, device):
     return imp_df.index[:min(top_n, len(imp_df))].tolist()
 
 
-def run_last_n_steps(panel, feature_cols, device, xgb_override, n_steps, row_pos):
+def run_last_n_steps(panel, feature_cols, device, xgb_override, n_steps, row_pos,
+                     rolling_window=None):
     """Train model A only on last N test steps with custom XGB params."""
-    params = {**XGB_PARAMS, "device": device, "max_depth": DEPTH, **xgb_override}
+    params = {**XGB_PARAMS, "device": device, **xgb_override}
 
     dates = panel.index.get_level_values("date").unique().sort_values()
     n = len(dates)
@@ -101,7 +103,11 @@ def run_last_n_steps(panel, feature_cols, device, xgb_override, n_steps, row_pos
     for train_end_pos in eval_steps:
         test_end_pos = min(train_end_pos + TEST_WINDOW, n)
 
-        in_train = row_pos < train_end_pos
+        if rolling_window:
+            train_start_pos = max(0, train_end_pos - rolling_window)
+            in_train = (row_pos >= train_start_pos) & (row_pos < train_end_pos)
+        else:
+            in_train = row_pos < train_end_pos
         block_idx = row_pos // BLOCK_ROWS
         block_parity = block_idx % 2
         pos_in_block = row_pos % BLOCK_ROWS
@@ -172,30 +178,29 @@ def main():
     row_dates = panel.index.get_level_values("date")
     row_pos = pd.Series([date_to_pos[d] for d in row_dates], index=panel.index)
 
-    combos = list(product(POWER_GRID, CAP_GRID))
+    # Feature selection (fixed: p=1.3, cap=110)
+    power = POWER_GRID[0]
+    cap = CAP_GRID[0]
+    print(f"\nFeature selection: power={power}, cap={cap}", flush=True)
+    selected = select_features_v2(panel, all_feature_cols, power, cap, row_pos, device)
+    available = [c for c in selected if c in panel.columns]
+    print(f"Selected: {len(available)} features", flush=True)
+
+    combos = list(product(ROLLING_GRID, DEPTH_GRID))
     total = len(combos)
-    print(f"\n=== Search: power × cap ({total} combos), d={DEPTH}, last {N_LAST_STEPS} steps ===")
-    print(f"{'power':>5} {'cap':>4} {'#feat':>5} {'val_IC':>8} {'test_IC':>8} "
+    print(f"\n=== Search: rolling × depth ({total} combos), p={power} cap={cap} ===")
+    print(f"{'roll':>5} {'d':>2} {'val_IC':>8} {'test_IC':>8} "
           f"{'stab':>6} {'gap':>6} {'composite':>9}  {'best':>4}")
-    print("-" * 70)
+    print("-" * 60)
 
     results = []
     best_composite = -999
 
-    for i, (power, cap) in enumerate(combos):
-        # Feature selection v2
-        selected = select_features_v2(panel, all_feature_cols, power, cap, row_pos, device)
-        available = [c for c in selected if c in panel.columns]
-        n_feat = len(available)
-
-        if n_feat < 10:
-            print(f"{power:5.1f} {cap:4d} {n_feat:5d}  SKIP (too few features)  [{i+1}/{total}]",
-                  flush=True)
-            continue
-
-        # Train model A on last N steps
-        override = {"max_depth": DEPTH}
-        metrics = run_last_n_steps(panel, available, device, override, N_LAST_STEPS, row_pos)
+    for i, (rolling, depth) in enumerate(combos):
+        rolling_label = f"{rolling // 252}y"
+        override = {"max_depth": depth}
+        metrics = run_last_n_steps(panel, available, device, override, N_LAST_STEPS, row_pos,
+                                  rolling_window=rolling)
 
         composite = (metrics["mean_test_ic"] * max(0, min(1, metrics["ic_stability"]))
                      - metrics["val_test_gap"])
@@ -203,11 +208,11 @@ def main():
         if is_best:
             best_composite = composite
 
-        row = {"power": power, "cap": cap, "n_features": n_feat, **metrics,
-               "composite": composite}
+        row = {"rolling": rolling, "rolling_y": rolling_label, "depth": depth,
+               "n_features": len(available), **metrics, "composite": composite}
         results.append(row)
 
-        print(f"{power:5.1f} {cap:4d} {n_feat:5d} "
+        print(f"{rolling_label:>5} {depth:2d} "
               f"{metrics['mean_val_ic']:+8.4f} {metrics['mean_test_ic']:+8.4f} "
               f"{metrics['ic_stability']:6.3f} {metrics['val_test_gap']:6.4f} "
               f"{composite:+9.5f}  {'★' if is_best else '':>4}  "
@@ -216,14 +221,14 @@ def main():
     df = pd.DataFrame(results).sort_values("composite", ascending=False)
     df.to_csv(MYFILES / "search_results.csv", index=False)
 
-    print(f"\n{'='*70}")
-    print("Top 10 results:")
-    print(df.head(10).to_string(index=False))
+    print(f"\n{'='*60}")
+    print("All results:")
+    print(df[["rolling_y", "depth", "mean_val_ic", "mean_test_ic",
+              "ic_stability", "val_test_gap", "composite"]].to_string(index=False))
 
     best = df.iloc[0]
-    print(f"\n{'='*70}")
-    print(f"BEST: power={best['power']:.1f}  cap={int(best['cap'])}  "
-          f"#feat={int(best['n_features'])}")
+    print(f"\n{'='*60}")
+    print(f"BEST: rolling={best['rolling_y']}  depth={int(best['depth'])}")
     print(f"  test_IC    = {best['mean_test_ic']:+.4f}")
     print(f"  stability  = {best['ic_stability']:.3f}")
     print(f"  val/test gap = {best['val_test_gap']:.4f}")

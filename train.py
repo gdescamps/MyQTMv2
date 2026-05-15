@@ -31,11 +31,12 @@ DATA    = Path(__file__).parent / "data"
 OUTPUTS = Path(__file__).parent / "outputs"
 
 # Walk-forward parameters
-MIN_TRAIN_ROWS = 1500  # ~6 years of trading days before first test
+MIN_TRAIN_ROWS = 2670  # ~10.6 years before first test (~2011 start)
 TEST_WINDOW    = 21    # ~1 month per test step
 STEP           = 21    # refit every ~1 month
 BLOCK_ROWS     = 21    # ~1 month alternating blocks for interlaced train/val
 EMBARGO_ROWS   = 5     # 5-day gap between train/val blocks to avoid lookahead
+ROLLING_WINDOW = 1250  # ~5 years rolling train window
 
 def _load_feature_cols() -> list[str]:
     """Load selected features from select_features.py output, or fallback to defaults."""
@@ -151,7 +152,8 @@ def run_walk_forward(
     while train_end_pos + TEST_WINDOW <= n:
         test_end_pos = min(train_end_pos + TEST_WINDOW, n)
 
-        in_train     = row_pos < train_end_pos
+        train_start_pos = max(0, train_end_pos - ROLLING_WINDOW)
+        in_train     = (row_pos >= train_start_pos) & (row_pos < train_end_pos)
         block_idx    = row_pos // BLOCK_ROWS
         block_parity = block_idx % 2
         # Position within each block (0..BLOCK_ROWS-1)

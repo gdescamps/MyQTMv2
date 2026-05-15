@@ -31,7 +31,7 @@ BLOCK_SIZE = BLOCK_ROWS  # 21 trading days (~1 month)
 
 # Feature selection hyperparams
 MEAN_STD_POWER = 1.3
-TOP_FEATURES = 90
+TOP_FEATURES = 110
 
 
 def get_all_feature_cols(panel: pd.DataFrame) -> list[str]:
