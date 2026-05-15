@@ -228,6 +228,7 @@ def run_walk_forward(
                     "score_B": scores_B_all,
                     "score": (scores_A_all + scores_B_all) / 2,
                     "label": y_all.loc[all_val_idx].values,
+                    "block_parity": block_parity.loc[all_val_idx].values,
                 }, index=all_val_idx)
             else:
                 val_ic = _daily_ic(scores_A_val, y_all.loc[val_idx].values, val_idx)

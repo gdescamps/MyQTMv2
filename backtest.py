@@ -79,6 +79,7 @@ def run_backtest(
     params: list,
     transaction_cost: float = 0.0022,
     prev_weights: np.ndarray | None = None,
+    block_parity: pd.Series | None = None,
 ) -> tuple[pd.Series, pd.DataFrame]:
     """
     Vectorised portfolio simulation.
@@ -112,28 +113,44 @@ def run_backtest(
             out[i, valid] = probs
         return out
 
-    # Compute target weights per model
-    alloc_A = _softmax_all(scores_A, temp_A)
-    alloc_B = _softmax_all(scores_B, temp_B)
+    # Detect if A and B are the same scores (test uses model A only)
+    a_only = np.allclose(np.nan_to_num(scores_A), np.nan_to_num(scores_B), atol=1e-10)
 
-    # Confidence based on score strength
-    # Single ETF: use absolute score (positive = bullish → invest)
-    # Multi ETF: use score spread (high spread = strong opinion → invest)
+    # Compute model A allocation
+    alloc_A = _softmax_all(scores_A, temp_A)
     if n_etfs == 1:
         conf_A = scores_A[:, 0] / max(temp_A, 1e-6)
-        conf_B = scores_B[:, 0] / max(temp_B, 1e-6)
     else:
         conf_A = (np.nanmax(scores_A, axis=1) - np.nanmin(scores_A, axis=1)) / max(temp_A, 1e-6)
-        conf_B = (np.nanmax(scores_B, axis=1) - np.nanmin(scores_B, axis=1)) / max(temp_B, 1e-6)
-    invest_A = sigmoid(conf_A - seuil_A)  # 0 = full cash, 1 = full invest
-    invest_B = sigmoid(conf_B - seuil_B)
-
-    # Scale allocations by confidence
+    invest_A = sigmoid(conf_A - seuil_A)
     alloc_A *= invest_A[:, None]
-    alloc_B *= invest_B[:, None]
 
-    # Average allocations from A and B
-    weights = 0.5 * alloc_A + 0.5 * alloc_B
+    if a_only:
+        # Test: A=B, use only model A params
+        weights = alloc_A
+    elif block_parity is not None:
+        # Val with block parity: alternate A on odd blocks, B on even blocks
+        # Model A validates on odd blocks (parity=1), model B validates on even blocks (parity=0)
+        alloc_B = _softmax_all(scores_B, temp_B)
+        if n_etfs == 1:
+            conf_B = scores_B[:, 0] / max(temp_B, 1e-6)
+        else:
+            conf_B = (np.nanmax(scores_B, axis=1) - np.nanmin(scores_B, axis=1)) / max(temp_B, 1e-6)
+        invest_B = sigmoid(conf_B - seuil_B)
+        alloc_B *= invest_B[:, None]
+        bp = block_parity.reindex(dates).values
+        use_A = (bp == 1)[:, None]  # odd blocks → model A
+        weights = np.where(use_A, alloc_A, alloc_B)
+    else:
+        # Fallback: average A and B
+        alloc_B = _softmax_all(scores_B, temp_B)
+        if n_etfs == 1:
+            conf_B = scores_B[:, 0] / max(temp_B, 1e-6)
+        else:
+            conf_B = (np.nanmax(scores_B, axis=1) - np.nanmin(scores_B, axis=1)) / max(temp_B, 1e-6)
+        invest_B = sigmoid(conf_B - seuil_B)
+        alloc_B *= invest_B[:, None]
+        weights = 0.5 * alloc_A + 0.5 * alloc_B
     # Remaining = cash (implicit: 1 - sum(weights))
 
     # Fix allocation to first day of step (hold for entire period)
@@ -168,6 +185,7 @@ def run_cmaes(
     scores_wide_A: pd.DataFrame,
     scores_wide_B: pd.DataFrame,
     daily_returns_wide: pd.DataFrame,
+    block_parity: pd.Series | None = None,
     maxiter: int = 100,
 ) -> tuple[list, float]:
     """
@@ -175,7 +193,8 @@ def run_cmaes(
     Returns (best_params, best_objective).
     """
     def objective(params: list) -> float:
-        returns, _ = run_backtest(scores_wide_A, scores_wide_B, daily_returns_wide, params)
+        returns, _ = run_backtest(scores_wide_A, scores_wide_B, daily_returns_wide, params,
+                                  block_parity=block_parity)
         r = returns.dropna()
         if len(r) < 30 or r.std() < 1e-10:
             return 10.0
@@ -217,17 +236,22 @@ def run_cmaes(
     return best_params, best_sharpe
 
 
-def _pivot_step(step_data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Pivot (date, etf_id) long → wide scores_A, scores_B."""
+def _pivot_step(step_data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series | None]:
+    """Pivot (date, etf_id) long → wide scores_A, scores_B + block_parity per date."""
     has_AB = ("score_A" in step_data.columns and
               step_data["score_A"].notna().any())
     if has_AB:
         sw_A = step_data["score_A"].unstack("etf_id").sort_index()
         sw_B = step_data["score_B"].unstack("etf_id").sort_index()
+        if "block_parity" in step_data.columns:
+            bp = step_data["block_parity"].groupby("date").first().reindex(sw_A.index)
+        else:
+            bp = None
     else:
         sw_A = step_data["score"].unstack("etf_id").sort_index()
         sw_B = sw_A
-    return sw_A, sw_B
+        bp = None
+    return sw_A, sw_B, bp
 
 
 def _section_arrays(etf_list: list, sections: dict) -> tuple[np.ndarray, np.ndarray]:
@@ -478,16 +502,18 @@ def main():
             continue
 
         # --- CMA-ES on val predictions (last 5 years only) ---
-        val_sw_A, val_sw_B = _pivot_step(val_data)
+        val_sw_A, val_sw_B, val_bp = _pivot_step(val_data)
         # Limit val to last 5 years (~1250 trading days)
         if len(val_sw_A) > 1250:
             val_sw_A = val_sw_A.iloc[-1250:]
             val_sw_B = val_sw_B.iloc[-1250:]
+            if val_bp is not None:
+                val_bp = val_bp.reindex(val_sw_A.index)
         val_dr = daily_ret_panel.reindex(index=val_sw_A.index, columns=val_sw_A.columns).fillna(0)
-        best_params, val_sharpe = run_cmaes(val_sw_A, val_sw_B, val_dr)
+        best_params, val_sharpe = run_cmaes(val_sw_A, val_sw_B, val_dr, block_parity=val_bp)
 
         # --- Evaluate on test (true OOS) ---
-        test_sw_A, test_sw_B = _pivot_step(test_data)
+        test_sw_A, test_sw_B, _ = _pivot_step(test_data)
 
         # Remap carry_weights to current ETF columns
         prev_w = None
