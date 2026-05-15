@@ -328,7 +328,12 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         ax2.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    fig1.savefig(out_dir / "backtest_equity_7_etf.png", dpi=150, bbox_inches="tight")
+    import subprocess
+    sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
+    n_etfs = len(weights_df.columns) if len(weights_df) > 0 else 0
+    depth = 2  # current XGB max_depth
+    fname = f"backtest_{sha}_{n_etfs}etf_d{depth}.png"
+    fig1.savefig(out_dir / fname, dpi=150, bbox_inches="tight")
     fig1.savefig(out_dir / "backtest_equity.png", dpi=150, bbox_inches="tight")
     plt.close(fig1)
 
