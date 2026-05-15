@@ -74,7 +74,7 @@ def main():
     y_all = panel[LABEL_COL].astype(np.float32)
     y_z = _zscore_per_date(y_all).astype(np.float32)
 
-    params = {**XGB_PARAMS, "device": device, "max_depth": 3}
+    params = {**XGB_PARAMS, "device": device, "max_depth": 2}
 
     importances = {}
     for period in range(3):
@@ -118,6 +118,14 @@ def main():
         (imp_df["stability"] >= MIN_STABILITY) &
         (imp_df["mean"] >= MIN_IMPORTANCE)
     ].index.tolist()
+
+    # Force-include smart money features (important at depth>=3 but invisible at depth=2)
+    FORCE_INCLUDE = [f for f in feature_cols if "so_" in f or "shares_outstanding" in f
+                     or "rotation" in f or "GLD_dvol" in f]
+    for f in FORCE_INCLUDE:
+        if f in imp_df.index and f not in selected and imp_df.loc[f, "mean"] > 0:
+            selected.append(f)
+            print(f"  FORCED: {f} (mean={imp_df.loc[f, 'mean']:.4f}, stab={imp_df.loc[f, 'stability']:.1f})")
 
     print(f"\n{'='*60}")
     print(f"  Feature selection: {len(selected)} / {len(feature_cols)} features kept")

@@ -76,7 +76,7 @@ def clip_params(params: list) -> list:
 def run_backtest(
     scores_wide_A: pd.DataFrame,
     scores_wide_B: pd.DataFrame | None,
-    labels_wide: pd.DataFrame,
+    daily_returns_wide: pd.DataFrame,
     is_equity: np.ndarray,
     is_defensive: np.ndarray,
     vix_series: pd.Series,
@@ -87,8 +87,8 @@ def run_backtest(
 ) -> tuple[pd.Series, pd.DataFrame]:
     """
     Vectorised portfolio simulation.
-    scores_wide / labels_wide : DataFrame (dates × etf_ids)
-    is_equity / is_defensive  : bool arrays aligned to columns
+    scores_wide_A/B : DataFrame (dates × etf_ids) — model scores for allocation
+    daily_returns_wide : DataFrame (dates × etf_ids) — actual daily returns for P&L
     Returns daily portfolio return series.
     """
     params = clip_params(params)
@@ -96,16 +96,17 @@ def run_backtest(
 
     dates   = scores_wide_A.index
     n_etfs  = scores_wide_A.shape[1]
+    etf_list = scores_wide_A.columns.tolist()
 
     scores_A = scores_wide_A.values
     scores_B = scores_wide_B.values if scores_wide_B is not None else scores_A
-    labels   = labels_wide.values
+    daily_ret = daily_returns_wide.values
 
     vix    = vix_series.reindex(dates, method="ffill").fillna(20.0).values
     hy_z60 = hy_z60_series.reindex(dates, method="ffill").fillna(0.0).values
     danger        = sigmoid(p1 * vix + p2 * hy_z60 + p3)
     equity_budget = 1.0 - danger
-    def_budget    = danger   # defensive = danger level (0% calm, 100% crisis)
+    def_budget    = danger
 
     def _softmax_masked(s: np.ndarray, mask: np.ndarray, T: float) -> np.ndarray:
         out = np.zeros_like(s)
@@ -113,65 +114,55 @@ def run_backtest(
             return out
         s_m = s[:, mask].copy() / max(T, 1e-6)
         for i in range(s_m.shape[0]):
-            row   = s_m[i]
+            row = s_m[i]
             valid = ~np.isnan(row)
             if not valid.any():
                 continue
             row_v = row[valid] - row[valid].max()
-            e     = np.exp(row_v)
+            e = np.exp(row_v)
             probs = e / e.sum()
             result = np.zeros(len(row))
             result[valid] = probs
             out[i, np.where(mask)[0]] = result
         return out
 
-    # Model A allocation (temp_A)
+    # Compute target weights (vectorized)
     w_eq_A  = _softmax_masked(scores_A, is_equity,    temp_A) * equity_budget[:, None]
     w_def_A = _softmax_masked(scores_A, is_defensive, temp_A) * def_budget[:, None]
-
-    # Model B allocation (temp_B)
     w_eq_B  = _softmax_masked(scores_B, is_equity,    temp_B) * equity_budget[:, None]
     w_def_B = _softmax_masked(scores_B, is_defensive, temp_B) * def_budget[:, None]
-
-    # Average allocations from A and B
     weights = 0.5 * (w_eq_A + w_def_A) + 0.5 * (w_eq_B + w_def_B)
 
-    # Geo/sector concentration rule: collapse all geo+sector_us weight into best of SP500/Nasdaq/World
-    etf_list = scores_wide_A.columns.tolist()
-    redirect_indices = [i for i, e in enumerate(etf_list) if e in GEO_SECTOR_REDIRECT]
-    geo_sector_indices = [i for i, e in enumerate(etf_list)
-                          if is_equity[i] and e not in GEO_SECTOR_REDIRECT
-                          and not any(e == t for t in GEO_SECTOR_REDIRECT)]
-    # Identify geo+sector ETFs (not thematic, not redirect targets)
+    # Geo/sector redirect
     from etf import BY_BOURSO
+    redirect_indices = [i for i, e in enumerate(etf_list) if e in GEO_SECTOR_REDIRECT]
     geo_sector_other = [i for i, e in enumerate(etf_list)
                         if BY_BOURSO.get(e) and BY_BOURSO[e].section in ("geo", "sector_us")
                         and e not in GEO_SECTOR_REDIRECT]
-
     if redirect_indices and geo_sector_other:
         for t in range(len(dates)):
-            # Sum all geo+sector weight (excluding the 3 redirect targets)
-            extra_weight = weights[t, geo_sector_other].sum()
-            # Zero out the geo+sector others
+            extra = weights[t, geo_sector_other].sum()
             weights[t, geo_sector_other] = 0.0
-            # Add extra weight to the best scoring redirect target
-            if redirect_indices:
-                avg_scores_t = (scores_A[t, redirect_indices] + scores_B[t, redirect_indices]) / 2
-                best_idx = redirect_indices[np.nanargmax(avg_scores_t)]
-                weights[t, best_idx] += extra_weight
+            if extra > 0:
+                avg_s = (scores_A[t, redirect_indices] + scores_B[t, redirect_indices]) / 2
+                valid_s = ~np.isnan(avg_s)
+                if valid_s.any():
+                    weights[t, redirect_indices[np.nanargmax(avg_s)]] += extra
 
-    # No anti-churn: apply weights directly
-    final_weights = weights
+    # Portfolio simulation with real daily returns
+    safe_ret = np.where(np.isnan(daily_ret), 0.0, daily_ret)
+    turnover = np.abs(np.diff(weights, axis=0, prepend=(
+        prev_weights[None, :] if prev_weights is not None else np.zeros((1, n_etfs))
+    ))).sum(axis=1)
 
-    nan_mask = np.isnan(labels)
-    safe_lbl = np.where(nan_mask, 0.0, labels)
-    port_ret = (final_weights * safe_lbl).sum(axis=1)
-
-    turnover  = np.abs(np.diff(final_weights, axis=0, prepend=np.zeros((1, n_etfs)))).sum(axis=1)
-    port_ret -= turnover * transaction_cost
+    # Daily P&L: positions at weight_{t} earn return_{t+1}
+    # Use weight from previous day to compute today's return (hold overnight)
+    w_prev = np.vstack([prev_weights if prev_weights is not None else np.zeros(n_etfs),
+                        weights[:-1]])
+    port_ret = (w_prev * safe_ret).sum(axis=1) - turnover * transaction_cost
 
     ret_series = pd.Series(port_ret, index=dates, name="port_return")
-    weights_df = pd.DataFrame(final_weights, index=dates, columns=scores_wide.columns)
+    weights_df = pd.DataFrame(weights, index=dates, columns=etf_list)
     return ret_series, weights_df
 
 
@@ -185,7 +176,7 @@ def sharpe(returns: pd.Series, min_obs: int = 30) -> float:
 def run_cmaes(
     scores_wide_A: pd.DataFrame,
     scores_wide_B: pd.DataFrame,
-    labels_wide: pd.DataFrame,
+    daily_returns_wide: pd.DataFrame,
     is_equity: np.ndarray,
     is_defensive: np.ndarray,
     vix_s: pd.Series,
@@ -197,7 +188,7 @@ def run_cmaes(
     Returns (best_params, best_sharpe).
     """
     def objective(params: list) -> float:
-        returns, _ = run_backtest(scores_wide_A, scores_wide_B, labels_wide,
+        returns, _ = run_backtest(scores_wide_A, scores_wide_B, daily_returns_wide,
                                   is_equity, is_defensive, vix_s, hy_z60_s, params)
         r = returns.dropna()
         if len(r) < 30 or r.std() < 1e-10:
@@ -239,16 +230,15 @@ def run_cmaes(
     return best_params, best_sharpe
 
 
-def _pivot_step(step_data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Pivot (date, etf_id) long → wide scores_A, scores_B, labels."""
+def _pivot_step(step_data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Pivot (date, etf_id) long → wide scores_A, scores_B."""
     if "score_A" in step_data.columns:
         sw_A = step_data["score_A"].unstack("etf_id").sort_index()
         sw_B = step_data["score_B"].unstack("etf_id").sort_index()
     else:
         sw_A = step_data["score"].unstack("etf_id").sort_index()
         sw_B = sw_A
-    lw = step_data["label"].unstack("etf_id").sort_index().reindex(columns=sw_A.columns)
-    return sw_A, sw_B, lw
+    return sw_A, sw_B
 
 
 def _section_arrays(etf_list: list, sections: dict) -> tuple[np.ndarray, np.ndarray]:
@@ -273,39 +263,31 @@ def _load_benchmark(ticker: str, dates: pd.DatetimeIndex) -> pd.Series | None:
 def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
                      weights_df: pd.DataFrame,
                      params_df: pd.DataFrame, out_dir: Path) -> None:
-    """Save a three-panel PNG: equity curves + allocation + ETF P&L."""
+    """Save 3 separate PNGs: equity, allocation, P&L."""
+    from etf import BY_BOURSO
     ann_ret = port_returns.mean() * 252
     ann_vol = port_returns.std() * np.sqrt(252)
     sh      = sharpe(port_returns)
     max_dd  = (eq_curve / eq_curve.cummax() - 1).min()
+    title = (f"MyQTM-ETF — Walk-Forward OOS  "
+             f"(Sharpe={sh:.2f}  Ann={ann_ret:.1%}  Vol={ann_vol:.1%}  MaxDD={max_dd:.1%})")
 
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(16, 14),
-                                         gridspec_kw={"height_ratios": [3, 2, 2]},
-                                         sharex=False)
-    fig.suptitle(
-        f"MyQTM-ETF — Walk-Forward OOS  "
-        f"(Sharpe={sh:.2f}  Ann={ann_ret:.1%}  Vol={ann_vol:.1%}  MaxDD={max_dd:.1%})",
-        fontsize=12, fontweight="bold",
-    )
-
-    # Panel 1: log equity curves (portfolio + benchmarks)
+    # --- PNG 1: Equity curves + VIX ---
+    fig1, ax1 = plt.subplots(figsize=(16, 7))
+    fig1.suptitle(title, fontsize=12, fontweight="bold")
     ax1.plot(eq_curve.index, eq_curve.values, lw=2.0, color="#1f77b4", label="Portfolio")
-
-    benchmarks = [("CSPX_AS", "S&P 500", "#ff7f0e"), ("QQQ", "Nasdaq", "#2ca02c"),
-                  ("GLD", "Gold", "#d4af37")]
-    for ticker, name, color in benchmarks:
+    for ticker, name, color in [("CSPX_AS", "S&P 500", "#ff7f0e"),
+                                 ("QQQ", "Nasdaq", "#2ca02c"),
+                                 ("GLD", "Gold", "#d4af37")]:
         bm = _load_benchmark(ticker, eq_curve.index)
         if bm is not None:
             ax1.plot(bm.index, bm.values, lw=1.2, color=color, alpha=0.7, label=name)
-
     ax1.set_yscale("log")
     ax1.set_ylabel("Equity (log scale, base 1)")
     ax1.yaxis.set_major_formatter(mtick.FuncFormatter(lambda x, _: f"{x:.1f}x"))
     ax1.grid(True, alpha=0.3, which="both")
     ax1.set_facecolor("#f8f8f8")
     ax1.legend(fontsize=10, loc="upper left")
-
-    # VIX on secondary y-axis
     vix_path = DATA / "fred_vix.parquet"
     if vix_path.exists():
         vix_raw = pd.read_parquet(vix_path).iloc[:, 0]
@@ -315,92 +297,65 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         ax1b.set_ylabel("VIX", color="#d62728", fontsize=9)
         ax1b.tick_params(axis="y", labelcolor="#d62728", labelsize=8)
         ax1b.set_ylim(0, 80)
-        ax1b.set_yscale("linear")
+    plt.tight_layout()
+    fig1.savefig(out_dir / "backtest_equity.png", dpi=150, bbox_inches="tight")
+    plt.close(fig1)
 
-    # Panel 2: portfolio allocation stacked area (grouped by category)
+    # --- PNG 2: Allocation detail per ETF (full names) ---
     if len(weights_df) > 0:
-        from etf import BY_BOURSO
         w = weights_df.reindex(eq_curve.index, method="ffill").fillna(0)
         cash = (1 - w.sum(axis=1)).clip(0, 1)
+        # Use full ETF names
+        col_names = {e: BY_BOURSO[e].name[:45] if e in BY_BOURSO else e for e in w.columns}
+        w_named = w.rename(columns=col_names)
+        # Sort by average weight
+        avg_w = w_named.mean().sort_values(ascending=False)
+        top_etfs = avg_w[avg_w > 0.001].index.tolist()
+        plot_data = w_named[top_etfs].copy()
+        plot_data["Cash"] = cash
 
-        # Map ETFs to display groups
-        SOLO_IDS = {"CSP1.PA": "S&P 500", "CNX1.PA": "Nasdaq",
-                    "IGLN.AS": "Gold", "RING": "Gold Miners",
-                    "IOGP.AS": "Oil & Gas", "SXRS.DE": "Commodities",
-                    "IBTC.AS": "Bitcoin"}
-        alloc = pd.DataFrame(index=w.index)
-        grouped_etfs = set()
-
-        # Solo ETFs by ID (always present in legend, 0 if not yet available)
-        for etf_id, label in SOLO_IDS.items():
-            alloc[label] = w[etf_id] if etf_id in w.columns else 0.0
-            grouped_etfs.add(etf_id)
-
-        # Group remaining by section
-        section_labels = {"geo": "Geo (autres)", "sector_us": "Secteurs US",
-                          "thematic": "Thématiques", "bond": "Obligations"}
-        for section, label in section_labels.items():
-            cols = [c for c in w.columns if c not in grouped_etfs
-                    and BY_BOURSO.get(c) and BY_BOURSO[c].section == section]
-            if cols:
-                alloc[label] = w[cols].sum(axis=1)
-                grouped_etfs.update(cols)
-
-        # Any remaining
-        remaining = [c for c in w.columns if c not in grouped_etfs]
-        if remaining:
-            alloc["Autres"] = w[remaining].sum(axis=1)
-
-        alloc["Cash"] = cash
-
-        colors_map = {
-            "S&P 500": "#1f77b4", "Nasdaq": "#2ca02c", "Gold": "#d4af37",
-            "Gold Miners": "#b8860b", "Oil & Gas": "#8b4513", "Commodities": "#cd853f",
-            "Bitcoin": "#ff7f00", "Geo (autres)": "#aec7e8", "Secteurs US": "#ff9896",
-            "Thématiques": "#c5b0d5", "Obligations": "#98df8a", "Autres": "#c7c7c7",
-            "Cash": "#e8e8e8",
-        }
-        colors = [colors_map.get(c, "#c7c7c7") for c in alloc.columns]
-
-        ax2.stackplot(alloc.index, alloc.values.T,
-                      labels=alloc.columns, colors=colors, alpha=0.85)
+        fig2, ax2 = plt.subplots(figsize=(16, 8))
+        fig2.suptitle("Portfolio Allocation Detail", fontsize=12, fontweight="bold")
+        colors = plt.cm.tab20.colors[:len(plot_data.columns) - 1] + ((0.85, 0.85, 0.85),)
+        ax2.stackplot(plot_data.index, plot_data.values.T,
+                      labels=plot_data.columns, colors=colors, alpha=0.85)
         ax2.set_ylabel("Allocation")
         ax2.set_ylim(0, 1)
         ax2.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
-        ax2.legend(fontsize=8, loc="center left", bbox_to_anchor=(1.01, 0.5), ncol=1)
+        ax2.legend(fontsize=7, loc="center left", bbox_to_anchor=(1.01, 0.5), ncol=1)
         ax2.set_facecolor("#f8f8f8")
         ax2.grid(True, alpha=0.3)
+        plt.tight_layout()
+        fig2.savefig(out_dir / "backtest_allocation.png", dpi=150, bbox_inches="tight")
+        plt.close(fig2)
 
-    # Panel 3: ETF P&L contribution (weighted returns)
+    # --- PNG 3: ETF P&L winners/losers (full names) ---
     if len(weights_df) > 0 and len(port_returns) > 0:
-        # Compute per-ETF weighted return contribution over full period
         oos_path = DATA / "oos_predictions.parquet"
         if oos_path.exists():
             oos = pd.read_parquet(oos_path)
             test_oos = oos[oos["split"] == "test"].dropna(subset=["label"])
-            # Per-ETF contribution = sum of (weight * daily_return) over all test days
             w = weights_df.reindex(port_returns.index, method="ffill").fillna(0)
-            # Get daily returns per ETF from labels (already daily returns)
             etf_labels = test_oos["label"].unstack("etf_id").reindex(port_returns.index).fillna(0)
             common_etfs = [e for e in w.columns if e in etf_labels.columns]
             if common_etfs:
                 contrib = (w[common_etfs] * etf_labels[common_etfs]).sum()
                 contrib = contrib.sort_values()
-                colors = ["#d62728" if v < 0 else "#2ca02c" for v in contrib.values]
-                from etf import BY_BOURSO
-                etf_names = [BY_BOURSO[e].name[:40] if e in BY_BOURSO else e for e in contrib.index]
-                ax3.barh(range(len(contrib)), contrib.values, color=colors, alpha=0.8, height=0.6)
+                bar_colors = ["#d62728" if v < 0 else "#2ca02c" for v in contrib.values]
+                etf_names = [BY_BOURSO[e].name[:50] if e in BY_BOURSO else e for e in contrib.index]
+
+                fig3, ax3 = plt.subplots(figsize=(12, max(8, len(contrib) * 0.35)))
+                fig3.suptitle("ETF P&L Contribution (Winners & Losers)", fontsize=12, fontweight="bold")
+                ax3.barh(range(len(contrib)), contrib.values, color=bar_colors, alpha=0.8, height=0.7)
                 ax3.set_yticks(range(len(contrib)))
-                ax3.set_yticklabels(etf_names, fontsize=5)
-                ax3.set_xlabel("P&L Contribution (weighted)")
-                ax3.set_title("ETF P&L Contribution", fontsize=10)
+                ax3.set_yticklabels(etf_names, fontsize=8)
+                ax3.set_xlabel("P&L Contribution (weighted return)")
                 ax3.axvline(0, color="black", linewidth=0.5)
                 ax3.set_facecolor("#f8f8f8")
                 ax3.grid(True, alpha=0.3, axis="x")
-
-    plt.tight_layout()
-    fig.savefig(out_dir / "backtest_equity.png", dpi=150, bbox_inches="tight")
-    plt.close(fig)
+                plt.tight_layout()
+                fig3.savefig(out_dir / "backtest_pnl.png", dpi=150, bbox_inches="tight")
+                plt.close(fig3)
 
 
 def main():
@@ -435,8 +390,22 @@ def main():
     vix_s    = macro.get("vix_level",     pd.Series(dtype=float))
     hy_z60_s = macro.get("hy_spread_z60", pd.Series(dtype=float))
 
+    # Load actual daily returns for all ETFs (from price data)
+    from etf import UNIVERSE, BY_BOURSO
+    daily_returns_all = {}
+    for etf in UNIVERSE:
+        fmp_file = DATA / f"{etf.fmp.replace('.', '_')}.parquet"
+        if fmp_file.exists():
+            df = pd.read_parquet(fmp_file)
+            col = "close" if "close" in df.columns else "adj_close"
+            dr = df[col].pct_change(1)
+            dr.index = pd.to_datetime(dr.index).tz_localize(None)
+            daily_returns_all[etf.bourso] = dr
+    daily_ret_panel = pd.DataFrame(daily_returns_all)
+    print(f"Loaded daily returns for {len(daily_returns_all)} ETFs")
+
     # Filter steps: only keep test periods starting from START_YEAR
-    START_YEAR = 2018
+    START_YEAR = 2003
     all_steps = sorted(oos["step"].unique())
     steps = []
     for s in all_steps:
@@ -465,12 +434,14 @@ def main():
             continue
 
         # --- CMA-ES on val predictions (A + B scores) ---
-        val_sw_A, val_sw_B, val_lw = _pivot_step(val_data)
+        val_sw_A, val_sw_B = _pivot_step(val_data)
         val_is_eq, val_is_def = _section_arrays(val_sw_A.columns.tolist(), sections)
-        best_params, val_sharpe = run_cmaes(val_sw_A, val_sw_B, val_lw, val_is_eq, val_is_def, vix_s, hy_z60_s)
+        # Daily returns for val period
+        val_dr = daily_ret_panel.reindex(index=val_sw_A.index, columns=val_sw_A.columns).fillna(0)
+        best_params, val_sharpe = run_cmaes(val_sw_A, val_sw_B, val_dr, val_is_eq, val_is_def, vix_s, hy_z60_s)
 
         # --- Evaluate on test (true OOS) ---
-        test_sw_A, test_sw_B, test_lw = _pivot_step(test_data)
+        test_sw_A, test_sw_B = _pivot_step(test_data)
         test_is_eq, test_is_def = _section_arrays(test_sw_A.columns.tolist(), sections)
 
         # Remap carry_weights to current ETF columns
@@ -481,7 +452,9 @@ def main():
                 if etf in carry_weights:
                     prev_w[i] = carry_weights[etf]
 
-        test_returns, test_weights = run_backtest(test_sw_A, test_sw_B, test_lw,
+        # Daily returns for test period
+        test_dr = daily_ret_panel.reindex(index=test_sw_A.index, columns=test_sw_A.columns).fillna(0)
+        test_returns, test_weights = run_backtest(test_sw_A, test_sw_B, test_dr,
                                                    test_is_eq, test_is_def,
                                                    vix_s, hy_z60_s, best_params,
                                                    prev_weights=prev_w)
