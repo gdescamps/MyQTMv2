@@ -47,11 +47,11 @@ PARAM_NAMES = [
     "temperature_A", "temperature_B",
     "seuil_A", "seuil_B",
 ]
-PARAM_INIT   = [1.5, 1.5, 1.0, 1.0]
+PARAM_INIT   = [0.01, 0.01, 1.0, 1.0]
 PARAM_SIGMA0 = 0.3
 PARAM_BOUNDS = [
-    ( 0.05, 4.00),   # temperature_A — softmax concentration model A
-    ( 0.05, 4.00),   # temperature_B — softmax concentration model B
+    ( 0.01, 0.02),   # temperature_A — near-zero (winner-takes-all)
+    ( 0.01, 0.02),   # temperature_B — near-zero (winner-takes-all)
     ( 0.00, 5.00),   # seuil_A — confidence threshold model A (higher = more cash)
     ( 0.00, 5.00),   # seuil_B — confidence threshold model B (higher = more cash)
 ]
@@ -94,9 +94,10 @@ def run_backtest(
     n_etfs  = scores_wide_A.shape[1]
     etf_list = scores_wide_A.columns.tolist()
 
+    daily_ret = daily_returns_wide.values
+
     scores_A = scores_wide_A.values
     scores_B = scores_wide_B.values if scores_wide_B is not None else scores_A
-    daily_ret = daily_returns_wide.values
 
     def _softmax_all(s: np.ndarray, T: float) -> np.ndarray:
         """Softmax over all ETFs (no equity/defensive split)."""
@@ -153,19 +154,12 @@ def run_backtest(
         weights = 0.5 * alloc_A + 0.5 * alloc_B
     # Remaining = cash (implicit: 1 - sum(weights))
 
-    # Fix allocation to first day of step (hold for entire period)
+    # Monthly rebalancing: fix allocation to first day of step
     fixed_weights = np.tile(weights[0], (len(dates), 1))
 
-    # Portfolio simulation with real daily returns
+    # Portfolio simulation with real daily returns (no transaction costs)
     safe_ret = np.where(np.isnan(daily_ret), 0.0, daily_ret)
-    turnover_initial = np.abs(
-        fixed_weights[0] - (prev_weights if prev_weights is not None else np.zeros(n_etfs))
-    ).sum()
-
-    # Daily P&L: fixed allocation earns daily returns
     port_ret = (fixed_weights * safe_ret).sum(axis=1)
-    # Transaction costs disabled
-    # port_ret[0] -= turnover_initial * transaction_cost
 
     weights = fixed_weights  # for weight tracking
 
@@ -275,8 +269,9 @@ def _load_benchmark(ticker: str, dates: pd.DatetimeIndex) -> pd.Series | None:
 
 def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
                      weights_df: pd.DataFrame,
-                     params_df: pd.DataFrame, out_dir: Path) -> None:
-    """Save 3 separate PNGs: equity, allocation, P&L."""
+                     params_df: pd.DataFrame, out_dir: Path,
+                     scores_A: pd.DataFrame | None = None) -> None:
+    """Save chart: equity, allocation, temp_A + scores_A."""
     from etf import BY_BOURSO
     ann_ret = port_returns.mean() * 252
     ann_vol = port_returns.std() * np.sqrt(252)
@@ -312,15 +307,25 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
 
     from etf import UNIVERSE as _UNIVERSE
 
-    # --- PNG 1: Equity curves + VIX + Allocation ---
-    fig1, (ax1, ax2) = plt.subplots(2, 1, figsize=(18, 13),
-                                     gridspec_kw={"height_ratios": [3, 2]}, sharex=True)
+    # --- Chart: Equity + Allocation + Temp/Scores ---
+    has_scores = scores_A is not None and len(scores_A) > 0
+    n_panels = 3 if has_scores else 2
+    ratios = [3, 2, 1.5] if has_scores else [3, 2]
+    fig1, axes = plt.subplots(n_panels, 1, figsize=(18, 16 if has_scores else 13),
+                              gridspec_kw={"height_ratios": ratios}, sharex=True)
+    ax1 = axes[0]
+    ax2 = axes[1]
+    ax3 = axes[2] if has_scores else None
     fig1.suptitle(title, fontsize=13, fontweight="bold")
 
     # Portfolio: very bold red
     ax1.plot(eq_curve.index, eq_curve.values, lw=3.5, color="#d62728", zorder=10)
 
-    # All ETF curves — collect (final_value, log_y, ticker) for legend + label spacing
+    # Compute portfolio Sharpe & max DD
+    port_sh = sharpe(port_returns)
+    port_dd = (eq_curve / eq_curve.cummax() - 1).min()
+
+    # All ETF curves — collect (final_value, sharpe, max_dd, short_name, color)
     etf_curves = []
     for etf in _UNIVERSE:
         ticker = etf.bourso
@@ -333,37 +338,25 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
             zorder = 5 if is_bold else 2
             short = SHORT_NAMES.get(ticker, ticker)
             ax1.plot(bm.index, bm.values, lw=lw, color=color, alpha=alpha, zorder=zorder)
-            etf_curves.append((bm.iloc[-1], short, color))
+            bm_ret = bm.pct_change().dropna()
+            etf_sh = sharpe(bm_ret)
+            etf_dd = (bm / bm.cummax() - 1).min()
+            etf_curves.append((bm.iloc[-1], etf_sh, etf_dd, short, color))
 
-    # Right-side labels: spread vertically to avoid overlap (in log space)
-    all_labels = [(eq_curve.iloc[-1], "Portfolio", "#d62728", True)] + \
-                 [(v, s, c, False) for v, s, c in etf_curves]
-    all_labels.sort(key=lambda x: -x[0])
-    # Compute non-overlapping y positions in log space
-    log_positions = [np.log10(max(v, 0.01)) for v, _, _, _ in all_labels]
-    min_gap = 0.06  # minimum gap in log10 units
-    adjusted = list(log_positions)
-    for i in range(1, len(adjusted)):
-        if adjusted[i - 1] - adjusted[i] < min_gap:
-            adjusted[i] = adjusted[i - 1] - min_gap
-    for val, short, color, is_port in zip(
-        [x[0] for x in all_labels], [x[1] for x in all_labels],
-        [x[2] for x in all_labels], [x[3] for x in all_labels]
-    ):
-        y_pos = 10 ** adjusted[all_labels.index((val, short, color, is_port))]
-        fw = "bold" if is_port else "normal"
-        fs = 11 if is_port else 10
-        ax1.annotate(f"  {short} {val:.1f}x", xy=(eq_curve.index[-1], y_pos),
-                     fontsize=fs, fontweight=fw, color=color, va="center", alpha=0.95)
-
-    # Legend: portfolio first, then ETFs ranked by final value (descending)
+    # Sorted list: portfolio + ETFs all sorted by final value (descending)
     from matplotlib.lines import Line2D
-    etf_curves.sort(key=lambda x: -x[0])
-    legend_handles = [Line2D([0], [0], color="#d62728", lw=4, label=f"Portfolio {eq_curve.iloc[-1]:.1f}x")]
-    for val, short, color in etf_curves:
-        legend_handles.append(Line2D([0], [0], color=color, lw=3, label=f"{short} {val:.1f}x"))
-    leg = ax1.legend(handles=legend_handles, fontsize=12, loc="upper left",
-                     handlelength=2.5, handleheight=1.5, framealpha=0.85, fancybox=True)
+    all_items = [(eq_curve.iloc[-1], port_sh, port_dd, "Portfolio", "#d62728", True)] + \
+                [(v, sh, dd, s, c, False) for v, sh, dd, s, c in etf_curves]
+    sorted_items = sorted(all_items, key=lambda x: -x[0])
+
+    # Legend: sorted by final value, with Sharpe and max DD
+    legend_handles = []
+    for val, sh, dd, short, color, is_port in sorted_items:
+        lw = 4 if is_port else 3
+        legend_handles.append(Line2D([0], [0], color=color, lw=lw,
+                              label=f"{short} {val:.1f}x  Sh={sh:.2f}  DD={dd:.0%}"))
+    leg = ax1.legend(handles=legend_handles, fontsize=14, loc="upper left",
+                     handlelength=2.5, handleheight=1.8, framealpha=0.85, fancybox=True)
     leg.set_zorder(20)
 
     ax1.set_yscale("log")
@@ -413,6 +406,28 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         leg2.set_zorder(20)
         ax2.set_facecolor("#f8f8f8")
         ax2.grid(True, alpha=0.3)
+
+    # Panel 3: CMA-ES parameters (temperature + seuils) over time
+    if ax3 is not None and len(params_df) > 0 and len(scores_A) > 0:
+        step_dates = scores_A.index.unique().sort_values()
+        n_params = min(len(step_dates), len(params_df))
+        idx = step_dates[:n_params]
+
+        cma_colors = {"temperature_A": "#d62728", "seuil_A": "#1f77b4"}
+        cma_styles = {"temperature_A": "-", "seuil_A": "-"}
+        cma_labels = {"temperature_A": "temp_A", "seuil_A": "seuil_A"}
+
+        for col in ["temperature_A", "seuil_A"]:
+            if col in params_df.columns:
+                vals = params_df[col].values[:n_params]
+                ax3.plot(idx, vals, lw=2, color=cma_colors[col],
+                         linestyle=cma_styles[col], alpha=0.8,
+                         label=cma_labels[col])
+
+        ax3.set_ylabel("CMA-ES params")
+        ax3.grid(True, alpha=0.3)
+        ax3.set_facecolor("#f8f8f8")
+        ax3.legend(fontsize=10, loc="upper left", ncol=4, framealpha=0.85)
 
     plt.tight_layout()
     import subprocess
@@ -487,6 +502,7 @@ def main():
     all_test_returns = []
     all_test_weights = []
     all_params_rows  = []
+    all_test_scores  = []   # scores_A per test step
     carry_weights    = None   # chain positions between steps
 
     print(f"{'Step':>4}  {'Val period':>24}  {'Val↗':>7}  "
@@ -509,8 +525,9 @@ def main():
             val_sw_B = val_sw_B.iloc[-1250:]
             if val_bp is not None:
                 val_bp = val_bp.reindex(val_sw_A.index)
-        val_dr = daily_ret_panel.reindex(index=val_sw_A.index, columns=val_sw_A.columns).fillna(0)
-        best_params, val_sharpe = run_cmaes(val_sw_A, val_sw_B, val_dr, block_parity=val_bp)
+        # No CMA-ES: fixed params (temp=0 = winner-takes-all, seuil=0 = fully invested)
+        best_params = [0.0, 0.0, 0.0, 0.0]
+        val_sharpe = 0.0
 
         # --- Evaluate on test (true OOS) ---
         test_sw_A, test_sw_B, _ = _pivot_step(test_data)
@@ -522,6 +539,13 @@ def main():
             for i, etf in enumerate(test_sw_A.columns):
                 if etf in carry_weights:
                     prev_w[i] = carry_weights[etf]
+
+        # Normalize scores by ETF volatility (60d rolling on full history)
+        test_date = test_sw_A.index[0]
+        vol_at_test = daily_ret_panel[test_sw_A.columns].rolling(60, min_periods=20).std().loc[:test_date].iloc[-1] * np.sqrt(252)
+        vol_at_test = vol_at_test.replace(0, np.nan).fillna(1.0)
+        test_sw_A = test_sw_A / vol_at_test
+        test_sw_B = test_sw_B / vol_at_test
 
         # Daily returns for test period
         test_dr = daily_ret_panel.reindex(index=test_sw_A.index, columns=test_sw_A.columns).fillna(0)
@@ -544,6 +568,8 @@ def main():
         all_test_returns.append(test_returns)
         all_test_weights.append(test_weights)
         all_params_rows.append({"step": step, **dict(zip(PARAM_NAMES, best_params))})
+        # Save scores_A for chart (first day of test step per ETF)
+        all_test_scores.append(test_sw_A.iloc[[0]])
 
         # Live equity curve update after each step
         tmp_returns = pd.concat(all_test_returns).sort_index()
@@ -553,7 +579,9 @@ def main():
         tmp_dd = (tmp_eq / tmp_eq.cummax() - 1).min()
         print(f"       cumul: {tmp_eq.iloc[-1]-1:+.1%}  sharpe={tmp_sharpe:.2f}  dd={tmp_dd:.1%}", flush=True)
         params_df = pd.DataFrame(all_params_rows)
-        _save_equity_png(tmp_returns, tmp_eq, tmp_weights, params_df, OUTPUTS)
+        tmp_scores = pd.concat(all_test_scores).sort_index() if all_test_scores else pd.DataFrame()
+        _save_equity_png(tmp_returns, tmp_eq, tmp_weights, params_df, OUTPUTS,
+                         scores_A=tmp_scores)
 
     if not all_test_returns:
         sys.exit("No test returns produced — check OOS predictions")
@@ -596,7 +624,9 @@ def main():
 
     # Equity curve PNG
     all_weights = pd.concat(all_test_weights).sort_index()
-    _save_equity_png(port_returns, eq_curve, all_weights, params_df, OUTPUTS)
+    all_scores = pd.concat(all_test_scores).sort_index() if all_test_scores else pd.DataFrame()
+    _save_equity_png(port_returns, eq_curve, all_weights, params_df, OUTPUTS,
+                     scores_A=all_scores)
 
     print(f"\nSaved → data/backtest_results.parquet")
     print(f"Saved → outputs/best_params.csv")
