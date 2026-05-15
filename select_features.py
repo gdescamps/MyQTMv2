@@ -1,10 +1,14 @@
 """
-Feature selection by importance stability across 3 interlaced periods.
+Feature selection by importance stability — aligned with MyQTM v1 method.
 
-1. Split full 26-year panel into 3 interlaced periods (blocks of ~4 months)
-2. Train one XGBoost model per period
-3. Compute feature importance for each model
-4. Keep features with high stability: mean_importance / std_importance
+Like v1:
+1. Split data into partition A (even blocks) and B (odd blocks) with embargo
+2. Split each partition into 3 temporal sub-intervals
+3. Train 6 models: sub1A/sub2A/sub3A (train on A_i, val on B)
+                    sub1B/sub2B/sub3B (train on B_i, val on A)
+4. Normalize importance per model by its max
+5. Exclude features with zero importance in ANY model
+6. Rank by mean / std^power, select top N
 
 Output:
   outputs/feature_selection.csv   — all features ranked by stability
@@ -19,26 +23,27 @@ import xgboost as xgb
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from train import XGB_PARAMS, _try_gpu, LABEL_COL, _zscore_per_date
+from train import (XGB_PARAMS, _try_gpu, LABEL_COL, _zscore_per_date,
+                   BLOCK_ROWS, EMBARGO_ROWS)
 
 DATA    = Path(__file__).parent / "data"
 OUTPUTS = Path(__file__).parent / "outputs"
 OUTPUTS.mkdir(exist_ok=True)
 
-# Interlaced 3-period split: blocks of ~4 months (84 trading days)
-BLOCK_SIZE = 84  # ~4 months
+# Feature selection hyperparams
+MEAN_STD_POWER = 1.3   # from search_features_depth.py
+TOP_FEATURES   = 70    # search range in v1: 55-85
 
 
 def get_all_feature_cols(panel: pd.DataFrame) -> list[str]:
     """Get all numeric columns that could be features (exclude labels, metadata)."""
-    exclude = {"label", "ret_10d_fwd", "ret_20d_fwd", "section", "etf_id",
-               "mom_accel_5v20", "mom_accel_20v60"}
+    exclude = {"label", "ret_5d_fwd", "ret_10d_fwd", "ret_20d_fwd", "ret_90d_fwd",
+               "section", "etf_id", "mom_accel_5v20", "mom_accel_20v60"}
     cols = []
     for c in panel.columns:
         if c in exclude:
             continue
         if panel[c].dtype in [np.float64, np.float32, np.int64, np.int32, float, int]:
-            # Skip if >90% NaN
             if panel[c].notna().mean() > 0.10:
                 cols.append(c)
     return cols
@@ -62,87 +67,136 @@ def main():
     print(f"Device: {device.upper()}", flush=True)
 
     dates = panel.index.get_level_values("date").unique().sort_values()
-    n = len(dates)
     date_to_pos = {d: i for i, d in enumerate(dates)}
     row_dates = panel.index.get_level_values("date")
     row_pos = pd.Series([date_to_pos[d] for d in row_dates], index=panel.index)
 
-    # 3-way interlaced split
-    block_id = (row_pos // BLOCK_SIZE) % 3
+    # Block parity + embargo (same as train.py)
+    block_idx = row_pos // BLOCK_ROWS
+    block_parity = block_idx % 2
+    pos_in_block = row_pos % BLOCK_ROWS
+    not_embargoed = (pos_in_block >= EMBARGO_ROWS) & (pos_in_block < BLOCK_ROWS - EMBARGO_ROWS)
 
     X_all = panel[feature_cols].astype(np.float32)
     y_all = panel[LABEL_COL].astype(np.float32)
     y_z = _zscore_per_date(y_all).astype(np.float32)
 
-    params = {**XGB_PARAMS, "device": device, "max_depth": 2}
+    valid = y_all.notna() & not_embargoed
 
+    # Partition A (even blocks) and B (odd blocks)
+    mask_A = (block_parity == 0) & valid
+    mask_B = (block_parity == 1) & valid
+    idx_A = panel.index[mask_A]
+    idx_B = panel.index[mask_B]
+
+    print(f"\nPartition A (even blocks): {len(idx_A)} rows")
+    print(f"Partition B (odd blocks):  {len(idx_B)} rows")
+
+    # Split each partition into 3 temporal sub-intervals
+    def split_3(idx):
+        # Sort by date position, split into 3 equal parts
+        positions = row_pos.loc[idx].values
+        sorted_order = np.argsort(positions)
+        splits = np.array_split(sorted_order, 3)
+        return [idx[s] for s in splits]
+
+    subs_A = split_3(idx_A)
+    subs_B = split_3(idx_B)
+
+    print(f"  A sub-intervals: {[len(s) for s in subs_A]}")
+    print(f"  B sub-intervals: {[len(s) for s in subs_B]}")
+
+    # Train 6 models (like v1)
+    params = {**XGB_PARAMS, "device": device}
+
+    model_names = []
     importances = {}
-    for period in range(3):
-        train_mask = (block_id != period) & y_all.notna()
-        val_mask = (block_id == period) & y_all.notna()
 
-        tr_idx = panel.index[train_mask]
-        val_idx = panel.index[val_mask]
-
-        print(f"\nPeriod {period}: train={len(tr_idx)} rows, val={len(val_idx)} rows", flush=True)
+    # Models 1-3: train on A sub-intervals, val on full B
+    for i, sub_idx in enumerate(subs_A):
+        name = f"sub{i+1}A"
+        model_names.append(name)
+        print(f"\n{name}: train={len(sub_idx)} rows, val={len(idx_B)} rows", flush=True)
 
         model = xgb.XGBRegressor(**params)
         model.fit(
-            X_all.loc[tr_idx].values, y_z.loc[tr_idx].values,
-            eval_set=[(X_all.loc[val_idx].values, y_z.loc[val_idx].values)],
+            X_all.loc[sub_idx].values, y_z.loc[sub_idx].values,
+            eval_set=[(X_all.loc[idx_B].values, y_z.loc[idx_B].values)],
             verbose=False,
         )
         print(f"  best_iter={model.best_iteration}", flush=True)
+        importances[name] = model.feature_importances_
 
-        imp = model.feature_importances_
-        importances[f"period_{period}"] = imp
+    # Models 4-6: train on B sub-intervals, val on full A
+    for i, sub_idx in enumerate(subs_B):
+        name = f"sub{i+1}B"
+        model_names.append(name)
+        print(f"\n{name}: train={len(sub_idx)} rows, val={len(idx_A)} rows", flush=True)
 
-        # Top 10 for this period
-        top_idx = np.argsort(imp)[::-1][:10]
-        print(f"  Top 10: {[feature_cols[i] for i in top_idx]}")
+        model = xgb.XGBRegressor(**params)
+        model.fit(
+            X_all.loc[sub_idx].values, y_z.loc[sub_idx].values,
+            eval_set=[(X_all.loc[idx_A].values, y_z.loc[idx_A].values)],
+            verbose=False,
+        )
+        print(f"  best_iter={model.best_iteration}", flush=True)
+        importances[name] = model.feature_importances_
 
-    # Stability analysis: mean / std across periods
+    # Build importance DataFrame
     imp_df = pd.DataFrame(importances, index=feature_cols)
-    imp_df["mean"] = imp_df.mean(axis=1)
-    imp_df["std"] = imp_df.std(axis=1)
-    imp_df["stability"] = imp_df["mean"] / imp_df["std"].replace(0, np.nan)
-    imp_df = imp_df.sort_values("stability", ascending=False)
+
+    # Normalize each column by its max (like v1)
+    for col in model_names:
+        col_max = imp_df[col].max()
+        if col_max > 0:
+            imp_df[col] = imp_df[col] / col_max
+
+    # Filter: exclude features with zero importance in ANY model (like v1)
+    nonzero_mask = (imp_df[model_names] > 0).all(axis=1)
+    n_before = len(imp_df)
+    imp_df_filtered = imp_df[nonzero_mask].copy()
+    n_after = len(imp_df_filtered)
+    print(f"\n  Zero-importance filter: {n_before} → {n_after} features "
+          f"({n_before - n_after} removed)")
+
+    # Compute mean, std, and stability score
+    imp_df_filtered["mean"] = imp_df_filtered[model_names].mean(axis=1)
+    imp_df_filtered["std"] = imp_df_filtered[model_names].std(axis=1)
+    imp_df_filtered["mean/std"] = imp_df_filtered["mean"] / (
+        imp_df_filtered["std"] ** MEAN_STD_POWER
+    )
+    imp_df_filtered = imp_df_filtered.sort_values("mean/std", ascending=False)
 
     # Save full results
-    imp_df.to_csv(OUTPUTS / "feature_selection.csv")
+    imp_df_filtered.to_csv(OUTPUTS / "feature_selection.csv")
 
-    # Select features: stability > threshold (mean/std > 2 = consistent across periods)
-    MIN_STABILITY = 0.707   # includes smart money features (stability = 1/sqrt(2))
-    MIN_IMPORTANCE = 0.003  # lowered to keep smart money (so_ret_60d=0.0035)
-    selected = imp_df[
-        (imp_df["stability"] >= MIN_STABILITY) &
-        (imp_df["mean"] >= MIN_IMPORTANCE)
-    ].index.tolist()
-
-    # No forced features — pure stability filter
+    # Select top N features (like v1)
+    selected = imp_df_filtered.index[:TOP_FEATURES].tolist()
 
     print(f"\n{'='*60}")
     print(f"  Feature selection: {len(selected)} / {len(feature_cols)} features kept")
-    print(f"  (stability >= {MIN_STABILITY}, mean importance >= {MIN_IMPORTANCE})")
+    print(f"  (top {TOP_FEATURES} by mean/std^{MEAN_STD_POWER}, "
+          f"after zero-importance filter)")
     print(f"{'='*60}")
 
-    print(f"\n  Selected features (by stability):")
+    print(f"\n  Selected features (by mean/std^{MEAN_STD_POWER}):")
     for feat in selected:
-        row = imp_df.loc[feat]
+        row = imp_df_filtered.loc[feat]
         print(f"    {feat:<35s}  mean={row['mean']:.4f}  std={row['std']:.4f}  "
-              f"stab={row['stability']:.1f}")
+              f"score={row['mean/std']:.2f}")
 
-    print(f"\n  Rejected features (top 10 by mean importance but low stability):")
-    rejected = imp_df[~imp_df.index.isin(selected)].sort_values("mean", ascending=False).head(10)
-    for feat, row in rejected.iterrows():
+    print(f"\n  First 10 rejected features:")
+    rejected = imp_df_filtered.index[TOP_FEATURES:TOP_FEATURES + 10].tolist()
+    for feat in rejected:
+        row = imp_df_filtered.loc[feat]
         print(f"    {feat:<35s}  mean={row['mean']:.4f}  std={row['std']:.4f}  "
-              f"stab={row['stability']:.1f}")
+              f"score={row['mean/std']:.2f}")
 
     with open(OUTPUTS / "selected_features.json", "w") as f:
         json.dump(selected, f, indent=2)
 
     print(f"\nSaved: feature_selection.csv")
-    print(f"Saved: selected_features.json")
+    print(f"Saved: selected_features.json ({len(selected)} features)")
 
 
 if __name__ == "__main__":

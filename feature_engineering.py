@@ -227,6 +227,7 @@ def compute_etf_features(ohlcv: pd.DataFrame, shares_df: pd.DataFrame | None) ->
         f["so_ret_60d"]      = np.nan
 
     # Forward returns (label candidates) — shifted BACK N days (no lookahead)
+    f["ret_5d_fwd"]  = c.pct_change(5).shift(-5)
     f["ret_10d_fwd"] = c.pct_change(10).shift(-10)
     f["ret_20d_fwd"] = c.pct_change(20).shift(-20)
     f["ret_90d_fwd"] = c.pct_change(90).shift(-90)
@@ -428,12 +429,12 @@ def main():
         )
         panel["so_x_mom_20d"] = so_z_xs * panel["ret_20d_z_xs"]
 
-    # Label: forward ret_20d vs universe mean on same date
+    # Label: forward ret_5d vs universe mean on same date
     # Label: absolute forward return (no demeaning for single-ETF mode)
     if panel["etf_id"].nunique() == 1:
-        panel["label"] = panel["ret_90d_fwd"]
+        panel["label"] = panel["ret_5d_fwd"]
     else:
-        panel["label"] = panel.groupby("date")["ret_90d_fwd"].transform(
+        panel["label"] = panel.groupby("date")["ret_5d_fwd"].transform(
             lambda x: x - x.mean()
         )
 

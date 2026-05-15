@@ -32,44 +32,46 @@ OUTPUTS = Path(__file__).parent / "outputs"
 
 # Walk-forward parameters
 MIN_TRAIN_ROWS = 1500  # ~6 years of trading days before first test
-TEST_WINDOW    = 63    # ~3 months per test step
-STEP           = 63    # refit every ~3 months
+TEST_WINDOW    = 21    # ~1 month per test step
+STEP           = 21    # refit every ~1 month
 BLOCK_ROWS     = 21    # ~1 month alternating blocks for interlaced train/val
+EMBARGO_ROWS   = 5     # 5-day gap between train/val blocks to avoid lookahead
 
-FEATURE_COLS = [
-    # Macro
-    "yield_curve", "yc_x_vix",
-    "hy_spread", "hy_spread_velocity_20",
-    "dxy_ret_20d", "ret_spx_60d",
-    # Momentum
-    "ret_1d", "ret_5d", "ret_20d", "ret_60d", "ret_120d", "ret_250d",
-    "mom_ratio_60v120", "mom_ratio_20v120",
-    "mom_accel_20dv60d",
-    # Volatility
-    "vol_20d", "vol_60d", "vol_120d",
-    # RSI
-    "rsi_14", "rsi_21",
-    # Moving averages
-    "price_vs_ma50", "price_vs_ma200",
-    "ma_50_slope", "ma_100_slope", "ma_200_slope",
-    "ma20_vs_ma50", "ma50_vs_ma100", "ma50_vs_ma200", "ma100_vs_ma200",
-    # ATR
-    "atr_14", "atr_21",
-    # Drawdown / Distribution
-    "drawdown_60", "drawdown_250", "kurtosis_60",
-    # Volume
-    "volume_z5", "volume_z10", "volume_z20",
-    # Smart money
-    "shares_outstanding_z5", "shares_outstanding_z20", "shares_outstanding_z60",
-    "so_cross_20v60", "so_cross_20v120",
-    "so_ret_20d", "so_ret_60d",
-]
+def _load_feature_cols() -> list[str]:
+    """Load selected features from select_features.py output, or fallback to defaults."""
+    import json
+    sel_path = Path(__file__).parent / "outputs" / "selected_features.json"
+    if sel_path.exists():
+        with open(sel_path) as f:
+            return json.load(f)
+    # Fallback if selected_features.json doesn't exist yet
+    return [
+        "yield_curve", "yc_x_vix",
+        "hy_spread", "hy_spread_velocity_20",
+        "dxy_ret_20d", "ret_spx_60d",
+        "ret_1d", "ret_5d", "ret_20d", "ret_60d", "ret_120d", "ret_250d",
+        "mom_ratio_60v120", "mom_ratio_20v120",
+        "mom_accel_20dv60d",
+        "vol_20d", "vol_60d", "vol_120d",
+        "rsi_14", "rsi_21",
+        "price_vs_ma50", "price_vs_ma200",
+        "ma_50_slope", "ma_100_slope", "ma_200_slope",
+        "ma20_vs_ma50", "ma50_vs_ma100", "ma50_vs_ma200", "ma100_vs_ma200",
+        "atr_14", "atr_21",
+        "drawdown_60", "drawdown_250", "kurtosis_60",
+        "volume_z5", "volume_z10", "volume_z20",
+        "shares_outstanding_z5", "shares_outstanding_z20", "shares_outstanding_z60",
+        "so_cross_20v60", "so_cross_20v120",
+        "so_ret_20d", "so_ret_60d",
+    ]
+
+FEATURE_COLS = _load_feature_cols()
 
 LABEL_COL = "label"
 
 XGB_PARAMS = dict(
     tree_method          = "hist",
-    max_depth            = 2,
+    max_depth            = 6,
     min_child_weight     = 41,
     subsample            = 0.838,
     colsample_bytree     = 0.678,
@@ -150,13 +152,28 @@ def run_walk_forward(
         test_end_pos = min(train_end_pos + TEST_WINDOW, n)
 
         in_train     = row_pos < train_end_pos
-        block_parity = (row_pos // BLOCK_ROWS) % 2
+        block_idx    = row_pos // BLOCK_ROWS
+        block_parity = block_idx % 2
+        # Position within each block (0..BLOCK_ROWS-1)
+        pos_in_block = row_pos % BLOCK_ROWS
+        # Embargo: exclude first/last EMBARGO_ROWS days at block boundaries
+        in_embargo = (pos_in_block < EMBARGO_ROWS) | (pos_in_block >= BLOCK_ROWS - EMBARGO_ROWS)
+        not_embargoed = ~in_embargo
+
         test_mask    = (row_pos >= train_end_pos) & (row_pos < test_end_pos)
         test_idx     = panel.index[test_mask]
 
-        # Model A: train on even blocks, val on odd blocks
-        train_A_mask = in_train & (block_parity == 0)
-        val_A_mask   = in_train & (block_parity == 1)
+        # Check if model B's val (even blocks) last block touches the test period
+        # If the last even block ends within EMBARGO_ROWS of test start → skip B
+        last_train_block = (train_end_pos - 1) // BLOCK_ROWS
+        last_block_is_odd = (last_train_block % 2) == 1
+        # Model B trains on odd, val on even. If last block before test is even
+        # (i.e. B's val), it's too close to test → use only model A
+        skip_B = not last_block_is_odd  # last block is even = B's val block
+
+        # Model A: train on even blocks, val on odd blocks (with embargo)
+        train_A_mask = in_train & (block_parity == 0) & not_embargoed
+        val_A_mask   = in_train & (block_parity == 1) & not_embargoed
         tr_A_idx  = panel.index[train_A_mask & y_all.notna()]
         val_A_idx = panel.index[val_A_mask   & y_all.notna()]
 
@@ -171,12 +188,12 @@ def run_walk_forward(
                      verbose=False)
         best_iter_A = model_A.best_iteration
 
-        # Train Model B (opposite phase) — only if dual_model
+        # Train Model B (opposite phase) — skip if B's val block touches test
         model_B = None
         best_iter_B = 0
-        if dual_model:
-            train_B_mask = in_train & (block_parity == 1)
-            val_B_mask   = in_train & (block_parity == 0)
+        if dual_model and not skip_B:
+            train_B_mask = in_train & (block_parity == 1) & not_embargoed
+            val_B_mask   = in_train & (block_parity == 0) & not_embargoed
             tr_B_idx  = panel.index[train_B_mask & y_all.notna()]
             val_B_idx = panel.index[val_B_mask   & y_all.notna()]
             model_B = xgb.XGBRegressor(**params)
@@ -224,23 +241,16 @@ def run_walk_forward(
             val_df["val_ic"]    = val_ic
             predictions.append(val_df)
 
-        # Test predictions
+        # Test predictions — model A only (most distant from test, no leakage)
         test_ic = float("nan")
         if len(test_idx) > 0:
             scores_A_test = model_A.predict(X_all.loc[test_idx].values)
-            if model_B:
-                scores_B_test = model_B.predict(X_all.loc[test_idx].values)
-                avg_scores = (scores_A_test + scores_B_test) / 2
-            else:
-                scores_B_test = scores_A_test
-                avg_scores = scores_A_test
-            test_ic = _daily_ic(avg_scores, y_all.loc[test_idx].values, test_idx)
+            test_ic = _daily_ic(scores_A_test, y_all.loc[test_idx].values, test_idx)
 
-            test_df_data = {"score": avg_scores, "label": y_all.loc[test_idx].values}
-            if model_B:
-                test_df_data["score_A"] = scores_A_test
-                test_df_data["score_B"] = scores_B_test
-            test_df = pd.DataFrame(test_df_data, index=test_idx)
+            test_df = pd.DataFrame({
+                "score": scores_A_test,
+                "label": y_all.loc[test_idx].values,
+            }, index=test_idx)
             test_df["step"]      = step_n
             test_df["split"]     = "test"
             test_df["best_iter"] = best_iter_A
@@ -305,7 +315,7 @@ def main():
         f"Labels: z-scored per date (IC maximisation)\n"
     )
 
-    oos = run_walk_forward(panel, device)
+    oos = run_walk_forward(panel, device, dual_model=True)
 
     out = DATA / "oos_predictions.parquet"
     oos.to_parquet(out)

@@ -219,7 +219,9 @@ def run_cmaes(
 
 def _pivot_step(step_data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Pivot (date, etf_id) long → wide scores_A, scores_B."""
-    if "score_A" in step_data.columns:
+    has_AB = ("score_A" in step_data.columns and
+              step_data["score_A"].notna().any())
+    if has_AB:
         sw_A = step_data["score_A"].unstack("etf_id").sort_index()
         sw_B = step_data["score_B"].unstack("etf_id").sort_index()
     else:
@@ -270,8 +272,21 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         "EXX1.DE": "#e377c2", # Euro Banks = pink
         "QQQ": "#2ca02c",     # Nasdaq = green
     }
+    # Simplified display names (remove iShares, ETF, Shares, etc.)
+    SHORT_NAMES = {
+        "IVV": "S&P 500",
+        "SOXX": "Semiconductors",
+        "GLD": "Gold",
+        "EEM": "Emerging Mkts",
+        "TLT": "Treasury 20y+",
+        "IEO": "Oil & Gas",
+        "EXX1.DE": "Euro Banks",
+        "QQQ": "Nasdaq 100",
+    }
     # Tickers to show in bold on equity chart (besides portfolio)
     BOLD_TICKERS = {"IVV", "GLD", "IEO"}
+
+    from etf import UNIVERSE as _UNIVERSE
 
     # --- PNG 1: Equity curves + VIX + Allocation ---
     fig1, (ax1, ax2) = plt.subplots(2, 1, figsize=(18, 13),
@@ -279,10 +294,10 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
     fig1.suptitle(title, fontsize=13, fontweight="bold")
 
     # Portfolio: very bold red
-    ax1.plot(eq_curve.index, eq_curve.values, lw=3.5, color="#d62728", label="Portfolio", zorder=10)
+    ax1.plot(eq_curve.index, eq_curve.values, lw=3.5, color="#d62728", zorder=10)
 
-    # All ETF curves with same colors as allocation
-    from etf import UNIVERSE as _UNIVERSE
+    # All ETF curves — collect (final_value, log_y, ticker) for legend + label spacing
+    etf_curves = []
     for etf in _UNIVERSE:
         ticker = etf.bourso
         color = etf_color_map.get(ticker, "#7f7f7f")
@@ -292,16 +307,46 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
             lw = 2.8 if is_bold else 1.0
             alpha = 0.9 if is_bold else 0.5
             zorder = 5 if is_bold else 2
-            label = BY_BOURSO[ticker].name[:30] if ticker in BY_BOURSO else ticker
-            ax1.plot(bm.index, bm.values, lw=lw, color=color, alpha=alpha,
-                     label=label, zorder=zorder)
+            short = SHORT_NAMES.get(ticker, ticker)
+            ax1.plot(bm.index, bm.values, lw=lw, color=color, alpha=alpha, zorder=zorder)
+            etf_curves.append((bm.iloc[-1], short, color))
+
+    # Right-side labels: spread vertically to avoid overlap (in log space)
+    all_labels = [(eq_curve.iloc[-1], "Portfolio", "#d62728", True)] + \
+                 [(v, s, c, False) for v, s, c in etf_curves]
+    all_labels.sort(key=lambda x: -x[0])
+    # Compute non-overlapping y positions in log space
+    log_positions = [np.log10(max(v, 0.01)) for v, _, _, _ in all_labels]
+    min_gap = 0.06  # minimum gap in log10 units
+    adjusted = list(log_positions)
+    for i in range(1, len(adjusted)):
+        if adjusted[i - 1] - adjusted[i] < min_gap:
+            adjusted[i] = adjusted[i - 1] - min_gap
+    for val, short, color, is_port in zip(
+        [x[0] for x in all_labels], [x[1] for x in all_labels],
+        [x[2] for x in all_labels], [x[3] for x in all_labels]
+    ):
+        y_pos = 10 ** adjusted[all_labels.index((val, short, color, is_port))]
+        fw = "bold" if is_port else "normal"
+        fs = 11 if is_port else 10
+        ax1.annotate(f"  {short} {val:.1f}x", xy=(eq_curve.index[-1], y_pos),
+                     fontsize=fs, fontweight=fw, color=color, va="center", alpha=0.95)
+
+    # Legend: portfolio first, then ETFs ranked by final value (descending)
+    from matplotlib.lines import Line2D
+    etf_curves.sort(key=lambda x: -x[0])
+    legend_handles = [Line2D([0], [0], color="#d62728", lw=4, label=f"Portfolio {eq_curve.iloc[-1]:.1f}x")]
+    for val, short, color in etf_curves:
+        legend_handles.append(Line2D([0], [0], color=color, lw=3, label=f"{short} {val:.1f}x"))
+    leg = ax1.legend(handles=legend_handles, fontsize=12, loc="upper left",
+                     handlelength=2.5, handleheight=1.5, framealpha=0.85, fancybox=True)
+    leg.set_zorder(20)
 
     ax1.set_yscale("log")
     ax1.set_ylabel("Equity (log scale, base 1)")
     ax1.yaxis.set_major_formatter(mtick.FuncFormatter(lambda x, _: f"{x:.1f}x"))
     ax1.grid(True, alpha=0.3, which="both")
     ax1.set_facecolor("#f8f8f8")
-    ax1.legend(fontsize=9, loc="upper left")
     vix_path = DATA / "fred_vix.parquet"
     if vix_path.exists():
         vix_raw = pd.read_parquet(vix_path).iloc[:, 0]
@@ -312,28 +357,25 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         ax1b.tick_params(axis="y", labelcolor="#d62728", labelsize=8)
         ax1b.set_ylim(0, 80)
 
-    # Panel 2: Allocation — only allocated ETFs, sorted by decreasing avg allocation
+    # Panel 2: Allocation — ETFs sorted by total allocation volume (descending)
     if len(weights_df) > 0:
         w = weights_df.reindex(eq_curve.index, method="ffill").fillna(0)
         cash = (1 - w.sum(axis=1)).clip(0, 1)
 
-        # Sort columns by average allocation (descending), keep only allocated ETFs
+        # Sort by cumulative allocation volume (descending), keep only allocated
         avg_w = w.mean().sort_values(ascending=False)
         allocated = avg_w[avg_w > 0.001].index.tolist()
         w_sorted = w[allocated]
 
-        # Rename to display names
-        col_names = {e: BY_BOURSO[e].name[:45] if e in BY_BOURSO else e for e in w_sorted.columns}
+        # Rename with short names
+        col_names = {e: SHORT_NAMES.get(e, e) for e in w_sorted.columns}
         w_named = w_sorted.rename(columns=col_names)
 
         plot_data = w_named.copy()
         plot_data["Cash"] = cash
 
-        # Build color list matching allocation order
-        color_map = {}
-        for etf in _UNIVERSE:
-            name = BY_BOURSO[etf.bourso].name[:45] if etf.bourso in BY_BOURSO else etf.bourso
-            color_map[name] = etf_color_map.get(etf.bourso, "#7f7f7f")
+        # Build color list matching short names
+        color_map = {SHORT_NAMES.get(t, t): c for t, c in etf_color_map.items()}
         color_map["Cash"] = "#e8e8e8"
 
         colors = [color_map.get(c, "#7f7f7f") for c in plot_data.columns]
@@ -342,7 +384,9 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         ax2.set_ylabel("Allocation")
         ax2.set_ylim(0, 1)
         ax2.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
-        ax2.legend(fontsize=8, loc="center left", bbox_to_anchor=(1.01, 0.5), ncol=1)
+        leg2 = ax2.legend(fontsize=12, loc="center left", bbox_to_anchor=(1.01, 0.5), ncol=1,
+                          handlelength=2.5, handleheight=1.5, framealpha=0.85, fancybox=True)
+        leg2.set_zorder(20)
         ax2.set_facecolor("#f8f8f8")
         ax2.grid(True, alpha=0.3)
 
@@ -350,10 +394,10 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
     import subprocess
     sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
     n_etfs = len(weights_df.columns) if len(weights_df) > 0 else 0
-    depth = 2  # current XGB max_depth
-    fname = f"backtest_{sha}_{n_etfs}etf_d{depth}.png"
-    fig1.savefig(out_dir / fname, dpi=300, bbox_inches="tight")
-    fig1.savefig(out_dir / "backtest_equity.png", dpi=300, bbox_inches="tight")
+    depth = 6  # current XGB max_depth
+    fname = f"backtest_{sha}_{n_etfs}etf_d{depth}.jpg"
+    fig1.savefig(out_dir / fname, dpi=100, bbox_inches="tight", format="jpeg", pil_kwargs={"quality": 60, "optimize": True})
+    fig1.savefig(out_dir / "backtest_equity.jpg", dpi=100, bbox_inches="tight", format="jpeg", pil_kwargs={"quality": 60, "optimize": True})
     plt.close(fig1)
 
 
