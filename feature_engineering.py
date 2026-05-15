@@ -45,6 +45,11 @@ ISHARES_MAP = {
     "TLT":      "TLT",    # Treasury 20y+ — smart money since 2002
     "IEO":      "IEO",    # Oil & Gas — smart money since 2006
     "EXX1.DE":  "EXX1",   # Euro Banks — smart money since 2002
+    "TIP":      "TIP",    # TIPS inflation — smart money since 2003
+    "EWJ":      "EWJ",    # Japan — smart money since 1996
+    "EXV1.DE":  "EXV1",   # Europe Tech — smart money since 2002
+    "EWC":      "EWC",    # Canada — smart money since 1996
+    "EWZ":      "EWZ",    # Brazil — smart money since 2000
 }
 
 

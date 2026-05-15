@@ -131,6 +131,11 @@ UNIVERSE: list[ETF] = [
     ETF("TLT", "iShares 20+ Year Treasury Bond ETF", "bond", "us_lt", pea=False, zero_fees=False, fmp="TLT", fmp_proxy=False, perf_1y=None, perf_5y=None),
     ETF("IEO", "iShares U.S. Oil & Gas Exploration ETF", "commodity", "oil", pea=False, zero_fees=False, fmp="IEO", fmp_proxy=False, perf_1y=None, perf_5y=None),
     ETF("EXX1.DE", "iShares EURO STOXX Banks 30-15 ETF", "thematic", "banks_eu", pea=False, zero_fees=False, fmp="EXX1.DE", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("TIP", "iShares TIPS Bond ETF", "bond", "tips", pea=False, zero_fees=False, fmp="TIP", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EWJ", "iShares MSCI Japan ETF", "geo", "japan", pea=False, zero_fees=False, fmp="EWJ", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EXV1.DE", "iShares STOXX Europe 600 Tech ETF", "thematic", "tech_eu", pea=False, zero_fees=False, fmp="EXV1.DE", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EWC", "iShares MSCI Canada ETF", "geo", "canada", pea=False, zero_fees=False, fmp="EWC", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EWZ", "iShares MSCI Brazil ETF", "geo", "brazil", pea=False, zero_fees=False, fmp="EWZ", fmp_proxy=False, perf_1y=None, perf_5y=None),
 ]
 
 # Quick lookup dicts
