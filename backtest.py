@@ -132,7 +132,7 @@ def run_backtest(
         weights = _softmax_sharpe_alloc(scores_A, temp_A, sw)
     # Remaining = cash (implicit: 1 - sum(weights))
 
-    # Weekly rebalancing: refresh weights every 5 trading days, no fees
+    # Weekly rebalancing, no fees
     REBAL_DAYS = 5
     fixed_weights = np.zeros_like(weights)
     for i in range(len(dates)):
