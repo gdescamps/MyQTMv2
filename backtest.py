@@ -37,13 +37,8 @@ AV_DELAYS = False  # True = délais arbitrage AV (J+0 sell, J+1 buy cash dispo, 
 USE_SOFTMAX = True  # True = softmax(score/T) × Sharpe, False = equal weight among score > 0 × Sharpe
 SHARPE_POWER = 0.8  # Sharpe weight = sharpe^SHARPE_POWER (0=equal, 1=linear, 2=concentrated)
 
-PARAM_NAMES = ["temperature_A", "temperature_B", "rebal_days"]
-PARAMS = [0.8, 0.8, 5.0]  # fixed allocation params
-PARAM_BOUNDS = [
-    ( 0.01, 1.00),   # temperature_A — softmax concentration
-    ( 0.01, 1.00),   # temperature_B — softmax concentration
-    ( 4.0, 12.0),    # rebal_days — days between rebalances (rounded to int)
-]
+TEMPERATURE = 0.8     # softmax concentration
+REBAL_DAYS = 5        # jours entre rebalances
 
 
 def sigmoid(x: np.ndarray) -> np.ndarray:
@@ -60,38 +55,27 @@ def softmax(scores: np.ndarray, temperature: float) -> np.ndarray:
 
 
 def run_backtest(
-    scores_wide_A: pd.DataFrame,
-    scores_wide_B: pd.DataFrame | None,
+    scores_wide: pd.DataFrame,
     daily_returns_wide: pd.DataFrame,
-    params: list,
-    transaction_cost: float = 0.0022,
     prev_weights: np.ndarray | None = None,
-    block_parity: pd.Series | None = None,
     sharpe_weights: np.ndarray | None = None,
 ) -> tuple[pd.Series, pd.DataFrame]:
     """
     Vectorised portfolio simulation.
     Score > 0 → on, softmax(score/temp) × Sharpe weights.
     """
-    dates   = scores_wide_A.index
-    n_etfs  = scores_wide_A.shape[1]
-    etf_list = scores_wide_A.columns.tolist()
+    dates   = scores_wide.index
+    n_etfs  = scores_wide.shape[1]
+    etf_list = scores_wide.columns.tolist()
 
     daily_ret = daily_returns_wide.values
-
-    scores_A = scores_wide_A.values
-    scores_B = scores_wide_B.values if scores_wide_B is not None else scores_A
-
-    # Detect if A and B are the same scores (test uses model A only)
-    a_only = np.allclose(np.nan_to_num(scores_A), np.nan_to_num(scores_B), atol=1e-10)
+    scores = scores_wide.values
 
     # Use Sharpe weights if provided, else equal weight
     sw = sharpe_weights if sharpe_weights is not None else np.ones(n_etfs)
+    rebal_days = REBAL_DAYS
 
-    temp_A, temp_B, rebal_days_f = params
-    rebal_days = int(round(rebal_days_f))
-
-    def _softmax_sharpe_alloc(scores: np.ndarray, T: float, sw: np.ndarray) -> np.ndarray:
+    def _alloc(scores: np.ndarray, sw: np.ndarray) -> np.ndarray:
         """Score > 0 → on, softmax(score/T) × Sharpe weights among positives."""
         out = np.zeros_like(scores)
         for i in range(scores.shape[0]):
@@ -101,12 +85,11 @@ def run_backtest(
             if not on.any():
                 continue
             if USE_SOFTMAX:
-                s = row[on] / max(T, 1e-6)
+                s = row[on] / max(TEMPERATURE, 1e-6)
                 s = s - s.max()
                 e = np.exp(s)
                 w = e / e.sum()
             else:
-                # Equal weight among positives (binary on/off)
                 w = np.ones(on.sum()) / on.sum()
             combined = w * sw[on]
             total = combined.sum()
@@ -114,16 +97,7 @@ def run_backtest(
                 out[i, on] = combined / total
         return out
 
-    if a_only:
-        weights = _softmax_sharpe_alloc(scores_A, temp_A, sw)
-    elif block_parity is not None:
-        alloc_A = _softmax_sharpe_alloc(scores_A, temp_A, sw)
-        alloc_B = _softmax_sharpe_alloc(scores_B, temp_B, sw)
-        bp = block_parity.reindex(dates).values
-        use_A = (bp == 1)[:, None]
-        weights = np.where(use_A, alloc_A, alloc_B)
-    else:
-        weights = _softmax_sharpe_alloc(scores_A, temp_A, sw)
+    weights = _alloc(scores, sw)
     # Remaining = cash (implicit: 1 - sum(weights))
 
     # Lot-based portfolio simulation
@@ -183,7 +157,7 @@ def run_backtest(
         total_val = positions.sum() + cash
 
         if rebal_state == 0:
-            # Rebalance every N days (CMA-ES optimized)
+            # Rebalance every N days
             if i % rebal_days != 0:
                 pass  # skip to daily P&L below
             elif total_val >= LOT_SIZE:
@@ -270,22 +244,13 @@ def sharpe(returns: pd.Series, min_obs: int = 30) -> float:
 
 
 
-def _pivot_step(step_data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series | None]:
-    """Pivot (date, etf_id) long → wide scores_A, scores_B + block_parity per date."""
-    has_AB = ("score_A" in step_data.columns and
-              step_data["score_A"].notna().any())
-    if has_AB:
-        sw_A = step_data["score_A"].unstack("etf_id").sort_index()
-        sw_B = step_data["score_B"].unstack("etf_id").sort_index()
-        if "block_parity" in step_data.columns:
-            bp = step_data["block_parity"].groupby("date").first().reindex(sw_A.index)
-        else:
-            bp = None
+def _pivot_step(step_data: pd.DataFrame) -> pd.DataFrame:
+    """Pivot (date, etf_id) long → wide scores."""
+    if "score_A" in step_data.columns and step_data["score_A"].notna().any():
+        scores = step_data["score_A"].unstack("etf_id").sort_index()
     else:
-        sw_A = step_data["score"].unstack("etf_id").sort_index()
-        sw_B = sw_A
-        bp = None
-    return sw_A, sw_B, bp
+        scores = step_data["score"].unstack("etf_id").sort_index()
+    return scores
 
 
 def _section_arrays(etf_list: list, sections: dict) -> tuple[np.ndarray, np.ndarray]:
@@ -592,9 +557,8 @@ def main():
     all_test_scores  = []   # scores_A per test step
     carry_weights    = None   # chain positions between steps
 
-    print(f"{'Step':>4}  {'Val period':>24}  {'Val↗':>7}  "
-          f"{'Test period':>24}  {'Test↗':>7}")
-    print("-" * 75)
+    print(f"{'Step':>4}  {'Test period':>24}  {'Sharpe':>7}")
+    print("-" * 45)
 
     for step in steps:
         val_data  = oos[(oos["step"] == step) & (oos["split"] == "val")]
@@ -604,41 +568,36 @@ def main():
             print(f"{step:4d}  SKIP (val={len(val_data)} rows, test={len(test_data)} rows)")
             continue
 
-        # --- Fixed params (no CMA-ES) ---
-        best_params = PARAMS
 
         # Compute expanding Sharpe per ETF (for allocation weights)
-        val_sw_A, val_sw_B, val_bp = _pivot_step(val_data)
-        val_end_date = val_sw_A.index[-1]
-        dr_hist = daily_ret_panel[val_sw_A.columns].loc[:val_end_date]
+        val_scores = _pivot_step(val_data)
+        val_end_date = val_scores.index[-1]
+        dr_hist = daily_ret_panel[val_scores.columns].loc[:val_end_date]
         exp_mean = dr_hist.expanding(min_periods=60).mean().iloc[-1] * 252
         exp_std = dr_hist.expanding(min_periods=60).std().iloc[-1] * np.sqrt(252)
         etf_sharpe = (exp_mean / exp_std.replace(0, np.nan)).clip(0.0).fillna(0.0).values
         etf_sharpe = etf_sharpe ** SHARPE_POWER
 
         # --- Evaluate on test (true OOS) ---
-        test_sw_A, test_sw_B, _ = _pivot_step(test_data)
+        test_scores = _pivot_step(test_data)
 
         # Remap carry_weights to current ETF columns
         prev_w = None
         if carry_weights is not None:
-            prev_w = np.zeros(len(test_sw_A.columns))
-            for i, etf in enumerate(test_sw_A.columns):
+            prev_w = np.zeros(len(test_scores.columns))
+            for i, etf in enumerate(test_scores.columns):
                 if etf in carry_weights:
                     prev_w[i] = carry_weights[etf]
 
         # Z-score scores cross-sectionally before softmax
-        row_mean = test_sw_A.mean(axis=1)
-        row_std = test_sw_A.std(axis=1).replace(0, 1.0)
-        test_sw_A = test_sw_A.sub(row_mean, axis=0).div(row_std, axis=0)
-        row_mean_B = test_sw_B.mean(axis=1)
-        row_std_B = test_sw_B.std(axis=1).replace(0, 1.0)
-        test_sw_B = test_sw_B.sub(row_mean_B, axis=0).div(row_std_B, axis=0)
+        row_mean = test_scores.mean(axis=1)
+        row_std = test_scores.std(axis=1).replace(0, 1.0)
+        test_scores = test_scores.sub(row_mean, axis=0).div(row_std, axis=0)
 
         # Daily returns for test period
-        test_dr = daily_ret_panel.reindex(index=test_sw_A.index, columns=test_sw_A.columns).fillna(0)
-        test_returns, test_weights = run_backtest(test_sw_A, test_sw_B, test_dr,
-                                                   best_params, prev_weights=prev_w,
+        test_dr = daily_ret_panel.reindex(index=test_scores.index, columns=test_scores.columns).fillna(0)
+        test_returns, test_weights = run_backtest(test_scores, test_dr,
+                                                   prev_weights=prev_w,
                                                    sharpe_weights=etf_sharpe)
 
         # Save final weights for next step
@@ -654,9 +613,9 @@ def main():
 
         all_test_returns.append(test_returns)
         all_test_weights.append(test_weights)
-        all_params_rows.append({"step": step, **dict(zip(PARAM_NAMES, best_params))})
+        all_params_rows.append({"step": step, "temperature": TEMPERATURE, "rebal_days": REBAL_DAYS})
         # Save scores_A for chart (first day of test step per ETF)
-        all_test_scores.append(test_sw_A.iloc[[0]])
+        all_test_scores.append(test_scores.iloc[[0]])
 
         # Live equity curve update after each step
         tmp_returns = pd.concat(all_test_returns).sort_index()
@@ -685,7 +644,7 @@ def main():
     max_dd       = (eq_curve / eq_curve.cummax() - 1).min()
 
     print("\n" + "=" * 75)
-    print("=== Final OOS backtest (test periods, CMA-ES per step) ===")
+    print("=== Final OOS backtest ===")
     print(f"  Period:       {port_returns.index[0].date()} → {port_returns.index[-1].date()}")
     print(f"  Total return: {total_ret:.1%}")
     print(f"  Ann. return:  {ann_ret:.1%}")
