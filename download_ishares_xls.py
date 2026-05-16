@@ -130,9 +130,9 @@ UK_ISHARES_PRODUCTS = {
              "iShares-Smart-City-Infrastructure-UCITS-ETF_fund"),
     "IQQQ": (251913, "ishares-global-water-ucits-etf",
              "iShares-Global-Water-UCITS-ETF_fund"),
-    # --- Already downloaded manually ---
-    # "CNX1": (253741, "ishares-nasdaq-100-ucits-etf",
-    #          "iShares-Nasdaq-100-UCITS-ETF-USD-Acc_fund"),
+    # --- Nasdaq 100 UCITS (smart money proxy for QQQ) ---
+    "CNDX": (253741, "ishares-nasdaq-100-ucits-etf",
+             "iShares-Nasdaq-100-UCITS-ETF-USD-Acc_fund"),
 }
 
 HEADERS = {

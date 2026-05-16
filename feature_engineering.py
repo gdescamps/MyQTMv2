@@ -37,7 +37,7 @@ ISHARES_MAP = {
     "RING":     "RING",  "IOGP.AS":  "IEO",   "DTLA.AS":  "TLT",
     "IBTA.AS":  "IEF",   "IHYU.AS":  "HYG",   "ITPS.AS":  "TIP",
     "IBTC.AS":  "IBIT",
-    "QQQ":      "IUIT",   # US Nasdaq proxy → IUIT smart money
+    "QQQ":      "CNDX",   # US Nasdaq proxy → CNDX iShares Nasdaq 100 smart money
     "GLD":      "IAU",    # US Gold proxy → IAU smart money
     "IVV":      "IVV",    # S&P 500 — direct smart money since 2000
     "SOXX":     "SOXX",   # Semiconductors — smart money since 2001
@@ -60,6 +60,8 @@ ISHARES_MAP = {
     "XLV":      "IUHC",   # Healthcare — smart money since Nov 2015
     "XLP":      "IUCS",   # Consumer Staples — smart money since Mar 2017
     "XLF":      "IUFS",   # Financials — smart money since Nov 2015
+    "XLU":      "IUUS",   # Utilities — smart money since Mar 2017
+    "XLB":      "IUMS",   # Materials — smart money since Mar 2017
 }
 
 

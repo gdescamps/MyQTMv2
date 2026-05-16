@@ -139,8 +139,26 @@ UNIVERSE: list[ETF] = [
     ETF("XLV", "SPDR Health Care Select Sector ETF", "sector_us", "health", pea=False, zero_fees=False, fmp="XLV", fmp_proxy=False, perf_1y=None, perf_5y=None),
     ETF("XLP", "SPDR Consumer Staples Select Sector ETF", "sector_us", "cons_stpl", pea=False, zero_fees=False, fmp="XLP", fmp_proxy=False, perf_1y=None, perf_5y=None),
     ETF("XLF", "SPDR Financial Select Sector ETF", "sector_us", "finance", pea=False, zero_fees=False, fmp="XLF", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    # ETF("XLU", "SPDR Utilities Select Sector ETF", "sector_us", "utilities", pea=False, zero_fees=False, fmp="XLU", fmp_proxy=False, perf_1y=None, perf_5y=None),  # smart money trop court (2017)
+    # ETF("XLB", "SPDR Materials Select Sector ETF", "sector_us", "materials", pea=False, zero_fees=False, fmp="XLB", fmp_proxy=False, perf_1y=None, perf_5y=None),  # smart money trop court (2017)
     # EU Sector
     ETF("EXV1.DE", "iShares STOXX Europe 600 Tech ETF", "thematic", "tech_eu", pea=False, zero_fees=False, fmp="EXV1.DE", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    # Nasdaq 100 (smart money via CNDX iShares UCITS since 2010)
+    # ETF("QQQ", "Invesco QQQ Trust (Nasdaq 100)", "geo", "us_nasdaq", pea=False, zero_fees=False, fmp="QQQ", fmp_proxy=False, perf_1y=None, perf_5y=None),  # trop corrélé à XLK
+    # Country ETFs (smart money + FMP price since 2000+)
+    ETF("EWJ", "iShares MSCI Japan ETF", "geo", "japan", pea=False, zero_fees=False, fmp="EWJ", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EWC", "iShares MSCI Canada ETF", "geo", "canada", pea=False, zero_fees=False, fmp="EWC", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EWY", "iShares MSCI South Korea ETF", "geo", "korea", pea=False, zero_fees=False, fmp="EWY", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EWZ", "iShares MSCI Brazil ETF", "geo", "brazil", pea=False, zero_fees=False, fmp="EWZ", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EWW", "iShares MSCI Mexico ETF", "geo", "mexico", pea=False, zero_fees=False, fmp="EWW", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("FXI", "iShares China Large-Cap ETF", "geo", "china", pea=False, zero_fees=False, fmp="FXI", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("TUR", "iShares MSCI Turkey ETF", "geo", "turkey", pea=False, zero_fees=False, fmp="TUR", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    # Alternatif
+    # ETF("RING", "iShares MSCI Global Gold Miners ETF", "commodity", "gold_miners", pea=False, zero_fees=False, fmp="RING", fmp_proxy=False, perf_1y=None, perf_5y=None),  # trop volatile DD=-52%
+    # Bonds (smart money + FMP price)
+    ETF("IEF", "iShares 7-10 Year Treasury Bond ETF", "bond", "us_mt", pea=False, zero_fees=False, fmp="IEF", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("HYG", "iShares iBoxx USD High Yield Corp Bond ETF", "bond", "hy", pea=False, zero_fees=False, fmp="HYG", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("TIP", "iShares TIPS Bond ETF", "bond", "tips", pea=False, zero_fees=False, fmp="TIP", fmp_proxy=False, perf_1y=None, perf_5y=None),
 ]
 
 # Quick lookup dicts
