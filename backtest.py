@@ -287,14 +287,13 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
     from etf import UNIVERSE as _UNIVERSE
 
     # --- Chart: Equity + Allocation + Temp/Scores ---
-    has_scores = scores_A is not None and len(scores_A) > 0
-    n_panels = 3 if has_scores else 2
-    ratios = [3, 2, 1.5] if has_scores else [3, 2]
-    fig1, axes = plt.subplots(n_panels, 1, figsize=(18, 16 if has_scores else 13),
-                              gridspec_kw={"height_ratios": ratios}, sharex=True)
-    ax1 = axes[0]
-    ax2 = axes[1]
-    ax3 = axes[2] if has_scores else None
+    fig1 = plt.figure(figsize=(24, 13))
+    gs = fig1.add_gridspec(2, 2, width_ratios=[3, 1], height_ratios=[3, 2],
+                           hspace=0.08, wspace=0.02)
+    ax1 = fig1.add_subplot(gs[0, 0])
+    ax2 = fig1.add_subplot(gs[1, 0], sharex=ax1)
+    ax_leg = fig1.add_subplot(gs[:, 1])  # right column spans both rows
+    ax_leg.axis("off")
     fig1.suptitle(title, fontsize=13, fontweight="bold")
 
     # Portfolio: very bold red
@@ -328,15 +327,8 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
                 [(v, sh, dd, s, c, False) for v, sh, dd, s, c in etf_curves]
     sorted_items = sorted(all_items, key=lambda x: -x[0])
 
-    # Legend: sorted by final value, with Sharpe and max DD
-    legend_handles = []
-    for val, sh, dd, short, color, is_port in sorted_items:
-        lw = 4 if is_port else 3
-        legend_handles.append(Line2D([0], [0], color=color, lw=lw,
-                              label=f"{short} {val:.1f}x  Sh={sh:.2f}  DD={dd:.0%}"))
-    leg = ax1.legend(handles=legend_handles, fontsize=14, loc="upper left",
-                     handlelength=2.5, handleheight=1.8, framealpha=0.85, fancybox=True)
-    leg.set_zorder(20)
+    # Sort by Sharpe (descending) for right-side list
+    sorted_by_sharpe = sorted(sorted_items, key=lambda x: -x[1])
 
     ax1.set_yscale("log")
     ax1.set_ylabel("Equity (log scale, base 1)")
@@ -380,35 +372,27 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         ax2.set_ylabel("Allocation")
         ax2.set_ylim(0, 1)
         ax2.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
-        leg2 = ax2.legend(fontsize=12, loc="center left", bbox_to_anchor=(1.01, 0.5), ncol=1,
-                          handlelength=2.5, handleheight=1.5, framealpha=0.85, fancybox=True)
-        leg2.set_zorder(20)
         ax2.set_facecolor("#f8f8f8")
         ax2.grid(True, alpha=0.3)
 
-    # Panel 3: CMA-ES parameters (temperature + seuils) over time
-    if ax3 is not None and len(params_df) > 0 and len(scores_A) > 0:
-        step_dates = scores_A.index.unique().sort_values()
-        n_params = min(len(step_dates), len(params_df))
-        idx = step_dates[:n_params]
-
-        cma_colors = {"temperature_A": "#d62728", "seuil_A": "#1f77b4"}
-        cma_styles = {"temperature_A": "-", "seuil_A": "-"}
-        cma_labels = {"temperature_A": "temp_A", "seuil_A": "seuil_A"}
-
-        for col in ["temperature_A", "seuil_A"]:
-            if col in params_df.columns:
-                vals = params_df[col].values[:n_params]
-                ax3.plot(idx, vals, lw=2, color=cma_colors[col],
-                         linestyle=cma_styles[col], alpha=0.8,
-                         label=cma_labels[col])
-
-        ax3.set_ylabel("CMA-ES params")
-        ax3.grid(True, alpha=0.3)
-        ax3.set_facecolor("#f8f8f8")
-        ax3.legend(fontsize=10, loc="upper left", ncol=4, framealpha=0.85)
-
-    plt.tight_layout()
+    # Right column: ETF list sorted by Sharpe
+    n_items = len(sorted_by_sharpe)
+    y_start = 0.95
+    y_step = min(0.035, 0.9 / max(n_items, 1))
+    for i, (val, sh, dd, short, color, is_port) in enumerate(sorted_by_sharpe):
+        y = y_start - i * y_step
+        fw = "bold" if is_port else "normal"
+        fs = 11 if is_port else 10
+        ax_leg.text(0.0, y, "■", fontsize=14, color=color, va="center",
+                    transform=ax_leg.transAxes)
+        ax_leg.text(0.08, y, f"{short}", fontsize=fs, fontweight=fw, va="center",
+                    transform=ax_leg.transAxes)
+        ax_leg.text(0.55, y, f"{val:.1f}x", fontsize=fs, va="center",
+                    transform=ax_leg.transAxes)
+        ax_leg.text(0.72, y, f"Sh={sh:.2f}", fontsize=fs, va="center",
+                    transform=ax_leg.transAxes, color="#333333")
+        ax_leg.text(0.95, y, f"{dd:.0%}", fontsize=fs, va="center", ha="right",
+                    transform=ax_leg.transAxes, color="#cc0000" if dd < -0.30 else "#666666")
     import subprocess
     sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
     n_etfs = len(weights_df.columns) if len(weights_df) > 0 else 0
