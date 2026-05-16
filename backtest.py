@@ -337,14 +337,30 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
     from etf import UNIVERSE as _UNIVERSE
 
     # --- Chart: Equity + Allocation + Temp/Scores ---
-    fig1 = plt.figure(figsize=(24, 13))
+    fig1 = plt.figure(figsize=(24, 14))
     gs = fig1.add_gridspec(2, 2, width_ratios=[3, 1], height_ratios=[3, 2],
-                           hspace=0.08, wspace=0.02)
+                           hspace=0.08, wspace=0.02,
+                           top=0.98, bottom=0.04, left=0.05, right=0.98)
     ax1 = fig1.add_subplot(gs[0, 0])
     ax2 = fig1.add_subplot(gs[1, 0], sharex=ax1)
     ax_leg = fig1.add_subplot(gs[:, 1])  # right column spans both rows
     ax_leg.axis("off")
-    fig1.suptitle(title, fontsize=13, fontweight="bold")
+    # Title at top of right column
+    # Compute trades per month (changes in allocation)
+    if len(weights_df) > 0:
+        w = weights_df.reindex(eq_curve.index, method="ffill").fillna(0)
+        # A trade = any ETF weight changes from 0 to >0 or >0 to 0
+        active = (w > 0.01).astype(int)
+        trades = active.diff().abs().sum(axis=1)  # count of on/off switches per day
+        n_months = max(len(port_returns) / 21, 1)
+        trades_per_month = trades.sum() / n_months
+    else:
+        trades_per_month = 0
+
+    ax_leg.text(0.0, 1.00, f"Ann       {ann_ret:.1%}", fontsize=18, fontweight="bold", va="top", transform=ax_leg.transAxes)
+    ax_leg.text(0.0, 0.95, f"Vol        {ann_vol:.1%}", fontsize=18, va="top", transform=ax_leg.transAxes, color="#333333")
+    ax_leg.text(0.0, 0.90, f"Trades  {trades_per_month:.1f}/mois", fontsize=18, va="top", transform=ax_leg.transAxes, color="#333333")
+    ax_leg.text(0.0, 0.85, f"MaxDD  {max_dd:.1%}", fontsize=18, va="top", transform=ax_leg.transAxes, color="#cc0000")
 
     # Portfolio: very bold red
     ax1.plot(eq_curve.index, eq_curve.values, lw=3.5, color="#d62728", zorder=10)
@@ -427,7 +443,7 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
 
     # Right column: ETF list sorted by Sharpe
     n_items = len(sorted_by_sharpe)
-    y_start = 0.95
+    y_start = 0.80
     y_step = min(0.035, 0.9 / max(n_items, 1))
     for i, (val, sh, dd, short, color, is_port) in enumerate(sorted_by_sharpe):
         y = y_start - i * y_step
