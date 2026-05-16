@@ -45,15 +45,12 @@ GEO_SECTOR_REDIRECT = []
 
 PARAM_NAMES = [
     "temperature_A", "temperature_B",
-    "seuil_A", "seuil_B",
 ]
-PARAM_INIT   = [0.01, 0.01, 1.0, 1.0]
+PARAM_INIT   = [1.0, 1.0]
 PARAM_SIGMA0 = 0.3
 PARAM_BOUNDS = [
-    ( 0.01, 5.0),   # temperature_A — near-zero (winner-takes-all)
-    ( 0.01, 5.0),   # temperature_B — near-zero (winner-takes-all)
-    ( 0.00, 5.00),   # seuil_A — confidence threshold model A (higher = more cash)
-    ( 0.00, 5.00),   # seuil_B — confidence threshold model B (higher = more cash)
+    ( 0.01, 1.00),   # temperature_A — softmax concentration (CMA-ES optimized)
+    ( 0.01, 1.00),   # temperature_B — softmax concentration (CMA-ES optimized)
 ]
 
 
@@ -84,8 +81,11 @@ def run_backtest(
 ) -> tuple[pd.Series, pd.DataFrame]:
     """
     Vectorised portfolio simulation.
-    Binary allocation: score > 0 → on, then weight by Sharpe expanding.
+    Score > 0 → on, softmax(score/temp) × Sharpe weights.
     """
+    params = clip_params(params)
+    temp_A, temp_B = params
+
     dates   = scores_wide_A.index
     n_etfs  = scores_wide_A.shape[1]
     etf_list = scores_wide_A.columns.tolist()
@@ -101,8 +101,8 @@ def run_backtest(
     # Use Sharpe weights if provided, else equal weight
     sw = sharpe_weights if sharpe_weights is not None else np.ones(n_etfs)
 
-    def _binary_sharpe_alloc(scores: np.ndarray, sw: np.ndarray) -> np.ndarray:
-        """Score > 0 → on, weight by Sharpe expanding. If none positive → cash."""
+    def _softmax_sharpe_alloc(scores: np.ndarray, T: float, sw: np.ndarray) -> np.ndarray:
+        """Score > 0 → on, softmax(score/T) × Sharpe weights among positives."""
         out = np.zeros_like(scores)
         for i in range(scores.shape[0]):
             row = scores[i]
@@ -110,23 +110,26 @@ def run_backtest(
             on = valid & (row > 0)
             if not on.any():
                 continue  # all cash
-            w = sw.copy()
-            w[~on] = 0.0
-            total = w.sum()
+            s = row[on] / max(T, 1e-6)
+            s = s - s.max()
+            e = np.exp(s)
+            softmax_w = e / e.sum()
+            combined = softmax_w * sw[on]
+            total = combined.sum()
             if total > 0:
-                out[i] = w / total
+                out[i, on] = combined / total
         return out
 
     if a_only:
-        weights = _binary_sharpe_alloc(scores_A, sw)
+        weights = _softmax_sharpe_alloc(scores_A, temp_A, sw)
     elif block_parity is not None:
-        alloc_A = _binary_sharpe_alloc(scores_A, sw)
-        alloc_B = _binary_sharpe_alloc(scores_B, sw)
+        alloc_A = _softmax_sharpe_alloc(scores_A, temp_A, sw)
+        alloc_B = _softmax_sharpe_alloc(scores_B, temp_B, sw)
         bp = block_parity.reindex(dates).values
         use_A = (bp == 1)[:, None]
         weights = np.where(use_A, alloc_A, alloc_B)
     else:
-        weights = _binary_sharpe_alloc(scores_A, sw)
+        weights = _softmax_sharpe_alloc(scores_A, temp_A, sw)
     # Remaining = cash (implicit: 1 - sum(weights))
 
     # Weekly rebalancing: refresh weights every 5 trading days, no fees
@@ -488,9 +491,16 @@ def main():
             val_sw_B = val_sw_B.iloc[-1250:]
             if val_bp is not None:
                 val_bp = val_bp.reindex(val_sw_A.index)
-        # No CMA-ES: fixed params (temp=0 = winner-takes-all, seuil=0 = fully invested)
-        best_params = [0.05, 0.05, 0.0, 0.0]
-        val_sharpe = 0.0
+        # Z-score val scores cross-sectionally (same as test)
+        v_mean = val_sw_A.mean(axis=1)
+        v_std = val_sw_A.std(axis=1).replace(0, 1.0)
+        val_sw_A = val_sw_A.sub(v_mean, axis=0).div(v_std, axis=0)
+        v_mean_B = val_sw_B.mean(axis=1)
+        v_std_B = val_sw_B.std(axis=1).replace(0, 1.0)
+        val_sw_B = val_sw_B.sub(v_mean_B, axis=0).div(v_std_B, axis=0)
+
+        val_dr = daily_ret_panel.reindex(index=val_sw_A.index, columns=val_sw_A.columns).fillna(0)
+        best_params, val_sharpe = run_cmaes(val_sw_A, val_sw_B, val_dr, block_parity=val_bp)
 
         # --- Evaluate on test (true OOS) ---
         test_sw_A, test_sw_B, _ = _pivot_step(test_data)
