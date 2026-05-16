@@ -34,9 +34,11 @@ DEFENSIVE_SECTIONS = {"bond", "commodity", "crypto"}
 GEO_SECTOR_REDIRECT = []
 
 AV_DELAYS = False  # True = délais arbitrage AV (J+0 sell, J+1 buy cash dispo, J+2 buy settled)
+USE_SOFTMAX = True  # True = softmax(score/T) × Sharpe, False = equal weight among score > 0 × Sharpe
+SHARPE_POWER = 0.8  # Sharpe weight = sharpe^SHARPE_POWER (0=equal, 1=linear, 2=concentrated)
 
 PARAM_NAMES = ["temperature_A", "temperature_B", "rebal_days"]
-PARAMS = [0.5, 0.5, 5.0]  # fixed allocation params
+PARAMS = [0.8, 0.8, 5.0]  # fixed allocation params
 PARAM_BOUNDS = [
     ( 0.01, 1.00),   # temperature_A — softmax concentration
     ( 0.01, 1.00),   # temperature_B — softmax concentration
@@ -98,11 +100,15 @@ def run_backtest(
             on = valid & (row > 0)
             if not on.any():
                 continue
-            s = row[on] / max(T, 1e-6)
-            s = s - s.max()
-            e = np.exp(s)
-            softmax_w = e / e.sum()
-            combined = softmax_w * sw[on]
+            if USE_SOFTMAX:
+                s = row[on] / max(T, 1e-6)
+                s = s - s.max()
+                e = np.exp(s)
+                w = e / e.sum()
+            else:
+                # Equal weight among positives (binary on/off)
+                w = np.ones(on.sum()) / on.sum()
+            combined = w * sw[on]
             total = combined.sum()
             if total > 0:
                 out[i, on] = combined / total
@@ -608,6 +614,7 @@ def main():
         exp_mean = dr_hist.expanding(min_periods=60).mean().iloc[-1] * 252
         exp_std = dr_hist.expanding(min_periods=60).std().iloc[-1] * np.sqrt(252)
         etf_sharpe = (exp_mean / exp_std.replace(0, np.nan)).clip(0.0).fillna(0.0).values
+        etf_sharpe = etf_sharpe ** SHARPE_POWER
 
         # --- Evaluate on test (true OOS) ---
         test_sw_A, test_sw_B, _ = _pivot_step(test_data)
