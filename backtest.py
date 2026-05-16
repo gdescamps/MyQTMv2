@@ -132,21 +132,71 @@ def run_backtest(
         weights = _softmax_sharpe_alloc(scores_A, temp_A, sw)
     # Remaining = cash (implicit: 1 - sum(weights))
 
-    # Weekly rebalancing, no fees
+    # Lot-based portfolio simulation (500€ lots, weekly rebalancing, no fees)
+    LOT_SIZE = 500.0
     REBAL_DAYS = 5
-    fixed_weights = np.zeros_like(weights)
-    for i in range(len(dates)):
-        rebal_idx = (i // REBAL_DAYS) * REBAL_DAYS
-        fixed_weights[i] = weights[rebal_idx]
+    INIT_CAPITAL = 10_000.0
 
-    # Portfolio simulation with real daily returns (no transaction costs)
     safe_ret = np.where(np.isnan(daily_ret), 0.0, daily_ret)
-    port_ret = (fixed_weights * safe_ret).sum(axis=1)
+    n_days = len(dates)
 
-    weights = fixed_weights  # for weight tracking
+    # Track portfolio: positions (nb lots per ETF), cash, value
+    positions = np.zeros(n_etfs)  # lots allocated per ETF
+    cash = INIT_CAPITAL if prev_weights is None else 0.0
+    # If continuing from previous step, estimate from prev_weights
+    if prev_weights is not None:
+        # prev_weights are fractional weights, convert to lots assuming INIT_CAPITAL
+        total_val = INIT_CAPITAL  # approximate
+        for j in range(n_etfs):
+            target_val = prev_weights[j] * total_val
+            positions[j] = int(target_val / LOT_SIZE) * LOT_SIZE
+        cash = total_val - positions.sum()
 
-    ret_series = pd.Series(port_ret, index=dates, name="port_return")
-    weights_df = pd.DataFrame(weights, index=dates, columns=etf_list)
+    port_returns = np.zeros(n_days)
+    actual_weights = np.zeros((n_days, n_etfs))
+
+    for i in range(n_days):
+        # Rebalance every REBAL_DAYS
+        if i % REBAL_DAYS == 0:
+            total_val = positions.sum() + cash
+            if total_val < LOT_SIZE:
+                total_val = max(total_val, 1.0)
+            target_w = weights[i]
+            # Allocate in lots of LOT_SIZE
+            new_positions = np.zeros(n_etfs)
+            remaining = total_val
+            ranked = np.argsort(-target_w)  # highest weight first
+            for j in ranked:
+                target_val = target_w[j] * total_val
+                n_lots = int(target_val / LOT_SIZE)
+                alloc = n_lots * LOT_SIZE
+                if alloc > remaining:
+                    alloc = int(remaining / LOT_SIZE) * LOT_SIZE
+                new_positions[j] = alloc
+                remaining -= alloc
+            # Distribute remaining cash as extra lots to highest-weight ETFs
+            for j in ranked:
+                if remaining < LOT_SIZE:
+                    break
+                if target_w[j] > 0:
+                    new_positions[j] += LOT_SIZE
+                    remaining -= LOT_SIZE
+            positions = new_positions
+            cash = remaining
+
+        # Daily P&L
+        total_val = positions.sum() + cash
+        if total_val > 0:
+            w = positions / total_val
+            actual_weights[i] = w
+            daily_pnl = (positions * safe_ret[i]).sum()
+            positions = positions * (1 + safe_ret[i])  # update positions with returns
+            port_returns[i] = daily_pnl / total_val
+        else:
+            port_returns[i] = 0.0
+
+    ret_series = pd.Series(port_returns, index=dates, name="port_return")
+    weights_df = pd.DataFrame(actual_weights, index=dates, columns=etf_list)
     return ret_series, weights_df
 
 
@@ -162,6 +212,7 @@ def run_cmaes(
     scores_wide_B: pd.DataFrame,
     daily_returns_wide: pd.DataFrame,
     block_parity: pd.Series | None = None,
+    sharpe_weights: np.ndarray | None = None,
     maxiter: int = 100,
 ) -> tuple[list, float]:
     """
@@ -170,7 +221,7 @@ def run_cmaes(
     """
     def objective(params: list) -> float:
         returns, _ = run_backtest(scores_wide_A, scores_wide_B, daily_returns_wide, params,
-                                  block_parity=block_parity)
+                                  block_parity=block_parity, sharpe_weights=sharpe_weights)
         r = returns.dropna()
         if len(r) < 30 or r.std() < 1e-10:
             return 10.0
@@ -562,8 +613,16 @@ def main():
         v_std_B = val_sw_B.std(axis=1).replace(0, 1.0)
         val_sw_B = val_sw_B.sub(v_mean_B, axis=0).div(v_std_B, axis=0)
 
+        # Compute expanding Sharpe per ETF (for allocation weights, shared by CMA-ES and test)
+        val_end_date = val_sw_A.index[-1]
+        dr_hist = daily_ret_panel[val_sw_A.columns].loc[:val_end_date]
+        exp_mean = dr_hist.expanding(min_periods=60).mean().iloc[-1] * 252
+        exp_std = dr_hist.expanding(min_periods=60).std().iloc[-1] * np.sqrt(252)
+        etf_sharpe = (exp_mean / exp_std.replace(0, np.nan)).clip(0.0).fillna(0.0).values
+
         val_dr = daily_ret_panel.reindex(index=val_sw_A.index, columns=val_sw_A.columns).fillna(0)
-        best_params, val_sharpe = run_cmaes(val_sw_A, val_sw_B, val_dr, block_parity=val_bp)
+        best_params, val_sharpe = run_cmaes(val_sw_A, val_sw_B, val_dr, block_parity=val_bp,
+                                            sharpe_weights=etf_sharpe)
 
         # --- Evaluate on test (true OOS) ---
         test_sw_A, test_sw_B, _ = _pivot_step(test_data)
@@ -583,13 +642,6 @@ def main():
         row_mean_B = test_sw_B.mean(axis=1)
         row_std_B = test_sw_B.std(axis=1).replace(0, 1.0)
         test_sw_B = test_sw_B.sub(row_mean_B, axis=0).div(row_std_B, axis=0)
-
-        # Compute expanding Sharpe per ETF at test date (for allocation weights)
-        test_date = test_sw_A.index[0]
-        dr_hist = daily_ret_panel[test_sw_A.columns].loc[:test_date]
-        exp_mean = dr_hist.expanding(min_periods=60).mean().iloc[-1] * 252
-        exp_std = dr_hist.expanding(min_periods=60).std().iloc[-1] * np.sqrt(252)
-        etf_sharpe = (exp_mean / exp_std.replace(0, np.nan)).clip(0.0).fillna(0.0).values
 
         # Daily returns for test period
         test_dr = daily_ret_panel.reindex(index=test_sw_A.index, columns=test_sw_A.columns).fillna(0)
