@@ -264,14 +264,40 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
 
     # --- Unified color map (ticker → color), shared between panels ---
     etf_color_map = {
+        # Existing (keep)
         "IVV": "#ff7f0e",     # S&P 500 = orange
         "SOXX": "#9467bd",    # Semiconductors = violet
         "GLD": "#d4af37",     # Gold = gold
         "EEM": "#2ca02c",     # Emerging = green
-        "TLT": "#17becf",     # Treasury = cyan
+        "TLT": "#17becf",     # Treasury 20y+ = cyan
         "IEO": "#8b4513",     # Oil & Gas = brown
         "EXX1.DE": "#e377c2", # Euro Banks = pink
-        "QQQ": "#2ca02c",     # Nasdaq = green
+        "EXV1.DE": "#c49bc8", # Euro Tech = light pink
+        "QQQ": "#98df8a",     # Nasdaq 100 = light green
+        # US Sectors
+        "XLK": "#1f77b4",     # US Tech = blue
+        "XLE": "#d62728",     # US Energy = red
+        "XLI": "#7f7f7f",     # US Industrials = grey
+        "XLY": "#bcbd22",     # US Cons. Disc. = olive
+        "XLV": "#ff9896",     # US Healthcare = light red
+        "XLP": "#aec7e8",     # US Cons. Staples = light blue
+        "XLF": "#c7c7c7",     # US Financials = silver
+        "XLU": "#dbdb8d",     # US Utilities = khaki
+        "XLB": "#c49c94",     # US Materials = tan
+        # Countries
+        "EWJ": "#393b79",     # Japan = navy
+        "EWC": "#e7969c",     # Canada = salmon
+        "EWY": "#7b4173",     # South Korea = plum
+        "EWZ": "#a55194",     # Brazil = magenta
+        "EWW": "#ce6dbd",     # Mexico = orchid
+        "FXI": "#de9ed6",     # China = light violet
+        "TUR": "#ad494a",     # Turkey = brick red
+        # Bonds
+        "IEF": "#6b6ecf",     # Treasury 7-10y = indigo
+        "HYG": "#b5cf6b",     # High Yield = lime
+        "TIP": "#e7ba52",     # TIPS = amber
+        # Alternatif
+        "RING": "#8c6d31",    # Gold Miners = dark gold
     }
     # Simplified display names (remove iShares, ETF, Shares, etc.)
     SHORT_NAMES = {
@@ -282,7 +308,28 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         "TLT": "Treasury 20y+",
         "IEO": "Oil & Gas",
         "EXX1.DE": "Euro Banks",
+        "EXV1.DE": "Euro Tech",
         "QQQ": "Nasdaq 100",
+        "XLK": "US Tech",
+        "XLE": "US Energy",
+        "XLI": "US Industrials",
+        "XLY": "US Cons. Disc.",
+        "XLV": "US Healthcare",
+        "XLP": "US Cons. Staples",
+        "XLF": "US Financials",
+        "XLU": "US Utilities",
+        "XLB": "US Materials",
+        "EWJ": "Japan",
+        "EWC": "Canada",
+        "EWY": "South Korea",
+        "EWZ": "Brazil",
+        "EWW": "Mexico",
+        "FXI": "China",
+        "TUR": "Turkey",
+        "IEF": "Treasury 7-10y",
+        "HYG": "High Yield",
+        "TIP": "TIPS Inflation",
+        "RING": "Gold Miners",
     }
     # Tickers to show in bold on equity chart (besides portfolio)
     BOLD_TICKERS = {"IVV", "GLD", "IEO"}
@@ -344,8 +391,8 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         vix_raw = vix_raw.reindex(eq_curve.index, method="ffill").dropna()
         ax1b = ax1.twinx()
         ax1b.fill_between(vix_raw.index, vix_raw.values, alpha=0.10, color="#d62728")
-        ax1b.set_ylabel("VIX", color="#d62728", fontsize=9)
-        ax1b.tick_params(axis="y", labelcolor="#d62728", labelsize=8)
+        ax1b.set_yticks([])
+        ax1b.set_ylabel("")
         ax1b.set_ylim(0, 80)
 
     # Panel 2: Allocation — ETFs sorted by total allocation volume (descending)
@@ -386,7 +433,7 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         y = y_start - i * y_step
         fw = "bold" if is_port else "normal"
         fs = 11 if is_port else 10
-        ax_leg.text(0.0, y, "■", fontsize=14, color=color, va="center",
+        ax_leg.text(0.0, y, "■", fontsize=28, color=color, va="center",
                     transform=ax_leg.transAxes)
         ax_leg.text(0.08, y, f"{short}", fontsize=fs, fontweight=fw, va="center",
                     transform=ax_leg.transAxes)
