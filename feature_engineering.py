@@ -52,6 +52,14 @@ ISHARES_MAP = {
     "EWZ":      "EWZ",    # Brazil — smart money since 2000
     "EWW":      "EWW",    # Mexico — smart money since 1996
     "FXI":      "FXI",    # China — smart money since 2004
+    # US Sectors (SPDR proxies → iShares UCITS smart money)
+    "XLK":      "IUIT",   # Info Tech — smart money since Nov 2015
+    "XLE":      "IUES",   # Energy — smart money since Nov 2015
+    "XLI":      "IUII",   # Industrials — smart money since Mar 2017
+    "XLY":      "IUCD",   # Consumer Discret — smart money since Nov 2015
+    "XLV":      "IUHC",   # Healthcare — smart money since Nov 2015
+    "XLP":      "IUCS",   # Consumer Staples — smart money since Mar 2017
+    "XLF":      "IUFS",   # Financials — smart money since Nov 2015
 }
 
 
@@ -246,6 +254,7 @@ def compute_etf_features(ohlcv: pd.DataFrame, shares_df: pd.DataFrame | None) ->
     # Forward returns (label candidates) — shifted BACK N days (no lookahead)
     f["ret_5d_fwd"]  = c.pct_change(5).shift(-5)
     f["ret_10d_fwd"] = c.pct_change(10).shift(-10)
+    f["ret_15d_fwd"] = c.pct_change(15).shift(-15)
     f["ret_20d_fwd"] = c.pct_change(20).shift(-20)
     f["ret_90d_fwd"] = c.pct_change(90).shift(-90)
 
@@ -458,14 +467,8 @@ def main():
         )
         panel["so_x_mom_20d"] = so_z_xs * panel["ret_20d_z_xs"]
 
-    # Label: forward ret_5d vs universe mean on same date
-    # Label: absolute forward return (no demeaning for single-ETF mode)
-    if panel["etf_id"].nunique() == 1:
-        panel["label"] = panel["ret_5d_fwd"]
-    else:
-        panel["label"] = panel.groupby("date")["ret_5d_fwd"].transform(
-            lambda x: x - x.mean()
-        )
+    # Label: absolute forward 10d return (brut)
+    panel["label"] = panel["ret_10d_fwd"]
 
     # Set MultiIndex
     panel = panel.set_index(["date", "etf_id"]).sort_index()

@@ -122,7 +122,7 @@ CRYPTO = [
 # Full universe
 # ---------------------------------------------------------------------------
 UNIVERSE_FULL: list[ETF] = GEO + SECTOR_US + THEMATIC + COMMODITY + BOND + CRYPTO
-# 7 ETFs — best Sharpe (1.25)
+# 14 ETFs — 7 original + 7 US sectors (smart money from 2015)
 UNIVERSE: list[ETF] = [
     ETF("IVV", "iShares Core S&P 500 ETF", "geo", "us", pea=False, zero_fees=False, fmp="IVV", fmp_proxy=False, perf_1y=None, perf_5y=None),
     ETF("SOXX", "iShares Semiconductor ETF", "thematic", "semi", pea=False, zero_fees=False, fmp="SOXX", fmp_proxy=False, perf_1y=None, perf_5y=None),
@@ -131,6 +131,16 @@ UNIVERSE: list[ETF] = [
     ETF("TLT", "iShares 20+ Year Treasury Bond ETF", "bond", "us_lt", pea=False, zero_fees=False, fmp="TLT", fmp_proxy=False, perf_1y=None, perf_5y=None),
     ETF("IEO", "iShares U.S. Oil & Gas Exploration ETF", "commodity", "oil", pea=False, zero_fees=False, fmp="IEO", fmp_proxy=False, perf_1y=None, perf_5y=None),
     ETF("EXX1.DE", "iShares EURO STOXX Banks 30-15 ETF", "thematic", "banks_eu", pea=False, zero_fees=False, fmp="EXX1.DE", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    # US Sectors (smart money from Nov 2015, price from 2000)
+    ETF("XLK", "SPDR Technology Select Sector ETF", "sector_us", "tech", pea=False, zero_fees=False, fmp="XLK", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("XLE", "SPDR Energy Select Sector ETF", "sector_us", "energy", pea=False, zero_fees=False, fmp="XLE", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("XLI", "SPDR Industrials Select Sector ETF", "sector_us", "indus", pea=False, zero_fees=False, fmp="XLI", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("XLY", "SPDR Consumer Discretionary Select Sector ETF", "sector_us", "cons_disc", pea=False, zero_fees=False, fmp="XLY", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("XLV", "SPDR Health Care Select Sector ETF", "sector_us", "health", pea=False, zero_fees=False, fmp="XLV", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("XLP", "SPDR Consumer Staples Select Sector ETF", "sector_us", "cons_stpl", pea=False, zero_fees=False, fmp="XLP", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("XLF", "SPDR Financial Select Sector ETF", "sector_us", "finance", pea=False, zero_fees=False, fmp="XLF", fmp_proxy=False, perf_1y=None, perf_5y=None),
+    # EU Sector
+    ETF("EXV1.DE", "iShares STOXX Europe 600 Tech ETF", "thematic", "tech_eu", pea=False, zero_fees=False, fmp="EXV1.DE", fmp_proxy=False, perf_1y=None, perf_5y=None),
 ]
 
 # Quick lookup dicts

@@ -50,8 +50,8 @@ PARAM_NAMES = [
 PARAM_INIT   = [0.01, 0.01, 1.0, 1.0]
 PARAM_SIGMA0 = 0.3
 PARAM_BOUNDS = [
-    ( 0.01, 0.02),   # temperature_A — near-zero (winner-takes-all)
-    ( 0.01, 0.02),   # temperature_B — near-zero (winner-takes-all)
+    ( 0.01, 5.0),   # temperature_A — near-zero (winner-takes-all)
+    ( 0.01, 5.0),   # temperature_B — near-zero (winner-takes-all)
     ( 0.00, 5.00),   # seuil_A — confidence threshold model A (higher = more cash)
     ( 0.00, 5.00),   # seuil_B — confidence threshold model B (higher = more cash)
 ]
@@ -80,16 +80,12 @@ def run_backtest(
     transaction_cost: float = 0.0022,
     prev_weights: np.ndarray | None = None,
     block_parity: pd.Series | None = None,
+    sharpe_weights: np.ndarray | None = None,
 ) -> tuple[pd.Series, pd.DataFrame]:
     """
     Vectorised portfolio simulation.
-    scores_wide_A/B : DataFrame (dates × etf_ids) — model scores for allocation
-    daily_returns_wide : DataFrame (dates × etf_ids) — actual daily returns for P&L
-    Returns daily portfolio return series.
+    Binary allocation: score > 0 → on, then weight by Sharpe expanding.
     """
-    params = clip_params(params)
-    temp_A, temp_B, seuil_A, seuil_B = params
-
     dates   = scores_wide_A.index
     n_etfs  = scores_wide_A.shape[1]
     etf_list = scores_wide_A.columns.tolist()
@@ -99,63 +95,46 @@ def run_backtest(
     scores_A = scores_wide_A.values
     scores_B = scores_wide_B.values if scores_wide_B is not None else scores_A
 
-    def _softmax_all(s: np.ndarray, T: float) -> np.ndarray:
-        """Softmax over all ETFs (no equity/defensive split)."""
-        out = np.zeros_like(s)
-        s_t = s.copy() / max(T, 1e-6)
-        for i in range(s_t.shape[0]):
-            row = s_t[i]
-            valid = ~np.isnan(row)
-            if not valid.any():
-                continue
-            row_v = row[valid] - row[valid].max()
-            e = np.exp(row_v)
-            probs = e / e.sum()
-            out[i, valid] = probs
-        return out
-
     # Detect if A and B are the same scores (test uses model A only)
     a_only = np.allclose(np.nan_to_num(scores_A), np.nan_to_num(scores_B), atol=1e-10)
 
-    # Compute model A allocation
-    alloc_A = _softmax_all(scores_A, temp_A)
-    if n_etfs == 1:
-        conf_A = scores_A[:, 0] / max(temp_A, 1e-6)
-    else:
-        conf_A = (np.nanmax(scores_A, axis=1) - np.nanmin(scores_A, axis=1)) / max(temp_A, 1e-6)
-    invest_A = sigmoid(conf_A - seuil_A)
-    alloc_A *= invest_A[:, None]
+    # Use Sharpe weights if provided, else equal weight
+    sw = sharpe_weights if sharpe_weights is not None else np.ones(n_etfs)
+
+    def _binary_sharpe_alloc(scores: np.ndarray, sw: np.ndarray) -> np.ndarray:
+        """Score > 0 → on, weight by Sharpe expanding. If none positive → cash."""
+        out = np.zeros_like(scores)
+        for i in range(scores.shape[0]):
+            row = scores[i]
+            valid = ~np.isnan(row)
+            on = valid & (row > 0)
+            if not on.any():
+                continue  # all cash
+            w = sw.copy()
+            w[~on] = 0.0
+            total = w.sum()
+            if total > 0:
+                out[i] = w / total
+        return out
 
     if a_only:
-        # Test: A=B, use only model A params
-        weights = alloc_A
+        weights = _binary_sharpe_alloc(scores_A, sw)
     elif block_parity is not None:
-        # Val with block parity: alternate A on odd blocks, B on even blocks
-        # Model A validates on odd blocks (parity=1), model B validates on even blocks (parity=0)
-        alloc_B = _softmax_all(scores_B, temp_B)
-        if n_etfs == 1:
-            conf_B = scores_B[:, 0] / max(temp_B, 1e-6)
-        else:
-            conf_B = (np.nanmax(scores_B, axis=1) - np.nanmin(scores_B, axis=1)) / max(temp_B, 1e-6)
-        invest_B = sigmoid(conf_B - seuil_B)
-        alloc_B *= invest_B[:, None]
+        alloc_A = _binary_sharpe_alloc(scores_A, sw)
+        alloc_B = _binary_sharpe_alloc(scores_B, sw)
         bp = block_parity.reindex(dates).values
-        use_A = (bp == 1)[:, None]  # odd blocks → model A
+        use_A = (bp == 1)[:, None]
         weights = np.where(use_A, alloc_A, alloc_B)
     else:
-        # Fallback: average A and B
-        alloc_B = _softmax_all(scores_B, temp_B)
-        if n_etfs == 1:
-            conf_B = scores_B[:, 0] / max(temp_B, 1e-6)
-        else:
-            conf_B = (np.nanmax(scores_B, axis=1) - np.nanmin(scores_B, axis=1)) / max(temp_B, 1e-6)
-        invest_B = sigmoid(conf_B - seuil_B)
-        alloc_B *= invest_B[:, None]
-        weights = 0.5 * alloc_A + 0.5 * alloc_B
+        weights = _binary_sharpe_alloc(scores_A, sw)
     # Remaining = cash (implicit: 1 - sum(weights))
 
-    # Monthly rebalancing: fix allocation to first day of step
-    fixed_weights = np.tile(weights[0], (len(dates), 1))
+    # Weekly rebalancing: refresh weights every 5 trading days, no fees
+    REBAL_DAYS = 5
+    fixed_weights = np.zeros_like(weights)
+    for i in range(len(dates)):
+        rebal_idx = (i // REBAL_DAYS) * REBAL_DAYS
+        fixed_weights[i] = weights[rebal_idx]
 
     # Portfolio simulation with real daily returns (no transaction costs)
     safe_ret = np.where(np.isnan(daily_ret), 0.0, daily_ret)
@@ -526,7 +505,7 @@ def main():
             if val_bp is not None:
                 val_bp = val_bp.reindex(val_sw_A.index)
         # No CMA-ES: fixed params (temp=0 = winner-takes-all, seuil=0 = fully invested)
-        best_params = [0.0, 0.0, 0.0, 0.0]
+        best_params = [0.05, 0.05, 0.0, 0.0]
         val_sharpe = 0.0
 
         # --- Evaluate on test (true OOS) ---
@@ -540,17 +519,26 @@ def main():
                 if etf in carry_weights:
                     prev_w[i] = carry_weights[etf]
 
-        # Normalize scores by ETF volatility (60d rolling on full history)
+        # Z-score scores cross-sectionally before softmax
+        row_mean = test_sw_A.mean(axis=1)
+        row_std = test_sw_A.std(axis=1).replace(0, 1.0)
+        test_sw_A = test_sw_A.sub(row_mean, axis=0).div(row_std, axis=0)
+        row_mean_B = test_sw_B.mean(axis=1)
+        row_std_B = test_sw_B.std(axis=1).replace(0, 1.0)
+        test_sw_B = test_sw_B.sub(row_mean_B, axis=0).div(row_std_B, axis=0)
+
+        # Compute expanding Sharpe per ETF at test date (for allocation weights)
         test_date = test_sw_A.index[0]
-        vol_at_test = daily_ret_panel[test_sw_A.columns].rolling(60, min_periods=20).std().loc[:test_date].iloc[-1] * np.sqrt(252)
-        vol_at_test = vol_at_test.replace(0, np.nan).fillna(1.0)
-        test_sw_A = test_sw_A / vol_at_test
-        test_sw_B = test_sw_B / vol_at_test
+        dr_hist = daily_ret_panel[test_sw_A.columns].loc[:test_date]
+        exp_mean = dr_hist.expanding(min_periods=60).mean().iloc[-1] * 252
+        exp_std = dr_hist.expanding(min_periods=60).std().iloc[-1] * np.sqrt(252)
+        etf_sharpe = (exp_mean / exp_std.replace(0, np.nan)).clip(0.0).fillna(0.0).values
 
         # Daily returns for test period
         test_dr = daily_ret_panel.reindex(index=test_sw_A.index, columns=test_sw_A.columns).fillna(0)
         test_returns, test_weights = run_backtest(test_sw_A, test_sw_B, test_dr,
-                                                   best_params, prev_weights=prev_w)
+                                                   best_params, prev_weights=prev_w,
+                                                   sharpe_weights=etf_sharpe)
 
         # Save final weights for next step
         carry_weights = dict(zip(test_weights.columns, test_weights.iloc[-1].values))

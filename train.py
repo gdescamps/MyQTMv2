@@ -31,11 +31,11 @@ DATA    = Path(__file__).parent / "data"
 OUTPUTS = Path(__file__).parent / "outputs"
 
 # Walk-forward parameters
-MIN_TRAIN_ROWS = 2670  # ~10.6 years before first test (~2011 start)
+MIN_TRAIN_ROWS = 5031  # first test at 2020 (smart money sectors from 2015)
 TEST_WINDOW    = 21    # ~1 month per test step
 STEP           = 21    # refit every ~1 month
 BLOCK_ROWS     = 21    # ~1 month alternating blocks for interlaced train/val
-EMBARGO_ROWS   = 5     # 5-day gap between train/val blocks to avoid lookahead
+EMBARGO_ROWS   = 10    # 10-day gap between train/val blocks (>= label horizon)
 ROLLING_WINDOW = 1250  # ~5 years rolling train window
 
 def _load_feature_cols() -> list[str]:
@@ -266,8 +266,8 @@ def run_walk_forward(
         if verbose:
             print(
                 f"  Step {step_n:2d}  "
-                f"val={val_ic:+.4f}  "
-                f"test={test_ic:+.4f}  "
+                f"val_auc={val_ic:.4f}  "
+                f"test_auc={test_ic:.4f}  "
                 f"[{test_dates[0].date()} → {test_dates[-1].date()}]  "
                 f"iter_A={best_iter_A} iter_B={best_iter_B}"
             )
@@ -315,7 +315,7 @@ def main():
     print(
         f"\nWalk-Forward: MIN_TRAIN={MIN_TRAIN_ROWS}d  TEST={TEST_WINDOW}d  "
         f"STEP={STEP}d  BLOCK={BLOCK_ROWS}d\n"
-        f"Labels: z-scored per date (IC maximisation)\n"
+        f"Labels: binary (ret_10d > 15% ann.), metric: AUC-ROC\n"
     )
 
     oos = run_walk_forward(panel, device, dual_model=True)
@@ -327,7 +327,6 @@ def main():
     mean_test_ic = test_oos.groupby(test_oos.index.get_level_values("date")).apply(
         lambda x: x["score"].corr(x["label"])
     ).mean()
-
     val_oos = oos[oos["split"] == "val"].dropna(subset=["score", "label"])
     mean_val_ic = val_oos.groupby(val_oos.index.get_level_values("date")).apply(
         lambda x: x["score"].corr(x["label"])
