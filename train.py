@@ -146,6 +146,7 @@ def run_walk_forward(
 
     predictions = []
     ic_log      = []   # [(step, val_ic, test_ic)]
+    importance_log = []  # [(step, test_date, {feat: importance})]
     step_n      = 0
 
     train_end_pos = MIN_TRAIN_ROWS
@@ -261,6 +262,17 @@ def run_walk_forward(
             predictions.append(test_df)
 
         ic_log.append((step_n, val_ic, val_ic, val_ic, test_ic))
+        # Save SHAP-based feature importances on test predictions
+        test_date = dates[train_end_pos] if train_end_pos < n else dates[-1]
+        if len(test_idx) > 0:
+            dtest = xgb.DMatrix(X_all.loc[test_idx].values, feature_names=available_cols)
+            shap_vals = model_A.get_booster().predict(dtest, pred_contribs=True)
+            # shap_vals: (n_samples, n_features + 1), last col = bias
+            mean_abs_shap = np.abs(shap_vals[:, :-1]).mean(axis=0)
+            imp = dict(zip(available_cols, mean_abs_shap))
+        else:
+            imp = dict(zip(available_cols, model_A.feature_importances_))
+        importance_log.append({"step": step_n, "date": test_date, **imp})
         step_n += 1
 
         if verbose:
@@ -287,6 +299,13 @@ def run_walk_forward(
         print(f"  {'IC stability (val/test corr)':35s} "
               f"{ic_df['val_ic'].corr(ic_df['test_ic']):+.3f}")
         print(f"{'='*70}")
+
+    # Save feature importances over time
+    if importance_log:
+        imp_df = pd.DataFrame(importance_log).set_index("date")
+        imp_df.to_parquet(OUTPUTS / "feature_importances.parquet")
+        if verbose:
+            print(f"  Saved feature_importances.parquet ({len(imp_df)} steps × {len(imp_df.columns)-1} features)")
 
     return pd.concat(predictions).sort_index()
 
