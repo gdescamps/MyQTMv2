@@ -400,9 +400,9 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         w = weights_df.reindex(eq_curve.index, method="ffill").fillna(0)
         cash = (1 - w.sum(axis=1)).clip(0, 1)
 
-        # Sort by cumulative allocation volume (descending), keep only allocated
-        avg_w = w.mean().sort_values(ascending=False)
-        allocated = avg_w[avg_w > 0.001].index.tolist()
+        # Fixed order: universe order (deterministic), keep only allocated
+        universe_order = [e.bourso for e in _UNIVERSE]
+        allocated = [t for t in universe_order if t in w.columns and w[t].mean() > 0.001]
         w_sorted = w[allocated]
 
         # Rename with short names
