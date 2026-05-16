@@ -31,9 +31,12 @@ OUTPUTS = Path(__file__).parent / "myfiles"
 OUTPUTS.mkdir(exist_ok=True)
 
 # Search grid
-POWER_RANGE = [1.2, 1.3, 1.4]
-CAP_RANGE   = [90, 100, 110]
-DEPTH_RANGE = [7]
+POWER_RANGE = [1.2, 1.3, 1.4, 1.5, 1.6, 1.7]
+CAP_RANGE   = [50, 75, 100, 125, 150, 175, 200]
+DEPTH_RANGE = [6, 7, 8]
+
+# Keep N best models
+N_BEST = 5
 
 
 def select_features_by_stability(panel, feature_cols, device, power, cap):
@@ -134,9 +137,10 @@ def main():
     print(f"Device: {device.upper()}", flush=True)
 
     combos = list(itertools.product(POWER_RANGE, CAP_RANGE, DEPTH_RANGE))
-    print(f"\nGrid: {len(POWER_RANGE)} powers x {len(CAP_RANGE)} caps x {len(DEPTH_RANGE)} depths = {len(combos)} combos\n")
-    print(f"{'#':>3}  {'power':>5}  {'cap':>4}  {'depth':>5}  {'n_feat':>6}  {'test_IC':>8}  {'val_IC':>8}  {'gap':>6}  {'stab':>6}  {'time':>6}")
-    print("-" * 80)
+    n_combos = len(combos)
+    print(f"\nGrid: {len(POWER_RANGE)} powers x {len(CAP_RANGE)} caps x {len(DEPTH_RANGE)} depths = {n_combos} combos\n")
+    print(f"{'#':>5}  {'power':>5}  {'cap':>4}  {'depth':>5}  {'n_feat':>6}  {'test_IC':>8}  {'val_IC':>8}  {'gap':>6}  {'stab':>6}  {'time':>7}")
+    print("-" * 90)
 
     results = []
     t0 = time.time()
@@ -181,24 +185,62 @@ def main():
         })
 
         test_ic = metrics["test_ic"]
-        best_ic = max((r["test_ic"] for r in results if not np.isnan(r.get("test_ic", float("nan")))), default=float("nan"))
-        marker = " ***" if test_ic == best_ic else ""
-        print(f"{i+1:3d}  {power:5.2f}  {cap:4d}  {depth:5d}  {n_feat:6d}  "
+        valid_ics = [r["test_ic"] for r in results if not np.isnan(r.get("test_ic", float("nan")))]
+        best_ic = max(valid_ics) if valid_ics else float("nan")
+        marker = " ***" if test_ic == best_ic and not np.isnan(test_ic) else ""
+
+        elapsed_total = time.time() - t0
+        eta = elapsed_total / (i + 1) * (n_combos - i - 1)
+
+        print(f"{i+1:3d}/{n_combos}  {power:5.2f}  {cap:4d}  {depth:5d}  {n_feat:6d}  "
               f"test={test_ic:+.4f}  val={metrics['val_ic']:+.4f}  gap={metrics['gap']:.3f}  stab={metrics['stability']:+.3f}  "
-              f"{fmt_time(t_elapsed)}{marker}", flush=True)
+              f"{fmt_time(t_elapsed)}  ETA {fmt_time(eta)}{marker}", flush=True)
 
     # Save results
     df = pd.DataFrame(results).sort_values("test_ic", ascending=False)
     df.to_csv(OUTPUTS / "search_features_xgb_results.csv", index=False)
 
+    # Save top N best
+    best_df = df.head(N_BEST)
+    best_df.to_csv(OUTPUTS / "search_features_xgb_best.csv", index=False)
+
     total_time = time.time() - t0
-    print(f"\n{'='*55}")
-    print(f"  Done in {fmt_time(total_time)}")
-    print(f"  Best: power={df.iloc[0]['power']:.2f}  cap={int(df.iloc[0]['cap'])}  "
-          f"depth={int(df.iloc[0]['depth'])}  test_IC={df.iloc[0]['test_ic']:+.4f}  "
-          f"val_IC={df.iloc[0]['val_ic']:+.4f}  gap={df.iloc[0]['gap']:.3f}  stab={df.iloc[0]['stability']:+.3f}")
-    print(f"{'='*55}")
-    print(f"\nSaved → myfiles/search_features_xgb_results.csv")
+    print(f"\n{'='*70}")
+    print(f"  Done in {fmt_time(total_time)} — {n_combos} combos evaluated")
+    print(f"\n  Top {N_BEST} models:")
+    print(f"  {'#':>3}  {'power':>5}  {'cap':>4}  {'depth':>5}  {'test_IC':>8}  {'val_IC':>8}  {'gap':>6}  {'stab':>6}")
+    for j, (_, row) in enumerate(best_df.iterrows()):
+        print(f"  {j+1:3d}  {row['power']:5.2f}  {int(row['cap']):4d}  "
+              f"{int(row['depth']):5d}  {row['test_ic']:+.4f}  {row['val_ic']:+.4f}  "
+              f"{row['gap']:.3f}  {row['stability']:+.3f}")
+    print(f"{'='*70}")
+    print(f"\nSaved → myfiles/search_features_xgb_results.csv ({len(df)} rows)")
+    print(f"Saved → myfiles/search_features_xgb_best.csv (top {N_BEST})")
+
+    # Retrain best model with save
+    print(f"\n--- Retraining best model ---")
+    best = df.iloc[0]
+    best_power = best["power"]
+    best_cap = int(best["cap"])
+    best_depth = int(best["depth"])
+    best_features = feat_cache[best_power][:best_cap]
+    print(f"  power={best_power:.2f}  cap={best_cap}  depth={best_depth}  "
+          f"test_IC={best['test_ic']:+.4f}", flush=True)
+
+    train_mod.FEATURE_COLS = best_features
+    oos = run_walk_forward(
+        panel, device,
+        xgb_params={"max_depth": best_depth},
+        verbose=True,
+        save_models=True,
+        dual_model=False,
+    )
+
+    from pathlib import Path as _P
+    oos.to_parquet(DATA / "oos_predictions.parquet")
+    with open(_P(__file__).parent / "outputs" / "selected_features.json", "w") as f:
+        json.dump(best_features, f, indent=2)
+    print(f"  Saved oos_predictions.parquet + selected_features.json ({len(best_features)} features)")
 
 
 if __name__ == "__main__":

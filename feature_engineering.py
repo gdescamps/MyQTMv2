@@ -461,6 +461,117 @@ def main():
         )
         panel["so_x_mom_20d"] = so_z_xs * panel["ret_20d_z_xs"]
 
+    # ---------------------------------------------------------------------------
+    # Cross-sectorial complex & non-linear features (ETF-by-row model)
+    # ---------------------------------------------------------------------------
+
+    # --- Dispersion / breadth features ---
+    # Universe momentum dispersion (high = regime uncertainty)
+    for d in [20, 60]:
+        col = f"ret_{d}d"
+        if col in panel.columns:
+            panel[f"universe_disp_{d}d"] = panel.groupby("date")[col].transform("std")
+            panel[f"universe_mean_{d}d"] = panel.groupby("date")[col].transform("mean")
+            # ETF vs universe mean (relative strength)
+            panel[f"ret_{d}d_vs_univ"] = panel[col] - panel[f"universe_mean_{d}d"]
+
+    # Breadth: fraction of universe with positive momentum
+    for d in [20, 60]:
+        col = f"ret_{d}d"
+        if col in panel.columns:
+            panel[f"breadth_pos_{d}d"] = panel.groupby("date")[col].transform(
+                lambda x: (x > 0).mean()
+            )
+
+    # --- Relative value features (rank-based non-linearities) ---
+    # Rank momentum reversal: extreme rank → mean reversion signal
+    for col in ["ret_20d_rank", "ret_60d_rank", "ret_120d_rank"]:
+        if col in panel.columns:
+            # Squared distance from median rank (captures extremes)
+            panel[f"{col}_extreme"] = (panel[col] - 0.5) ** 2
+            # Cubic: signed extreme (captures asymmetry)
+            panel[f"{col}_cubic"] = (panel[col] - 0.5) ** 3
+
+    # --- Multi-factor interactions (non-linear) ---
+    # Momentum × volatility × smart money (triple interaction)
+    if all(c in panel.columns for c in ["ret_20d_z_xs", "vol_20d_z_xs"]):
+        if "shares_outstanding_z20" in panel.columns:
+            so_z = panel.groupby("date")["shares_outstanding_z20"].transform(
+                lambda x: (x - x.mean()) / max(x.std(), 1e-8)
+            )
+            panel["mom_x_vol_x_so_20d"] = panel["ret_20d_z_xs"] * panel["vol_20d_z_xs"] * so_z
+
+    # Momentum × drawdown (buying dips with momentum)
+    if "ret_20d_z_xs" in panel.columns and "drawdown_60" in panel.columns:
+        dd_z = panel.groupby("date")["drawdown_60"].transform(
+            lambda x: (x - x.mean()) / max(x.std(), 1e-8)
+        )
+        panel["mom_x_dd_60"] = panel["ret_20d_z_xs"] * dd_z
+
+    # RSI × momentum (overbought/oversold confirmation)
+    if "rsi_14" in panel.columns and "ret_20d_z_xs" in panel.columns:
+        rsi_z = panel.groupby("date")["rsi_14"].transform(
+            lambda x: (x - x.mean()) / max(x.std(), 1e-8)
+        )
+        panel["rsi_x_mom_20d"] = rsi_z * panel["ret_20d_z_xs"]
+
+    # --- Regime-conditional features ---
+    # VIX regime × momentum (momentum less reliable in high VIX)
+    if "vix_level" in panel.columns and "ret_20d_z_xs" in panel.columns:
+        panel["mom_x_vix"] = panel["ret_20d_z_xs"] * panel["vix_level"]
+    if "vix_level" in panel.columns and "ret_60d_z_xs" in panel.columns:
+        panel["mom60_x_vix"] = panel["ret_60d_z_xs"] * panel["vix_level"]
+
+    # Yield curve regime × momentum (inverted curve = defensive)
+    if "yield_curve" in panel.columns and "ret_20d_z_xs" in panel.columns:
+        panel["mom_x_yc"] = panel["ret_20d_z_xs"] * panel["yield_curve"]
+
+    # DXY × EM momentum (strong dollar hurts EM)
+    if "dxy_ret_20d" in panel.columns and "ret_20d_z_xs" in panel.columns:
+        panel["mom_x_dxy"] = panel["ret_20d_z_xs"] * panel["dxy_ret_20d"]
+
+    # --- Cross-sectoral flow divergence ---
+    # Section mean momentum vs universe mean (sector rotation signal)
+    for d in [20, 60]:
+        col = f"ret_{d}d"
+        if col in panel.columns:
+            section_mean = panel.groupby(["date", "section"])[col].transform("mean")
+            univ_mean = panel.groupby("date")[col].transform("mean")
+            panel[f"section_vs_univ_{d}d"] = section_mean - univ_mean
+            # ETF vs its own section
+            panel[f"ret_{d}d_vs_section"] = panel[col] - section_mean
+
+    # --- Volatility regime interaction ---
+    # Vol z-score × dispersion (concentrated bets when dispersion high + vol low)
+    if "vol_20d_z_xs" in panel.columns and "universe_disp_20d" in panel.columns:
+        panel["vol_x_disp_20d"] = panel["vol_20d_z_xs"] * panel["universe_disp_20d"]
+
+    # --- Smart money flow divergence vs price ---
+    # SO increasing but price falling (accumulation) or SO decreasing + price up (distribution)
+    if "shares_outstanding_z20" in panel.columns and "ret_20d" in panel.columns:
+        so_z2 = panel.groupby("date")["shares_outstanding_z20"].transform(
+            lambda x: (x - x.mean()) / max(x.std(), 1e-8)
+        )
+        ret_z2 = panel.groupby("date")["ret_20d"].transform(
+            lambda x: (x - x.mean()) / max(x.std(), 1e-8)
+        )
+        panel["so_price_divergence"] = so_z2 - ret_z2  # positive = accumulation
+
+    # --- Mean reversion signals ---
+    # Distance from 52-week high × momentum (reversal from extremes)
+    if "drawdown_250" in panel.columns and "ret_5d_z_xs" in panel.columns:
+        panel["dd250_x_shortmom"] = panel["drawdown_250"] * panel["ret_5d_z_xs"]
+
+    # Bollinger extreme × volume surge
+    if "bb_position_20" in panel.columns and "volume_z5" in panel.columns:
+        bb_z = panel.groupby("date")["bb_position_20"].transform(
+            lambda x: (x - x.mean()) / max(x.std(), 1e-8)
+        )
+        vol_z = panel.groupby("date")["volume_z5"].transform(
+            lambda x: (x - x.mean()) / max(x.std(), 1e-8)
+        )
+        panel["bb_x_volsurge"] = bb_z * vol_z
+
     # Label: absolute forward 10d return (brut)
     panel["label"] = panel["ret_10d_fwd"]
 
