@@ -83,9 +83,6 @@ def run_backtest(
     Vectorised portfolio simulation.
     Score > 0 → on, softmax(score/temp) × Sharpe weights.
     """
-    params = clip_params(params)
-    temp_A, temp_B = params
-
     dates   = scores_wide_A.index
     n_etfs  = scores_wide_A.shape[1]
     etf_list = scores_wide_A.columns.tolist()
@@ -100,6 +97,9 @@ def run_backtest(
 
     # Use Sharpe weights if provided, else equal weight
     sw = sharpe_weights if sharpe_weights is not None else np.ones(n_etfs)
+
+    params = clip_params(params)
+    temp_A, temp_B = params
 
     def _softmax_sharpe_alloc(scores: np.ndarray, T: float, sw: np.ndarray) -> np.ndarray:
         """Score > 0 → on, softmax(score/T) × Sharpe weights among positives."""
@@ -132,21 +132,21 @@ def run_backtest(
         weights = _softmax_sharpe_alloc(scores_A, temp_A, sw)
     # Remaining = cash (implicit: 1 - sum(weights))
 
-    # Lot-based portfolio simulation (500€ lots, weekly rebalancing, no fees)
+    # Lot-based portfolio simulation
+    # - Daily prediction, rebalance only if allocation changes > rebal_threshold
+    # - Rebalance takes 2 days: day 1 = sell (cash), day 2 = buy new allocation
+    # - No transaction fees
     LOT_SIZE = 500.0
-    REBAL_DAYS = 5
     INIT_CAPITAL = 10_000.0
 
     safe_ret = np.where(np.isnan(daily_ret), 0.0, daily_ret)
     n_days = len(dates)
 
-    # Track portfolio: positions (nb lots per ETF), cash, value
-    positions = np.zeros(n_etfs)  # lots allocated per ETF
+    # Track portfolio
+    positions = np.zeros(n_etfs)
     cash = INIT_CAPITAL if prev_weights is None else 0.0
-    # If continuing from previous step, estimate from prev_weights
     if prev_weights is not None:
-        # prev_weights are fractional weights, convert to lots assuming INIT_CAPITAL
-        total_val = INIT_CAPITAL  # approximate
+        total_val = INIT_CAPITAL
         for j in range(n_etfs):
             target_val = prev_weights[j] * total_val
             positions[j] = int(target_val / LOT_SIZE) * LOT_SIZE
@@ -155,42 +155,104 @@ def run_backtest(
     port_returns = np.zeros(n_days)
     actual_weights = np.zeros((n_days, n_etfs))
 
-    for i in range(n_days):
-        # Rebalance every REBAL_DAYS
-        if i % REBAL_DAYS == 0:
-            total_val = positions.sum() + cash
-            if total_val < LOT_SIZE:
-                total_val = max(total_val, 1.0)
-            target_w = weights[i]
-            # Allocate in lots of LOT_SIZE
-            new_positions = np.zeros(n_etfs)
-            remaining = total_val
-            ranked = np.argsort(-target_w)  # highest weight first
-            for j in ranked:
-                target_val = target_w[j] * total_val
-                n_lots = int(target_val / LOT_SIZE)
-                alloc = n_lots * LOT_SIZE
-                if alloc > remaining:
-                    alloc = int(remaining / LOT_SIZE) * LOT_SIZE
-                new_positions[j] = alloc
-                remaining -= alloc
-            # Distribute remaining cash as extra lots to highest-weight ETFs
-            for j in ranked:
-                if remaining < LOT_SIZE:
-                    break
-                if target_w[j] > 0:
-                    new_positions[j] += LOT_SIZE
-                    remaining -= LOT_SIZE
-            positions = new_positions
-            cash = remaining
+    # AV arbitrage delays (French life insurance):
+    # J+0: decision (order placed), all positions still earn returns
+    # J+1: sale executed at J+1 NAV, sold positions earn returns on J+0 and J+1
+    # J+2: purchase executed at J+2 NAV, new positions start earning from J+2
+    # Untouched positions continue earning returns throughout.
+    rebal_state = 0
+    pending_target_pos = None
+    pending_sell_amounts = None  # amounts to sell per ETF (still earning until J+1)
 
-        # Daily P&L
+    def _compute_target_lots(target_w, total_val):
+        """Compute target positions in 500€ lots given weights and total value."""
+        new_pos = np.zeros(n_etfs)
+        remaining = total_val
+        ranked = np.argsort(-target_w)
+        for j in ranked:
+            tv = target_w[j] * total_val
+            nl = int(tv / LOT_SIZE)
+            alloc = nl * LOT_SIZE
+            if alloc > remaining:
+                alloc = int(remaining / LOT_SIZE) * LOT_SIZE
+            new_pos[j] = alloc
+            remaining -= alloc
+        for j in ranked:
+            if remaining < LOT_SIZE:
+                break
+            if target_w[j] > 0:
+                new_pos[j] += LOT_SIZE
+                remaining -= LOT_SIZE
+        return new_pos, remaining
+
+    for i in range(n_days):
+        total_val = positions.sum() + cash
+
+        if rebal_state == 0:
+            # Rebalance every 5 days
+            if i % 5 != 0:
+                pass  # skip to daily P&L below
+            elif total_val >= LOT_SIZE:
+                target_w = weights[i]
+                # Compute target lots
+                target_pos, _ = _compute_target_lots(target_w, total_val)
+                # Check if allocation actually changes
+                if np.allclose(target_pos, positions):
+                    pass  # no change, no delay
+                else:
+                    # J+0: decision — mark what to sell, positions still earn today
+                    sell_amounts = np.zeros(n_etfs)
+                    for j in range(n_etfs):
+                        if target_pos[j] < positions[j]:
+                            sell_amounts[j] = positions[j] - target_pos[j]
+                    pending_target_pos = target_pos
+                    pending_sell_amounts = sell_amounts
+                    rebal_state = 1  # positions still fully invested today
+
+        elif rebal_state == 1:
+            # J+1: sale executed at today's NAV (after earning today's return)
+            # Sold positions earned returns on J+0 and J+1 (applied at end of loop)
+            # Now actually sell: move sold amounts to cash
+            for j in range(n_etfs):
+                if pending_sell_amounts[j] > 0:
+                    positions[j] -= pending_sell_amounts[j]
+                    cash += pending_sell_amounts[j]
+            # Buy with already-available cash (cash that was free before the sale)
+            available_before_sale = cash - pending_sell_amounts.sum()
+            if available_before_sale > 0:
+                for j in range(n_etfs):
+                    if pending_target_pos[j] > positions[j]:
+                        buy_amount = pending_target_pos[j] - positions[j]
+                        buyable = min(buy_amount, available_before_sale)
+                        buyable = int(buyable / LOT_SIZE) * LOT_SIZE
+                        if buyable > 0:
+                            positions[j] += buyable
+                            cash -= buyable
+                            available_before_sale -= buyable
+            rebal_state = 2
+
+        elif rebal_state == 2:
+            # J+2: purchase executed — buy remaining with settled cash from sale
+            for j in range(n_etfs):
+                if pending_target_pos[j] > positions[j]:
+                    buy_amount = pending_target_pos[j] - positions[j]
+                    if buy_amount <= cash:
+                        positions[j] += buy_amount
+                        cash -= buy_amount
+                    else:
+                        affordable = int(cash / LOT_SIZE) * LOT_SIZE
+                        positions[j] += affordable
+                        cash -= affordable
+            rebal_state = 0
+            pending_target_pos = None
+            pending_sell_amounts = None
+
+        # Daily P&L on current positions (untouched positions always earn)
         total_val = positions.sum() + cash
         if total_val > 0:
-            w = positions / total_val
-            actual_weights[i] = w
+            actual_weights[i] = positions / total_val
             daily_pnl = (positions * safe_ret[i]).sum()
-            positions = positions * (1 + safe_ret[i])  # update positions with returns
+            positions = positions * (1 + safe_ret[i])
             port_returns[i] = daily_pnl / total_val
         else:
             port_returns[i] = 0.0
