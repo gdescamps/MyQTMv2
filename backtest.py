@@ -1,25 +1,16 @@
 """
-Portfolio backtest + per-step CMA-ES allocation optimisation for MyQTM-ETF.
+Portfolio backtest for MyQTM-ETF with fixed allocation params.
 
 Walk-forward structure (matches train.py):
-  For each step:
-    1. CMA-ES optimises allocation params on val predictions (split="val")
-       → These are XGBoost OOS scores (model never trained on those blocks)
-       → Interlaced monthly blocks → covers all market regimes in training period
-    2. Apply best params to test predictions (split="test") → true OOS returns
-
-This eliminates CMA-ES overfitting: the params are found on unbiased val scores
-and evaluated on a future test period never seen by CMA-ES.
+  For each step, apply fixed params to test predictions (split="test") → true OOS returns.
 
 Allocation model:
-  1. budget_régime = equity_max × (1 - sigmoid(p1×vix + p2×hy_z60 + p3))
-  2. equity weights = softmax(scores[equity], temperature) × equity_budget
-  3. defensive weights = softmax(scores[defensive], temperature) × (1 - equity_budget - cash_min)
-  4. Cash = 1 - Σweights
+  Score > 0 → on, softmax(score/temperature) × Sharpe weights among positives.
+  Rebalance every N days with AV arbitrage delays (J+0 sell, J+1 buy with cash, J+2 buy with settled).
 
 Output:
   data/backtest_results.parquet   (daily portfolio returns, test periods only)
-  outputs/best_params.csv         (per-step CMA-ES params)
+  outputs/best_params.csv         (per-step params)
   outputs/backtest_equity.csv     (equity curve)
 """
 
@@ -27,7 +18,6 @@ import sys
 import numpy as np
 import pandas as pd
 from pathlib import Path
-import cma
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -43,14 +33,14 @@ DEFENSIVE_SECTIONS = {"bond", "commodity", "crypto"}
 # Geo/sector redirect disabled — allocation libre
 GEO_SECTOR_REDIRECT = []
 
-PARAM_NAMES = [
-    "temperature_A", "temperature_B",
-]
-PARAM_INIT   = [1.0, 1.0]
-PARAM_SIGMA0 = 0.3
+AV_DELAYS = False  # True = délais arbitrage AV (J+0 sell, J+1 buy cash dispo, J+2 buy settled)
+
+PARAM_NAMES = ["temperature_A", "temperature_B", "rebal_days"]
+PARAMS = [0.5, 0.5, 5.0]  # fixed allocation params
 PARAM_BOUNDS = [
-    ( 0.01, 1.00),   # temperature_A — softmax concentration (CMA-ES optimized)
-    ( 0.01, 1.00),   # temperature_B — softmax concentration (CMA-ES optimized)
+    ( 0.01, 1.00),   # temperature_A — softmax concentration
+    ( 0.01, 1.00),   # temperature_B — softmax concentration
+    ( 4.0, 12.0),    # rebal_days — days between rebalances (rounded to int)
 ]
 
 
@@ -65,8 +55,6 @@ def softmax(scores: np.ndarray, temperature: float) -> np.ndarray:
     return e / e.sum()
 
 
-def clip_params(params: list) -> list:
-    return [float(np.clip(v, lo, hi)) for v, (lo, hi) in zip(params, PARAM_BOUNDS)]
 
 
 def run_backtest(
@@ -98,8 +86,8 @@ def run_backtest(
     # Use Sharpe weights if provided, else equal weight
     sw = sharpe_weights if sharpe_weights is not None else np.ones(n_etfs)
 
-    params = clip_params(params)
-    temp_A, temp_B = params
+    temp_A, temp_B, rebal_days_f = params
+    rebal_days = int(round(rebal_days_f))
 
     def _softmax_sharpe_alloc(scores: np.ndarray, T: float, sw: np.ndarray) -> np.ndarray:
         """Score > 0 → on, softmax(score/T) × Sharpe weights among positives."""
@@ -162,7 +150,7 @@ def run_backtest(
     # Untouched positions continue earning returns throughout.
     rebal_state = 0
     pending_target_pos = None
-    pending_sell_amounts = None  # amounts to sell per ETF (still earning until J+1)
+    pending_target_w = None
 
     def _compute_target_lots(target_w, total_val):
         """Compute target positions in 500€ lots given weights and total value."""
@@ -189,8 +177,8 @@ def run_backtest(
         total_val = positions.sum() + cash
 
         if rebal_state == 0:
-            # Rebalance every 5 days
-            if i % 5 != 0:
+            # Rebalance every N days (CMA-ES optimized)
+            if i % rebal_days != 0:
                 pass  # skip to daily P&L below
             elif total_val >= LOT_SIZE:
                 target_w = weights[i]
@@ -200,35 +188,41 @@ def run_backtest(
                 if np.allclose(target_pos, positions):
                     pass  # no change, no delay
                 else:
-                    # J+0: decision — mark what to sell, positions still earn today
-                    sell_amounts = np.zeros(n_etfs)
-                    for j in range(n_etfs):
-                        if target_pos[j] < positions[j]:
-                            sell_amounts[j] = positions[j] - target_pos[j]
-                    pending_target_pos = target_pos
-                    pending_sell_amounts = sell_amounts
-                    rebal_state = 1  # positions still fully invested today
+                    if not AV_DELAYS:
+                        # Instant rebalance: sell and buy same day
+                        positions = target_pos.copy()
+                        cash = total_val - positions.sum()
+                    else:
+                        # J+0: decision — store target weights, positions still earn today
+                        pending_target_w = target_w
+                        rebal_state = 1  # positions still fully invested today
 
         elif rebal_state == 1:
-            # J+1: sale executed at today's NAV (after earning today's return)
-            # Sold positions earned returns on J+0 and J+1 (applied at end of loop)
-            # Now actually sell: move sold amounts to cash
+            # J+1: sale executed at today's NAV
+            # Positions have grown/shrunk with returns since J+0.
+            # Recompute target lots based on current total value.
+            total_val = positions.sum() + cash
+            target_pos, _ = _compute_target_lots(pending_target_w, total_val)
+            # Sell positions that are above target
+            sale_cash = 0.0
             for j in range(n_etfs):
-                if pending_sell_amounts[j] > 0:
-                    positions[j] -= pending_sell_amounts[j]
-                    cash += pending_sell_amounts[j]
-            # Buy with already-available cash (cash that was free before the sale)
-            available_before_sale = cash - pending_sell_amounts.sum()
-            if available_before_sale > 0:
+                if positions[j] > target_pos[j]:
+                    sale_cash += positions[j] - target_pos[j]
+                    positions[j] = target_pos[j]
+            # Buy with already-available cash (cash before sale)
+            available_cash = cash
+            cash += sale_cash
+            if available_cash > 0:
                 for j in range(n_etfs):
-                    if pending_target_pos[j] > positions[j]:
-                        buy_amount = pending_target_pos[j] - positions[j]
-                        buyable = min(buy_amount, available_before_sale)
+                    if target_pos[j] > positions[j]:
+                        buy_amount = target_pos[j] - positions[j]
+                        buyable = min(buy_amount, available_cash)
                         buyable = int(buyable / LOT_SIZE) * LOT_SIZE
                         if buyable > 0:
                             positions[j] += buyable
                             cash -= buyable
-                            available_before_sale -= buyable
+                            available_cash -= buyable
+            pending_target_pos = target_pos
             rebal_state = 2
 
         elif rebal_state == 2:
@@ -245,7 +239,6 @@ def run_backtest(
                         cash -= affordable
             rebal_state = 0
             pending_target_pos = None
-            pending_sell_amounts = None
 
         # Daily P&L on current positions (untouched positions always earn)
         total_val = positions.sum() + cash
@@ -269,60 +262,6 @@ def sharpe(returns: pd.Series, min_obs: int = 30) -> float:
     return float(r.mean() / r.std() * np.sqrt(252))
 
 
-def run_cmaes(
-    scores_wide_A: pd.DataFrame,
-    scores_wide_B: pd.DataFrame,
-    daily_returns_wide: pd.DataFrame,
-    block_parity: pd.Series | None = None,
-    sharpe_weights: np.ndarray | None = None,
-    maxiter: int = 100,
-) -> tuple[list, float]:
-    """
-    Run CMA-ES on val predictions for one walk-forward step.
-    Returns (best_params, best_objective).
-    """
-    def objective(params: list) -> float:
-        returns, _ = run_backtest(scores_wide_A, scores_wide_B, daily_returns_wide, params,
-                                  block_parity=block_parity, sharpe_weights=sharpe_weights)
-        r = returns.dropna()
-        if len(r) < 30 or r.std() < 1e-10:
-            return 10.0
-        ann_ret = r.mean() * 252
-        eq = (1 + r).cumprod()
-        max_dd = abs((eq / eq.cummax() - 1).min())
-        if max_dd < 1e-10:
-            max_dd = 1e-10
-        # ret^2 / |max_dd| — rewards high returns quadratically
-        sign = 1.0 if ann_ret >= 0 else -1.0
-        return -(sign * ann_ret ** 2 / max_dd)
-
-    es = cma.CMAEvolutionStrategy(
-        PARAM_INIT,
-        PARAM_SIGMA0,
-        {
-            "maxiter": maxiter,
-            "tolx":    1e-4,
-            "tolfun":  1e-4,
-            "bounds":  [list(b[0] for b in PARAM_BOUNDS),
-                        list(b[1] for b in PARAM_BOUNDS)],
-            "verbose": -9,
-            "popsize": 16,
-        },
-    )
-
-    best_params = list(PARAM_INIT)
-    best_sharpe = -objective(PARAM_INIT)
-
-    while not es.stop():
-        solutions = es.ask()
-        fitnesses = [objective(x) for x in solutions]
-        es.tell(solutions, fitnesses)
-        step_best = -min(fitnesses)
-        if step_best > best_sharpe:
-            best_sharpe = step_best
-            best_params = list(solutions[np.argmin(fitnesses)])
-
-    return best_params, best_sharpe
 
 
 def _pivot_step(step_data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series | None]:
@@ -659,32 +598,16 @@ def main():
             print(f"{step:4d}  SKIP (val={len(val_data)} rows, test={len(test_data)} rows)")
             continue
 
-        # --- CMA-ES on val predictions (last 5 years only) ---
-        val_sw_A, val_sw_B, val_bp = _pivot_step(val_data)
-        # Limit val to last 5 years (~1250 trading days)
-        if len(val_sw_A) > 1250:
-            val_sw_A = val_sw_A.iloc[-1250:]
-            val_sw_B = val_sw_B.iloc[-1250:]
-            if val_bp is not None:
-                val_bp = val_bp.reindex(val_sw_A.index)
-        # Z-score val scores cross-sectionally (same as test)
-        v_mean = val_sw_A.mean(axis=1)
-        v_std = val_sw_A.std(axis=1).replace(0, 1.0)
-        val_sw_A = val_sw_A.sub(v_mean, axis=0).div(v_std, axis=0)
-        v_mean_B = val_sw_B.mean(axis=1)
-        v_std_B = val_sw_B.std(axis=1).replace(0, 1.0)
-        val_sw_B = val_sw_B.sub(v_mean_B, axis=0).div(v_std_B, axis=0)
+        # --- Fixed params (no CMA-ES) ---
+        best_params = PARAMS
 
-        # Compute expanding Sharpe per ETF (for allocation weights, shared by CMA-ES and test)
+        # Compute expanding Sharpe per ETF (for allocation weights)
+        val_sw_A, val_sw_B, val_bp = _pivot_step(val_data)
         val_end_date = val_sw_A.index[-1]
         dr_hist = daily_ret_panel[val_sw_A.columns].loc[:val_end_date]
         exp_mean = dr_hist.expanding(min_periods=60).mean().iloc[-1] * 252
         exp_std = dr_hist.expanding(min_periods=60).std().iloc[-1] * np.sqrt(252)
         etf_sharpe = (exp_mean / exp_std.replace(0, np.nan)).clip(0.0).fillna(0.0).values
-
-        val_dr = daily_ret_panel.reindex(index=val_sw_A.index, columns=val_sw_A.columns).fillna(0)
-        best_params, val_sharpe = run_cmaes(val_sw_A, val_sw_B, val_dr, block_parity=val_bp,
-                                            sharpe_weights=etf_sharpe)
 
         # --- Evaluate on test (true OOS) ---
         test_sw_A, test_sw_B, _ = _pivot_step(test_data)
@@ -715,11 +638,9 @@ def main():
         carry_weights = dict(zip(test_weights.columns, test_weights.iloc[-1].values))
         test_sh = sharpe(test_returns)
 
-        val_dates  = val_data.index.get_level_values("date")
         test_dates = test_data.index.get_level_values("date")
         print(
             f"{step:4d}  "
-            f"[{val_dates.min().date()} → {val_dates.max().date()}]  {val_sharpe:7.3f}  "
             f"[{test_dates.min().date()} → {test_dates.max().date()}]  {test_sh:7.3f}",
             flush=True,
         )
@@ -775,11 +696,7 @@ def main():
     eq_df.columns = ["date", "equity"]
     eq_df.to_csv(OUTPUTS / "backtest_equity.csv", index=False)
 
-    # Save per-step CMA-ES details (sharpe on val + test)
-    step_summary = []
-    for row in all_params_rows:
-        step_summary.append(row)
-    pd.DataFrame(step_summary).to_csv(OUTPUTS / "cmaes_steps.csv", index=False)
+    pd.DataFrame(all_params_rows).to_csv(OUTPUTS / "backtest_steps.csv", index=False)
 
     # Equity curve PNG
     all_weights = pd.concat(all_test_weights).sort_index()
@@ -789,7 +706,7 @@ def main():
 
     print(f"\nSaved → data/backtest_results.parquet")
     print(f"Saved → outputs/best_params.csv")
-    print(f"Saved → outputs/cmaes_steps.csv")
+    print(f"Saved → outputs/backtest_steps.csv")
     print(f"Saved → outputs/backtest_equity.csv")
     print(f"Saved → outputs/backtest_equity.png")
 
