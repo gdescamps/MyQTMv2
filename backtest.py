@@ -109,7 +109,7 @@ def run_backtest(
             valid = ~np.isnan(row)
             on = valid & (row > 0)
             if not on.any():
-                continue  # all cash
+                continue
             s = row[on] / max(T, 1e-6)
             s = s - s.max()
             e = np.exp(s)
