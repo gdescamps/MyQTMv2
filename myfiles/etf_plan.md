@@ -34,7 +34,7 @@ pas un signal binaire par ligne. Le formalisme "poids" est plus naturel et plus 
 
 Voir `myfiles/etf_univers.md` — 41 ETFs UCITS Boursorama répartis en 6 sections :
 
-| Section       | N  | FMP direct | Zero-fees | PEA |
+| Section       | N  | Direct ticker | Zero-fees | PEA |
 |---------------|----|:---------:|:---------:|:---:|
 | Geo equity    | 16 | 8          | 15        | 3   |
 | Secteurs US   | 7  | 0 (proxy XL*) | 0      | 0   |
@@ -53,7 +53,7 @@ Voir `myfiles/etf_univers.md` — 41 ETFs UCITS Boursorama répartis en 6 sectio
 
 ## 3. Pipeline de données
 
-**Architecture simplifiée — zéro FMP, zéro LLM, 100% gratuit.**
+**Architecture simplifiée — zéro API payante, zéro LLM, 100% gratuit.**
 
 ### 3a. Sources de données
 
@@ -108,7 +108,7 @@ Mise à jour mensuelle :
 
 ### 4a. Signaux techniques — repris de MyQTM
 
-Calculés sur chaque ETF proxy FMP (OHLCV) et sur les indices macro :
+Calculés sur chaque ETF proxy (OHLCV) et sur les indices macro :
 
 ```python
 # Par ETF (depuis data_transform_price_trends_indicators_time_series.py MyQTM)
@@ -408,10 +408,10 @@ INIT_SPACE = [
 ```
                 MyQTM (actions)              MyQTM-ETF (ETF)
                 ─────────────────────────    ────────────────────────────
-DONNÉES        FMP bulk 300 actions          FMP bulk 41 ETF proxies
-               news par action               news des top composants ETF
-               fundamentals (P/E, bilan)     holdings + analyst consensus synthétique
-               ~$50/mois                     ~$50 one-shot ✅
+DONNÉES        bulk 300 actions              yfinance 41 ETF proxies
+               news par action               iShares XLS (shares outstanding)
+               fundamentals (P/E, bilan)     FRED macro (VIX, HY, taux)
+               ~$50/mois                     $0 ✅
 
 FEATURES       technique par action          technique + cross-ETF momentum
                sentiment par action          sentiment agrégé sur composants
@@ -431,8 +431,7 @@ OPTIMISATION   CMA-ES 9 seuils prob         CMA-ES 9 paramètres allocation
 SORTIE         3-4 positions long/short      vecteur de poids Σ ≤ 1
                signal binaire               répartition continue
 
-PRODUCTION     FMP free 250 calls/jour      FMP free ~72 calls/jour ✅
-               Finnhub free 60 calls/min    FRED gratuit + FMP free
+PRODUCTION     API payante                  yfinance + FRED gratuits ✅
                ~15 ordres/mois             ~15 rééquilibrages/mois
 ```
 
@@ -509,10 +508,8 @@ pour que le gain espéré du rééquilibrage dépasse toujours les frais de vent
 ### Signal daily (chaque soir)
 
 ```
-18h00 : download prix EOD (FMP /quote bulk, 41 calls)
-18h05 : download news composants (FMP, ~20 calls)
-18h10 : scoring sentiment LLM (Gemini Flash, cache)
-18h20 : download FRED (VIX, HY spread, yield curve) — gratuit, pas de quota
+18h00 : download prix EOD (yfinance, 41 ETFs)
+18h10 : download FRED (VIX, HY spread, yield curve) — gratuit, pas de quota
 18h30 : mise à jour flow_proxies.parquet
 18h35 : feature engineering (technique + régime + sentiment + smart money)
 18h45 : prédiction XGBoost → scores par ETF
@@ -523,19 +520,11 @@ pour que le gain espéré du rééquilibrage dépasse toujours les frais de vent
 Matin : passage manuel des ordres sur Boursobank (~10 min)
 ```
 
-### Mise à jour hebdomadaire (lundi matin)
-
-```
-Analyst notes composants (FMP, ~20×3 = 60 calls)
-Rotation de composition ETF (FMP /etf-holder, 41 calls)
-→ features analyst_consensus + sector_rotation mis à jour
-```
-
 ### Mise à jour mensuelle
 
 ```
-Holdings complets ETF (FMP /etf-holder detail, 41 calls)
-→ recalcul poids composants pour la pondération du sentiment
+Téléchargement manuel XLS iShares (14 fichiers, ~5 min)
+→ mise à jour shares outstanding
 ```
 
 ---

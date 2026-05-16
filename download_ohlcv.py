@@ -101,9 +101,9 @@ def main():
     for etf in UNIVERSE:
         ok, rows = fetch_and_save(etf.bourso, etf.theme)
         # Also queue proxy if UCITS failed or has insufficient history
-        if etf.bourso != etf.fmp:
+        if etf.bourso != etf.proxy:
             if not ok or rows < MIN_ROWS:
-                needs_proxy.append((etf.bourso, etf.fmp))
+                needs_proxy.append((etf.bourso, etf.proxy))
 
     print()
     print("=" * 70)
@@ -111,7 +111,7 @@ def main():
     print("=" * 70)
 
     # Also always download all proxy tickers (needed for shares outstanding matching)
-    all_proxies = sorted(set(e.fmp for e in UNIVERSE if e.bourso != e.fmp))
+    all_proxies = sorted(set(e.proxy for e in UNIVERSE if e.bourso != e.proxy))
 
     for proxy in all_proxies:
         label = "proxy"

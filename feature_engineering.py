@@ -97,7 +97,7 @@ def _z(series: pd.Series, window: int) -> pd.Series:
 # ---------------------------------------------------------------------------
 
 def compute_etf_features(ohlcv: pd.DataFrame, shares_df: pd.DataFrame | None) -> pd.DataFrame:
-    # Use 'close' if available; some FMP files have 'adj_close' instead
+    # Use 'close' if available; some files have 'adj_close' instead
     if "close" in ohlcv.columns:
         c = ohlcv["close"]
     else:
@@ -355,11 +355,11 @@ def main():
     for etf in UNIVERSE:
         etf_id = etf.bourso
 
-        # OHLCV: prefer fmp proxy (longer history), fallback to bourso UCITS
-        fmp_file   = DATA / f"{etf.fmp.replace('.', '_')}.parquet"
+        # OHLCV: prefer proxy proxy (longer history), fallback to bourso UCITS
+        proxy_file   = DATA / f"{etf.proxy.replace('.', '_')}.parquet"
         bourso_file = DATA / f"{etf.bourso.replace('.', '_')}.parquet"
-        if fmp_file.exists():
-            ohlcv = pd.read_parquet(fmp_file)
+        if proxy_file.exists():
+            ohlcv = pd.read_parquet(proxy_file)
         elif bourso_file.exists():
             ohlcv = pd.read_parquet(bourso_file)
         else:

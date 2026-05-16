@@ -529,9 +529,9 @@ def main():
     from etf import UNIVERSE, BY_BOURSO
     daily_returns_all = {}
     for etf in UNIVERSE:
-        fmp_file = DATA / f"{etf.fmp.replace('.', '_')}.parquet"
-        if fmp_file.exists():
-            df = pd.read_parquet(fmp_file)
+        proxy_file = DATA / f"{etf.proxy.replace('.', '_')}.parquet"
+        if proxy_file.exists():
+            df = pd.read_parquet(proxy_file)
             col = "close" if "close" in df.columns else "adj_close"
             dr = df[col].pct_change(1)
             dr.index = pd.to_datetime(dr.index).tz_localize(None)
