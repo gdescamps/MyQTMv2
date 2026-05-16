@@ -137,6 +137,7 @@ def run_walk_forward(
 
     available_cols = [c for c in FEATURE_COLS if c in panel.columns]
     X_all   = panel[available_cols].astype(np.float32)
+    X_all   = X_all.replace([np.inf, -np.inf], np.nan)  # XGBoost: inf → missing
     y_all   = panel[LABEL_COL].astype(np.float32)          # original labels (saved + IC)
     y_train = _zscore_per_date(y_all).astype(np.float32)   # z-scored labels (for fit)
 

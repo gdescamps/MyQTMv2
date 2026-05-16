@@ -37,8 +37,8 @@ AV_DELAYS = False  # True = délais arbitrage AV (J+0 sell, J+1 buy cash dispo, 
 USE_SOFTMAX = True  # True = softmax(score/T) × Sharpe, False = equal weight among score > 0 × Sharpe
 SHARPE_POWER = 0.8  # Sharpe weight = sharpe^SHARPE_POWER (0=equal, 1=linear, 2=concentrated)
 
-TEMPERATURE = 0.8     # softmax concentration
-REBAL_DAYS = 5        # jours entre rebalances
+TEMPERATURE = 1.0     # softmax concentration
+REBAL_DAYS = 4       # jours entre rebalances
 
 
 def sigmoid(x: np.ndarray) -> np.ndarray:

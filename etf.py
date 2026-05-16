@@ -122,43 +122,39 @@ CRYPTO = [
 # Full universe
 # ---------------------------------------------------------------------------
 UNIVERSE_FULL: list[ETF] = GEO + SECTOR_US + THEMATIC + COMMODITY + BOND + CRYPTO
-# 14 ETFs — 7 original + 7 US sectors (smart money from 2015)
+# 27 ETFs — filtre smart money disponible depuis ≤2017 (proxy iShares/UCITS)
+# bourso/proxy = ticker OHLCV (yfinance) ; smart money via ISHARES_MAP
 UNIVERSE: list[ETF] = [
-    ETF("IVV", "iShares Core S&P 500 ETF", "geo", "us", pea=False, zero_fees=False, proxy="IVV", is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("SOXX", "iShares Semiconductor ETF", "thematic", "semi", pea=False, zero_fees=False, proxy="SOXX", is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("EEM", "iShares MSCI Emerging Markets ETF", "geo", "em", pea=False, zero_fees=False, proxy="EEM", is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("GLD", "SPDR Gold Shares", "commodity", "gold", pea=False, zero_fees=False, proxy="GLD", is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("TLT", "iShares 20+ Year Treasury Bond ETF", "bond", "us_lt", pea=False, zero_fees=False, proxy="TLT", is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("IEO", "iShares U.S. Oil & Gas Exploration ETF", "commodity", "oil", pea=False, zero_fees=False, proxy="IEO", is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("EXX1.DE", "iShares EURO STOXX Banks 30-15 ETF", "thematic", "banks_eu", pea=False, zero_fees=False, proxy="EXX1.DE", is_proxy=False, perf_1y=None, perf_5y=None),
-    # US Sectors (smart money from Nov 2015, price from 2000)
-    ETF("XLK", "SPDR Technology Select Sector ETF", "sector_us", "tech", pea=False, zero_fees=False, proxy="XLK", is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("XLE", "SPDR Energy Select Sector ETF", "sector_us", "energy", pea=False, zero_fees=False, proxy="XLE", is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("XLI", "SPDR Industrials Select Sector ETF", "sector_us", "indus", pea=False, zero_fees=False, proxy="XLI", is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("XLY", "SPDR Consumer Discretionary Select Sector ETF", "sector_us", "cons_disc", pea=False, zero_fees=False, proxy="XLY", is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("XLV", "SPDR Health Care Select Sector ETF", "sector_us", "health", pea=False, zero_fees=False, proxy="XLV", is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("XLP", "SPDR Consumer Staples Select Sector ETF", "sector_us", "cons_stpl", pea=False, zero_fees=False, proxy="XLP", is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("XLF", "SPDR Financial Select Sector ETF", "sector_us", "finance", pea=False, zero_fees=False, proxy="XLF", is_proxy=False, perf_1y=None, perf_5y=None),
-    # ETF("XLU", "SPDR Utilities Select Sector ETF", "sector_us", "utilities", pea=False, zero_fees=False, proxy="XLU", is_proxy=False, perf_1y=None, perf_5y=None),  # smart money trop court (2017)
-    # ETF("XLB", "SPDR Materials Select Sector ETF", "sector_us", "materials", pea=False, zero_fees=False, proxy="XLB", is_proxy=False, perf_1y=None, perf_5y=None),  # smart money trop court (2017)
-    # EU Sector
-    ETF("EXV1.DE", "iShares STOXX Europe 600 Tech ETF", "thematic", "tech_eu", pea=False, zero_fees=False, proxy="EXV1.DE", is_proxy=False, perf_1y=None, perf_5y=None),
-    # Nasdaq 100 (smart money via CNDX iShares UCITS since 2010)
-    # ETF("QQQ", "Invesco QQQ Trust (Nasdaq 100)", "geo", "us_nasdaq", pea=False, zero_fees=False, proxy="QQQ", is_proxy=False, perf_1y=None, perf_5y=None),  # trop corrélé à XLK
-    # Country ETFs (smart money + price since 2000+)
-    ETF("EWJ", "iShares MSCI Japan ETF", "geo", "japan", pea=False, zero_fees=False, proxy="EWJ", is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("EWC", "iShares MSCI Canada ETF", "geo", "canada", pea=False, zero_fees=False, proxy="EWC", is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("EWY", "iShares MSCI South Korea ETF", "geo", "korea", pea=False, zero_fees=False, proxy="EWY", is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("EWZ", "iShares MSCI Brazil ETF", "geo", "brazil", pea=False, zero_fees=False, proxy="EWZ", is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("EWW", "iShares MSCI Mexico ETF", "geo", "mexico", pea=False, zero_fees=False, proxy="EWW", is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("FXI", "iShares China Large-Cap ETF", "geo", "china", pea=False, zero_fees=False, proxy="FXI", is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("TUR", "iShares MSCI Turkey ETF", "geo", "turkey", pea=False, zero_fees=False, proxy="TUR", is_proxy=False, perf_1y=None, perf_5y=None),
-    # Alternatif
-    # ETF("RING", "iShares MSCI Global Gold Miners ETF", "commodity", "gold_miners", pea=False, zero_fees=False, proxy="RING", is_proxy=False, perf_1y=None, perf_5y=None),  # trop volatile DD=-52%
-    # Bonds (smart money + price)
-    ETF("IEF", "iShares 7-10 Year Treasury Bond ETF", "bond", "us_mt", pea=False, zero_fees=False, proxy="IEF", is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("HYG", "iShares iBoxx USD High Yield Corp Bond ETF", "bond", "hy", pea=False, zero_fees=False, proxy="HYG", is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("TIP", "iShares TIPS Bond ETF", "bond", "tips", pea=False, zero_fees=False, proxy="TIP", is_proxy=False, perf_1y=None, perf_5y=None),
+    # --- Geo equity ---
+    ETF("IVV",     "S&P 500",            "geo", "us",      pea=False, zero_fees=False, proxy="IVV",     is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("QQQ",     "Nasdaq 100",         "geo", "nasdaq",  pea=False, zero_fees=False, proxy="QQQ",     is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("ACWI",    "MSCI World",         "geo", "world",   pea=False, zero_fees=False, proxy="ACWI",    is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EEM",     "Emerging Markets",   "geo", "em",      pea=False, zero_fees=False, proxy="EEM",     is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("IEMG",    "Core EM IMI",        "geo", "em_imi",  pea=False, zero_fees=False, proxy="IEMG",    is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EMXC",    "EM ex-China",        "geo", "em_exch", pea=False, zero_fees=False, proxy="EMXC",    is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("ILF",     "Latin America 40",   "geo", "latam",   pea=False, zero_fees=False, proxy="ILF",     is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EWY",     "South Korea",        "geo", "korea",   pea=False, zero_fees=False, proxy="EWY",     is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EWT",     "Taiwan",             "geo", "taiwan",  pea=False, zero_fees=False, proxy="EWT",     is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EWZ",     "Brazil",             "geo", "brazil",  pea=False, zero_fees=False, proxy="EWZ",     is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EWW",     "Mexico",             "geo", "mexico",  pea=False, zero_fees=False, proxy="EWW",     is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EWC",     "Canada",             "geo", "canada",  pea=False, zero_fees=False, proxy="EWC",     is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EWJ",     "Japan",              "geo", "japan",   pea=False, zero_fees=False, proxy="EWJ",     is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("TUR",     "Turkey",             "geo", "turkey",  pea=False, zero_fees=False, proxy="TUR",     is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("FXI",     "China Large-Cap",    "geo", "china",   pea=False, zero_fees=False, proxy="FXI",     is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("ISF.L",   "FTSE 100",           "geo", "uk",      pea=False, zero_fees=False, proxy="ISF.L",   is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("IEUR",    "Core Europe",        "geo", "europe",  pea=False, zero_fees=False, proxy="IEUR",    is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EZU",     "Eurozone",           "geo", "emu",     pea=False, zero_fees=False, proxy="EZU",     is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EPP",     "Pacific ex-Japan",   "geo", "pacific", pea=False, zero_fees=False, proxy="EPP",     is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("SUSA",    "USA SRI",            "geo", "usa_sri", pea=False, zero_fees=False, proxy="SUSA",    is_proxy=False, perf_1y=None, perf_5y=None),
+    # --- Thematic ---
+    ETF("SOXX",    "Semiconductors",       "thematic", "semi",      pea=False, zero_fees=False, proxy="SOXX",    is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("ROBO",    "Automation & Robotics","thematic", "robotics",  pea=False, zero_fees=False, proxy="ROBO",    is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("ICLN",    "Global Clean Energy",  "thematic", "clean_nrg", pea=False, zero_fees=False, proxy="ICLN",    is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EXX1.DE", "EURO STOXX Banks",     "thematic", "banks_eu",  pea=False, zero_fees=False, proxy="EXX1.DE", is_proxy=False, perf_1y=None, perf_5y=None),
+    # --- Commodity ---
+    ETF("RING",    "Gold Miners",          "commodity", "gold_miners", pea=False, zero_fees=False, proxy="RING",    is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("IEO",     "Oil & Gas E&P",        "commodity", "oil",         pea=False, zero_fees=False, proxy="IEO",     is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("SXRS.DE", "Diversified Commodity","commodity", "commodity",   pea=False, zero_fees=False, proxy="SXRS.DE", is_proxy=False, perf_1y=None, perf_5y=None),
 ]
 
 # Quick lookup dicts

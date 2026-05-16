@@ -22,46 +22,38 @@ from etf import UNIVERSE
 DATA = Path(__file__).parent / "data"
 
 # Map each ETF bourso ticker → iShares XLS ticker (for shares_outstanding)
+# 27-ETF universe — smart money via iShares US or UCITS XLS
 ISHARES_MAP = {
-    "CSP1.PA":  "IVV",   "CNX1.PA":  "IUIT",  "WPEA.PA":  "ACWI",
-    "IEMA.AS":  "EEM",   "CSKR.PA":  "EWY",   "ITWN.PA":  "EWT",
-    "IFFI.AS":  "EEMA",  "EXCH.AS":  "EMXC",  "SJPE.AS":  "EWJ",
-    "IBZL.AS":  "EWZ",   "IMEX.AS":  "EWW",   "ICAU.AS":  "EWC",
-    "ITKY.AS":  "TUR",   "ISF.L":    "ISF",   "FXC.AS":   "FXI",
-    "IUIT.AS":  "IUIT",  "IUES.AS":  "IUES",  "IUII.AS":  "IUII",
-    "IUCD.AS":  "IUCD",  "IUHC.AS":  "IUHC",  "IUCS.AS":  "IUCS",
-    "IUFS.AS":  "IUFS",  "EXX1.DE":  "EXX1",  "EXV1.DE":  "EXV1",
-    "SEMI.AS":  "SOXX",  "AINF.PA":  "AINF",  "IART.PA":  "IART",
-    "ECAR.AS":  "ECAR",  "INRA.AS":  "ICLN",  "CITY.AS":  "CITY",
-    "IQQQ.DE":  "IQQQ",  "IGLN.AS":  "IAU",   "SXRS.DE":  "GSG",
-    "RING":     "RING",  "IOGP.AS":  "IEO",   "DTLA.AS":  "TLT",
-    "IBTA.AS":  "IEF",   "IHYU.AS":  "HYG",   "ITPS.AS":  "TIP",
-    "IBTC.AS":  "IBIT",
-    "QQQ":      "CNDX",   # US Nasdaq proxy → CNDX iShares Nasdaq 100 smart money
-    "GLD":      "IAU",    # US Gold proxy → IAU smart money
-    "IVV":      "IVV",    # S&P 500 — direct smart money since 2000
-    "SOXX":     "SOXX",   # Semiconductors — smart money since 2001
-    "EEM":      "EEM",    # Emerging Markets — smart money since 2003
-    "TLT":      "TLT",    # Treasury 20y+ — smart money since 2002
-    "IEO":      "IEO",    # Oil & Gas — smart money since 2006
-    "EXX1.DE":  "EXX1",   # Euro Banks — smart money since 2002
-    "TIP":      "TIP",    # TIPS inflation — smart money since 2003
-    "EWJ":      "EWJ",    # Japan — smart money since 1996
-    "EXV1.DE":  "EXV1",   # Europe Tech — smart money since 2002
-    "EWC":      "EWC",    # Canada — smart money since 1996
-    "EWZ":      "EWZ",    # Brazil — smart money since 2000
-    "EWW":      "EWW",    # Mexico — smart money since 1996
-    "FXI":      "FXI",    # China — smart money since 2004
-    # US Sectors (SPDR proxies → iShares UCITS smart money)
-    "XLK":      "IUIT",   # Info Tech — smart money since Nov 2015
-    "XLE":      "IUES",   # Energy — smart money since Nov 2015
-    "XLI":      "IUII",   # Industrials — smart money since Mar 2017
-    "XLY":      "IUCD",   # Consumer Discret — smart money since Nov 2015
-    "XLV":      "IUHC",   # Healthcare — smart money since Nov 2015
-    "XLP":      "IUCS",   # Consumer Staples — smart money since Mar 2017
-    "XLF":      "IUFS",   # Financials — smart money since Nov 2015
-    "XLU":      "IUUS",   # Utilities — smart money since Mar 2017
-    "XLB":      "IUMS",   # Materials — smart money since Mar 2017
+    # --- Geo equity ---
+    "IVV":      "IVV",     # S&P 500 — direct since 2000
+    "QQQ":      "CNDX",    # Nasdaq 100 — CNDX UCITS proxy
+    "ACWI":     "ACWI",    # MSCI World — direct
+    "EEM":      "EEM",     # Emerging Markets — since 2003
+    "IEMG":     "EIMI",    # Core MSCI EM IMI — EIMI UCITS proxy
+    "EMXC":     "EMXC",    # MSCI EM ex-China — direct
+    "ILF":      "LTAM",    # Latin America 40 — LTAM UCITS proxy
+    "EWY":      "EWY",     # Korea — since 2000
+    "EWT":      "EWT",     # Taiwan — since 2000
+    "EWZ":      "EWZ",     # Brazil — since 2000
+    "EWW":      "EWW",     # Mexico — since 1996
+    "EWC":      "EWC",     # Canada — since 1996
+    "EWJ":      "EWJ",     # Japan — since 1996
+    "TUR":      "TUR",     # Turkey — since 2008
+    "FXI":      "FXI",     # China — since 2004
+    "ISF.L":    "ISF",     # FTSE 100 — direct
+    "IEUR":     "IMEU",    # Core MSCI Europe — IMEU UCITS proxy
+    "EZU":      "CEU1",    # MSCI Eurozone — CEU1 UCITS proxy
+    "EPP":      "CPXJ",    # Pacific ex-Japan — CPXJ UCITS proxy
+    "SUSA":     "SUAS",    # MSCI USA SRI — SUAS UCITS proxy
+    # --- Thematic ---
+    "SOXX":     "SOXX",    # Semiconductors — since 2001
+    "ROBO":     "RBOT",    # Automation & Robotics — RBOT UCITS proxy
+    "ICLN":     "ICLN",    # Global Clean Energy — since 2008
+    "EXX1.DE":  "EXX1",    # Euro Banks — since 2002
+    # --- Commodity ---
+    "RING":     "RING",    # Gold Miners — since 2012
+    "IEO":      "IEO",     # Oil & Gas — since 2006
+    "SXRS.DE":  "GSG",     # Diversified Commodity — GSG proxy
 }
 
 

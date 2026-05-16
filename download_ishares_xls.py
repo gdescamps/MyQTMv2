@@ -84,7 +84,8 @@ ISHARES_PRODUCTS = {
     "ICLN": (239738, "ishares-global-clean-energy-etf"),   # INRA
     "IAU":  (239561, "ishares-gold-trust"),                # IGLN (Gold)
     "GSG":  (239757, "ishares-sp-gsci-commodity-indexed-trust"),  # SXRS
-    # Note: ILF (Latin America 40) is a closed/delisted fund — no download available
+    # Note: US iShares download endpoint blocked (anti-bot) — use UCITS
+    # equivalents on the UK site instead (see UK_ISHARES_PRODUCTS).
 }
 
 BASE_PRODUCT_URL = "https://www.ishares.com/us/products"
@@ -133,6 +134,26 @@ UK_ISHARES_PRODUCTS = {
     # --- Nasdaq 100 UCITS (smart money proxy for QQQ) ---
     "CNDX": (253741, "ishares-nasdaq-100-ucits-etf",
              "iShares-Nasdaq-100-UCITS-ETF-USD-Acc_fund"),
+    # --- New EU iShares (smart money filter ≤2017) ---
+    "RBOT": (284219, "ishares-automation-robotics-ucits-etf",
+             "iShares-Automation-Robotics-UCITS-ETF_fund"),
+    # UCITS equivalents for US funds (US download endpoint now blocked)
+    "LTAM": (251856, "ishares-msci-em-latin-america-ucits-etf-inc-fund",
+             "iShares-MSCI-EM-Latin-America-UCITS-ETF_fund"),         # → ILF
+    "EIMI": (264659, "ishares-msci-emerging-markets-imi-ucits-etf",
+             "iShares-Core-MSCI-EM-IMI-UCITS-ETF_fund"),              # → IEMG
+    "CPXJ": (253735, "ishares-msci-pacific-ex-japan-ucits-etf-acc-fund",
+             "iShares-Core-MSCI-Pacific-ex-Japan-UCITS-ETF_fund"),    # → EPP
+    "CEU1": (253729, "ishares-msci-emu-ucits-etf",
+             "iShares-Core-MSCI-EMU-UCITS-ETF_fund"),                 # → EZU
+    "IMEU": (251860, "ishares-msci-europe-ucits-etf-inc-fund",
+             "iShares-Core-MSCI-Europe-UCITS-ETF_fund"),              # → IEUR
+    "SUAS": (283565, "ishares-sustainable-msci-usa-sri-ucits-etf",
+             "iShares-MSCI-USA-SRI-UCITS-ETF_fund"),                  # → SUSA
+    "DJSC": (251789, "ishares-euro-stoxx-small-ucits-etf",
+             "iShares-EURO-STOXX-Small-UCITS-ETF_fund"),
+    "DJMC": (251786, "ishares-euro-stoxx-mid-ucits-etf",
+             "iShares-EURO-STOXX-Mid-UCITS-ETF_fund"),
 }
 
 HEADERS = {
