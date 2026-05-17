@@ -572,6 +572,120 @@ def main():
         )
         panel["bb_x_volsurge"] = bb_z * vol_z
 
+    # ---------------------------------------------------------------------------
+    # Iteration 2: Temporal, correlation, higher-order, regime features
+    # ---------------------------------------------------------------------------
+
+    # --- Momentum consistency (sign persistence) ---
+    # How many of last N periods had positive returns (trend consistency)
+    for d, step in [(20, 5), (60, 20)]:
+        col = f"ret_{step}d"
+        if col in panel.columns:
+            # Compute rolling sign consistency per ETF (done per-ETF already)
+            pass  # done below after groupby
+
+    # --- Volatility-adjusted momentum (Sharpe-like per ETF) ---
+    for d in [20, 60, 120]:
+        ret_col = f"ret_{d}d"
+        vol_col = f"vol_{d}d"
+        if ret_col in panel.columns and vol_col in panel.columns:
+            panel[f"sharpe_{d}d"] = panel[ret_col] / panel[vol_col].replace(0, np.nan)
+            # Cross-sectional z-score of sharpe
+            panel[f"sharpe_{d}d_z_xs"] = panel.groupby("date")[f"sharpe_{d}d"].transform(
+                lambda x: (x - x.mean()) / max(x.std(), 1e-8)
+            )
+
+    # --- Momentum acceleration (2nd derivative) ---
+    # ret_20d change over 20d = momentum of momentum
+    for d in [20, 60]:
+        col = f"ret_{d}d"
+        if col in panel.columns:
+            panel[f"mom2_{d}d"] = panel.groupby("etf_id")[col].diff(d)
+            panel[f"mom2_{d}d_z_xs"] = panel.groupby("date")[f"mom2_{d}d"].transform(
+                lambda x: (x - x.mean()) / max(x.std(), 1e-8)
+            )
+
+    # --- Correlation regime features ---
+    # Rolling correlation between each ETF and market (IVV/universe mean)
+    if "ret_5d" in panel.columns and "universe_mean_20d" in panel.columns:
+        # ETF beta proxy: ret vs universe mean (rolling estimated at panel level)
+        panel["ret_vs_mkt"] = panel["ret_5d"] - panel.groupby("date")["ret_5d"].transform("mean")
+
+    # --- Relative vol regime ---
+    # ETF vol vs universe vol (low vol = defensive, high vol = aggressive)
+    if "vol_20d" in panel.columns:
+        panel["vol_20d_vs_univ"] = panel["vol_20d"] - panel.groupby("date")["vol_20d"].transform("mean")
+        panel["vol_ratio_vs_univ"] = panel["vol_20d"] / panel.groupby("date")["vol_20d"].transform("mean").replace(0, np.nan)
+
+    # --- Time-in-drawdown features ---
+    if "drawdown_60" in panel.columns:
+        # How deep in drawdown (already have drawdown_60, drawdown_250)
+        # Drawdown severity: drawdown^2 (penalize deep drawdowns more)
+        panel["dd_60_severity"] = panel["drawdown_60"] ** 2 * np.sign(panel["drawdown_60"])
+    if "drawdown_250" in panel.columns:
+        panel["dd_250_severity"] = panel["drawdown_250"] ** 2 * np.sign(panel["drawdown_250"])
+
+    # --- Cross-sectional momentum spread ---
+    # Spread between top and bottom quartile returns (market dispersion signal)
+    for d in [20, 60]:
+        col = f"ret_{d}d"
+        if col in panel.columns:
+            q75 = panel.groupby("date")[col].transform(lambda x: x.quantile(0.75))
+            q25 = panel.groupby("date")[col].transform(lambda x: x.quantile(0.25))
+            panel[f"mom_spread_{d}d"] = q75 - q25
+            # ETF position within the spread
+            panel[f"pos_in_spread_{d}d"] = (panel[col] - q25) / (q75 - q25).replace(0, np.nan)
+
+    # --- Trend following signals ---
+    # Price vs exponential MA (faster reaction than SMA)
+    for d in [10, 20, 50]:
+        ema_col = f"ema_{d}"
+        if ema_col not in panel.columns:
+            # EMA computed per ETF earlier, but we don't have it in panel
+            # Use price_vs_ma as proxy — already computed
+            pass
+
+    # --- Regime change detection ---
+    # VIX acceleration (2nd derivative)
+    if "vix_level" in panel.columns:
+        panel["vix_accel"] = panel.groupby("date")["vix_level"].transform(
+            lambda x: x  # same value for all ETFs on a date, just keep it
+        )
+        # Already have vix_velocity, add acceleration
+    if "vix_velocity" in panel.columns:
+        vix_vel = panel.groupby("etf_id")["vix_velocity"].diff(5)
+        panel["vix_accel_5d"] = vix_vel
+
+    # --- Smart money consensus ---
+    # Fraction of universe with positive SO change
+    if "shares_outstanding_z20" in panel.columns:
+        panel["so_breadth_pos"] = panel.groupby("date")["shares_outstanding_z20"].transform(
+            lambda x: (x > 0).mean()
+        )
+        # ETF SO vs universe mean SO (relative flow)
+        panel["so_vs_univ"] = panel["shares_outstanding_z20"] - panel.groupby("date")["shares_outstanding_z20"].transform("mean")
+
+    # --- Interaction: Sharpe × Smart money ---
+    if "sharpe_20d_z_xs" in panel.columns and "shares_outstanding_z20" in panel.columns:
+        so_z3 = panel.groupby("date")["shares_outstanding_z20"].transform(
+            lambda x: (x - x.mean()) / max(x.std(), 1e-8)
+        )
+        panel["sharpe_x_so_20d"] = panel["sharpe_20d_z_xs"] * so_z3
+
+    # --- Interaction: momentum acceleration × vol ---
+    if "mom2_20d_z_xs" in panel.columns and "vol_20d_z_xs" in panel.columns:
+        panel["mom2_x_vol_20d"] = panel["mom2_20d_z_xs"] * panel["vol_20d_z_xs"]
+
+    # --- Relative strength persistence ---
+    # Rank autocorrelation: is ETF consistently ranked high/low?
+    for d in [20, 60]:
+        rank_col = f"ret_{d}d_rank"
+        if rank_col in panel.columns:
+            # Lagged rank (20d ago)
+            panel[f"rank_lag_{d}d"] = panel.groupby("etf_id")[rank_col].shift(d)
+            # Rank persistence = current rank - lagged rank (positive = improving)
+            panel[f"rank_change_{d}d"] = panel[rank_col] - panel[f"rank_lag_{d}d"]
+
     # Label: absolute forward 10d return (brut)
     panel["label"] = panel["ret_10d_fwd"]
 

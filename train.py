@@ -72,8 +72,8 @@ LABEL_COL = "label"
 
 XGB_PARAMS = dict(
     tree_method          = "hist",
-    max_depth            = 7,
-    min_child_weight     = 20,
+    max_depth            = 6,
+    min_child_weight     = 40,
     subsample            = 0.900,
     colsample_bytree     = 0.678,
     learning_rate        = 0.040,
