@@ -44,7 +44,7 @@ VIX_LOW = 15         # below this: calm market
 VIX_HIGH = 25        # above this: crisis
 TOP_N_LOW = 7        # top N when VIX < VIX_LOW (calm → diversify)
 TOP_N_HIGH = 3       # top N when VIX > VIX_HIGH (crisis → concentrate)
-REBAL_DAYS_LOW = 5   # rebalance frequency when VIX < VIX_LOW (calm → slower)
+REBAL_DAYS_LOW = 21  # rebalance frequency when VIX < VIX_LOW (calm → slower)
 REBAL_DAYS_HIGH = 2  # rebalance frequency when VIX > VIX_HIGH (crisis → faster)
 VIX_SPIKE_MIN = 4.0        # VIX 5-day change above this → start reducing allocation
 VIX_SPIKE_MAX = 10.0       # VIX 5-day change above this → max reduction
@@ -53,7 +53,7 @@ CAP_AT_SPIKE_MIN = 0.8     # allocation cap when slope = VIX_SPIKE_MIN
 CAP_AT_SPIKE_MAX = 0.4     # allocation cap when slope >= VIX_SPIKE_MAX
 RECOVERY_RATE = 0.20       # restore +20% allocation per step after spike (no new spike)
 FLAT_TAX_RATE = 0.30       # PFU 30% on realized gains (paid Jan 1st)
-BROKER = "boursorama"      # "ib" or "boursorama"
+BROKER = "ib"              # "ib" or "boursorama"
 
 
 def sigmoid(x: np.ndarray) -> np.ndarray:
