@@ -52,6 +52,7 @@ VIX_SPIKE_MAX = 10.0       # VIX 5-day change above this → max reduction
 VIX_SPIKE_REBAL = 1        # rebalance every day during spike
 CAP_AT_SPIKE_MIN = 0.8     # allocation cap when slope = VIX_SPIKE_MIN
 CAP_AT_SPIKE_MAX = 0.4     # allocation cap when slope >= VIX_SPIKE_MAX
+RECOVERY_RATE = 0.20       # restore +20% allocation per step after spike (no new spike)
 
 
 def sigmoid(x: np.ndarray) -> np.ndarray:
@@ -574,6 +575,7 @@ def main():
     all_params_rows  = []
     all_test_scores  = []   # scores_A per test step
     carry_weights    = None   # chain positions between steps
+    current_alloc_cap = 1.0   # persists between steps, reduced on spike, recovers gradually
 
     print(f"Temperature: {TEMPERATURE:.2f}")
 
@@ -599,7 +601,6 @@ def main():
         etf_sharpe = etf_sharpe ** SHARPE_POWER
 
         # --- VIX-adaptive TOP_N + REBAL_DAYS + spike detection ---
-        step_max_alloc = 1.0  # default: fully invested
         if VIX_ADAPTIVE and not vix_s.empty:
             vix_aligned = vix_s.reindex(val_scores.index, method="ffill")
             vix_at_step = vix_aligned.iloc[-1]
@@ -612,23 +613,32 @@ def main():
                     step_top_n = TOP_N_HIGH
                     step_rebal = VIX_SPIKE_REBAL
                     frac_spike = min((vix_5d_change - VIX_SPIKE_MIN) / (VIX_SPIKE_MAX - VIX_SPIKE_MIN), 1.0)
-                    step_max_alloc = CAP_AT_SPIKE_MIN + frac_spike * (CAP_AT_SPIKE_MAX - CAP_AT_SPIKE_MIN)
+                    spike_cap = CAP_AT_SPIKE_MIN + frac_spike * (CAP_AT_SPIKE_MAX - CAP_AT_SPIKE_MIN)
+                    # Reduce cap immediately (take the lower of current and spike cap)
+                    current_alloc_cap = min(current_alloc_cap, spike_cap)
                 elif vix_at_step < VIX_LOW:
                     step_top_n = TOP_N_LOW
                     step_rebal = REBAL_DAYS_LOW
+                    # Recover gradually: +RECOVERY_RATE per step when calm
+                    current_alloc_cap = min(1.0, current_alloc_cap + RECOVERY_RATE)
                 elif vix_at_step > VIX_HIGH:
                     step_top_n = TOP_N_HIGH
                     step_rebal = REBAL_DAYS_HIGH
+                    # No recovery during high VIX (hold reduced position)
                 else:
                     frac = (vix_at_step - VIX_LOW) / (VIX_HIGH - VIX_LOW)
                     step_top_n = int(round(TOP_N_LOW + frac * (TOP_N_HIGH - TOP_N_LOW)))
                     step_rebal = int(round(REBAL_DAYS_LOW + frac * (REBAL_DAYS_HIGH - REBAL_DAYS_LOW)))
+                    # Slow recovery in neutral zone
+                    current_alloc_cap = min(1.0, current_alloc_cap + RECOVERY_RATE * 0.5)
             else:
                 step_top_n = TOP_N_SCORES
                 step_rebal = REBAL_DAYS
         else:
             step_top_n = TOP_N_SCORES
             step_rebal = REBAL_DAYS
+
+        step_max_alloc = current_alloc_cap
 
         # --- Evaluate on test (true OOS) ---
         test_scores = _pivot_step(test_data)
