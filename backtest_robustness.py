@@ -255,8 +255,8 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None, vix_s=No
 
         # Daily returns
         test_dr = daily_ret_panel.reindex(index=test_scores.index, columns=test_scores.columns).fillna(0)
-        test_returns, _ = run_backtest(test_scores, test_dr, sharpe_weights=etf_sharpe,
-                                       rebal_days_override=step_rebal, max_alloc=step_max_alloc)
+        test_returns = run_backtest(test_scores, test_dr, sharpe_weights=etf_sharpe,
+                                       rebal_days_override=step_rebal, max_alloc=step_max_alloc)[0]
         all_test_returns.append(test_returns)
 
     if not all_test_returns:

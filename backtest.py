@@ -33,7 +33,6 @@ DEFENSIVE_SECTIONS = {"bond", "commodity", "crypto"}
 # Geo/sector redirect disabled — allocation libre
 GEO_SECTOR_REDIRECT = []
 
-AV_DELAYS = False  # True = délais arbitrage AV (J+0 sell, J+1 buy cash dispo, J+2 buy settled)
 USE_SOFTMAX = True  # True = softmax(score/T) × Sharpe, False = equal weight among score > 0 × Sharpe
 SHARPE_POWER = 0.8  # Sharpe weight = sharpe^SHARPE_POWER (0=equal, 1=linear, 2=concentrated)
 
@@ -53,6 +52,7 @@ VIX_SPIKE_REBAL = 1        # rebalance every day during spike
 CAP_AT_SPIKE_MIN = 0.8     # allocation cap when slope = VIX_SPIKE_MIN
 CAP_AT_SPIKE_MAX = 0.4     # allocation cap when slope >= VIX_SPIKE_MAX
 RECOVERY_RATE = 0.20       # restore +20% allocation per step after spike (no new spike)
+FLAT_TAX_RATE = 0.30       # PFU 30% on realized gains (paid Jan 1st)
 
 
 def sigmoid(x: np.ndarray) -> np.ndarray:
@@ -119,12 +119,27 @@ def run_backtest(
         weights = weights * max_alloc
     # Remaining = cash (implicit: 1 - sum(weights))
 
-    # Lot-based portfolio simulation
-    # - Daily prediction, rebalance only if allocation changes > rebal_threshold
-    # - Rebalance takes 2 days: day 1 = sell (cash), day 2 = buy new allocation
-    # - No transaction fees
-    LOT_SIZE = 500.0
-    INIT_CAPITAL = 10_000.0
+    # Lot-based portfolio simulation with realistic fees
+    LOT_SIZE = 10_000.0       # 10k€ tranches
+    INIT_CAPITAL = 150_000.0  # 150k€ portfolio
+
+    # IB fees Euronext (Fixed SmartRouting): 0.05% of trade value, min 3€ per order
+    IB_FEE_PCT = 0.0005      # 0.05% per order
+    IB_FEE_MIN = 3.0         # minimum 3€ per order
+
+    # Bid/ask spread: ~0.01% for liquid ETFs (iShares core on Euronext)
+    SPREAD_COST = 0.0001     # 0.01% per trade
+
+    # iShares ETF TER: already included in NAV (price returns are net of TER)
+
+    # Minimum rebalance threshold: skip if allocation change < 3%
+    REBAL_MIN_CHANGE = 0.03
+
+    total_fees = 0.0
+    total_taxes = 0.0
+    realized_gains_ytd = 0.0   # gains réalisés depuis le 1er janvier
+    cost_basis = np.zeros(n_etfs)  # PRU total par position (coût d'achat)
+    current_year = None
 
     safe_ret = np.where(np.isnan(daily_ret), 0.0, daily_ret)
     n_days = len(dates)
@@ -137,22 +152,15 @@ def run_backtest(
         for j in range(n_etfs):
             target_val = prev_weights[j] * total_val
             positions[j] = int(target_val / LOT_SIZE) * LOT_SIZE
+            cost_basis[j] = positions[j]  # initial cost = position value
         cash = total_val - positions.sum()
 
     port_returns = np.zeros(n_days)
     actual_weights = np.zeros((n_days, n_etfs))
-
-    # AV arbitrage delays (French life insurance):
-    # J+0: decision (order placed), all positions still earn returns
-    # J+1: sale executed at J+1 NAV, sold positions earn returns on J+0 and J+1
-    # J+2: purchase executed at J+2 NAV, new positions start earning from J+2
-    # Untouched positions continue earning returns throughout.
-    rebal_state = 0
-    pending_target_pos = None
-    pending_target_w = None
+    n_rebalances = 0  # count actual rebalances
 
     def _compute_target_lots(target_w, total_val):
-        """Compute target positions in 500€ lots given weights and total value."""
+        """Compute target positions in LOT_SIZE lots given weights and total value."""
         new_pos = np.zeros(n_etfs)
         remaining = total_val
         ranked = np.argsort(-target_w)
@@ -175,71 +183,57 @@ def run_backtest(
     for i in range(n_days):
         total_val = positions.sum() + cash
 
-        if rebal_state == 0:
-            # Rebalance every N days
-            if i % rebal_days != 0:
-                pass  # skip to daily P&L below
-            elif total_val >= LOT_SIZE:
-                target_w = weights[i]
-                # Compute target lots
-                target_pos, _ = _compute_target_lots(target_w, total_val)
-                # Check if allocation actually changes
-                if np.allclose(target_pos, positions):
-                    pass  # no change, no delay
-                else:
-                    if not AV_DELAYS:
-                        # Instant rebalance: sell and buy same day
-                        positions = target_pos.copy()
-                        cash = total_val - positions.sum()
-                    else:
-                        # J+0: decision — store target weights, positions still earn today
-                        pending_target_w = target_w
-                        rebal_state = 1  # positions still fully invested today
+        # Flat tax 30% on Jan 1st on realized gains of previous year
+        day = dates[i]
+        if current_year is None:
+            current_year = day.year
+        elif day.year != current_year:
+            if realized_gains_ytd > 0:
+                tax = realized_gains_ytd * FLAT_TAX_RATE
+                cash -= tax
+                total_taxes += tax
+            realized_gains_ytd = 0.0
+            current_year = day.year
+            total_val = positions.sum() + cash  # recalc after tax
 
-        elif rebal_state == 1:
-            # J+1: sale executed at today's NAV
-            # Positions have grown/shrunk with returns since J+0.
-            # Recompute target lots based on current total value.
-            total_val = positions.sum() + cash
-            target_pos, _ = _compute_target_lots(pending_target_w, total_val)
-            # Sell positions that are above target
-            sale_cash = 0.0
-            for j in range(n_etfs):
-                if positions[j] > target_pos[j]:
-                    sale_cash += positions[j] - target_pos[j]
-                    positions[j] = target_pos[j]
-            # Buy with already-available cash (cash before sale)
-            available_cash = cash
-            cash += sale_cash
-            if available_cash > 0:
+        # Rebalance every N days
+        if i % rebal_days != 0:
+            pass
+        elif total_val >= LOT_SIZE:
+            target_w = weights[i]
+            target_pos, _ = _compute_target_lots(target_w, total_val)
+            current_w = positions / total_val if total_val > 0 else np.zeros(n_etfs)
+            weight_change = np.abs(target_w - current_w).sum()
+            if not np.allclose(target_pos, positions) and weight_change >= REBAL_MIN_CHANGE:
+                # Compute fees (IB commission + spread)
+                trade_fees = 0.0
                 for j in range(n_etfs):
-                    if target_pos[j] > positions[j]:
+                    diff = abs(target_pos[j] - positions[j])
+                    if diff >= LOT_SIZE:
+                        order_amount = int(diff / LOT_SIZE) * LOT_SIZE
+                        ib_fee = max(order_amount * IB_FEE_PCT, IB_FEE_MIN)
+                        spread_fee = order_amount * SPREAD_COST
+                        trade_fees += ib_fee + spread_fee
+                total_fees += trade_fees
+                cash -= trade_fees
+
+                # Track realized gains on sales
+                for j in range(n_etfs):
+                    if target_pos[j] < positions[j] and positions[j] > 0:
+                        sale_amount = positions[j] - target_pos[j]
+                        sale_frac = sale_amount / positions[j]
+                        gain = sale_amount - cost_basis[j] * sale_frac
+                        realized_gains_ytd += gain
+                        cost_basis[j] *= (1 - sale_frac)
+                    elif target_pos[j] > positions[j]:
                         buy_amount = target_pos[j] - positions[j]
-                        buyable = min(buy_amount, available_cash)
-                        buyable = int(buyable / LOT_SIZE) * LOT_SIZE
-                        if buyable > 0:
-                            positions[j] += buyable
-                            cash -= buyable
-                            available_cash -= buyable
-            pending_target_pos = target_pos
-            rebal_state = 2
+                        cost_basis[j] += buy_amount
 
-        elif rebal_state == 2:
-            # J+2: purchase executed — buy remaining with settled cash from sale
-            for j in range(n_etfs):
-                if pending_target_pos[j] > positions[j]:
-                    buy_amount = pending_target_pos[j] - positions[j]
-                    if buy_amount <= cash:
-                        positions[j] += buy_amount
-                        cash -= buy_amount
-                    else:
-                        affordable = int(cash / LOT_SIZE) * LOT_SIZE
-                        positions[j] += affordable
-                        cash -= affordable
-            rebal_state = 0
-            pending_target_pos = None
+                positions = target_pos.copy()
+                cash = total_val - positions.sum() - trade_fees
+                n_rebalances += 1
 
-        # Daily P&L on current positions (untouched positions always earn)
+        # Daily P&L on current positions
         total_val = positions.sum() + cash
         if total_val > 0:
             actual_weights[i] = positions / total_val
@@ -251,7 +245,8 @@ def run_backtest(
 
     ret_series = pd.Series(port_returns, index=dates, name="port_return")
     weights_df = pd.DataFrame(actual_weights, index=dates, columns=etf_list)
-    return ret_series, weights_df
+    final_val = positions.sum() + cash
+    return ret_series, weights_df, total_fees, total_taxes, n_rebalances, final_val
 
 
 def sharpe(returns: pd.Series, min_obs: int = 30) -> float:
@@ -576,6 +571,9 @@ def main():
     all_test_scores  = []   # scores_A per test step
     carry_weights    = None   # chain positions between steps
     current_alloc_cap = 1.0   # persists between steps, reduced on spike, recovers gradually
+    cumul_fees       = 0.0    # cumulative IB trading fees
+    total_taxes      = 0.0    # cumulative flat tax paid
+    cumul_rebals     = 0     # total rebalances
 
     print(f"Temperature: {TEMPERATURE:.2f}")
 
@@ -670,7 +668,7 @@ def main():
 
         # Daily returns for test period
         test_dr = daily_ret_panel.reindex(index=test_scores.index, columns=test_scores.columns).fillna(0)
-        test_returns, test_weights = run_backtest(test_scores, test_dr,
+        test_returns, test_weights, step_fees, step_taxes, step_rebals, _ = run_backtest(test_scores, test_dr,
                                                    prev_weights=prev_w,
                                                    sharpe_weights=etf_sharpe,
                                                    rebal_days_override=step_rebal,
@@ -689,6 +687,9 @@ def main():
 
         all_test_returns.append(test_returns)
         all_test_weights.append(test_weights)
+        cumul_fees += step_fees
+        total_taxes += step_taxes
+        cumul_rebals += step_rebals
         all_params_rows.append({"step": step, "temperature": TEMPERATURE, "rebal_days": REBAL_DAYS})
         # Save scores_A for chart (first day of test step per ETF)
         all_test_scores.append(test_scores.iloc[[0]])
@@ -719,13 +720,52 @@ def main():
     final_sharpe = sharpe(port_returns)
     max_dd       = (eq_curve / eq_curve.cummax() - 1).min()
 
+    # Compute flat tax on annual realized gains from equity curve
+    # Each year: gain = value at Dec 31 - value at Jan 1 (approximation of realized gains)
+    # Since we rebalance frequently, most gains are realized
+    init_capital = 150_000.0
+    eq_values = eq_curve * init_capital  # actual € values
+    total_taxes = 0.0
+    for year in range(int(port_returns.index[0].year), int(port_returns.index[-1].year) + 1):
+        year_mask = eq_values.index.year == year
+        if year_mask.sum() == 0:
+            continue
+        year_eq = eq_values[year_mask]
+        year_start = year_eq.iloc[0]
+        year_end = year_eq.iloc[-1]
+        year_gain = year_end - year_start
+        if year_gain > 0:
+            tax = year_gain * FLAT_TAX_RATE
+            total_taxes += tax
+
+    # Fee & tax summary
+    final_portfolio = eq_curve.iloc[-1] * init_capital
+    net_final = final_portfolio - cumul_fees - total_taxes
+    net_return = net_final / init_capital - 1
+    net_ann = (1 + net_return) ** (1 / n_years) - 1
+
     print("\n" + "=" * 75)
     print("=== Final OOS backtest ===")
     print(f"  Period:       {port_returns.index[0].date()} → {port_returns.index[-1].date()}")
+    print(f"  Init capital: {init_capital:,.0f}€")
     print(f"  Total return: {total_ret:.1%}")
     print(f"  Ann. return:  {ann_ret:.1%}")
     print(f"  Ann. vol:     {ann_vol:.1%}")
     print(f"  Sharpe:       {final_sharpe:.3f}")
+    print(f"  Max drawdown: {max_dd:.1%}")
+    print(f"  --- Fees (IB Euronext, {init_capital/1000:.0f}k€) ---")
+    print(f"  Rebalances:   {cumul_rebals} ({cumul_rebals/n_years:.0f}/an)")
+    print(f"  Trading fees: {cumul_fees:,.0f}€ ({cumul_fees/n_years:,.0f}€/an)")
+    print(f"  Flat tax 30%: {total_taxes:,.0f}€ ({total_taxes/n_years:,.0f}€/an)")
+    print(f"  --- Net result (after fees + flat tax) ---")
+    print(f"  Final value:  {net_final:,.0f}€")
+    print(f"  Net return:   {net_return:.1%}")
+    print(f"  Net ann.:     {net_ann:.1%}")
+    # Net Sharpe: approximate by reducing returns by annual fee+tax drag
+    annual_drag = (cumul_fees + total_taxes) / n_years / init_capital
+    net_ann_vol = ann_vol
+    net_sharpe = (ann_ret - annual_drag) / net_ann_vol if net_ann_vol > 0 else 0
+    print(f"  Net Sharpe:   {net_sharpe:.3f}")
     print(f"  Max drawdown: {max_dd:.1%}")
 
     # Save results
