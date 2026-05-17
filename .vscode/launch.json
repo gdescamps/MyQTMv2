@@ -18,14 +18,6 @@
             "justMyCode": true
         },
         {
-            "name": "Feature Importance",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/plot_feature_importance.py",
-            "console": "integratedTerminal",
-            "justMyCode": true
-        },
-        {
             "name": "Robustness Test",
             "type": "debugpy",
             "request": "launch",
