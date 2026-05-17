@@ -135,17 +135,19 @@ def run_backtest(
             # IB Euronext Fixed SmartRouting: 0.05% of trade value, min 3€
             return max(order_amount * 0.0005, 3.0)
         elif BROKER == "boursorama":
-            # Boursomarkets: 0€ achat, vente forfait Découverte
-            if is_buy:
-                return 0.0  # Boursomarkets: free buy for iShares ETFs
+            # Boursomarkets: 0€ achat ≥500€, grille standard pour vente
+            if is_buy and order_amount >= 500:
+                return 0.0  # Boursomarkets: free buy for iShares ETFs ≥500€
             else:
-                # Vente: < 500€ → 1.99€, 500-2000€ → 0.50%, > 2000€ → 5.99€
-                if order_amount < 500:
+                # Grille standard Découverte/Classic (Euronext)
+                if order_amount <= 500:
                     return 1.99
+                elif order_amount <= 1000:
+                    return 3.50
                 elif order_amount <= 2000:
-                    return order_amount * 0.005
+                    return 6.50
                 else:
-                    return 5.99
+                    return order_amount * 0.0048  # 0.48% au-delà de 2000€
         return 0.0
 
     # iShares ETF TER: already included in NAV (price returns are net of TER)
