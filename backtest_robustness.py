@@ -26,8 +26,8 @@ from backtest import (
     DATA, OUTPUTS,
 )
 
-N_RUNS = 20
-N_DROP = 5
+N_RUNS = 50
+N_DROP = (5, 10)  # random between 5 and 10 ETFs dropped per rebalance
 
 
 def sharpe(returns: pd.Series) -> float:
@@ -183,7 +183,11 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None):
         # Drop random ETFs from scores
         if drop_etfs is not None and rng is not None:
             available = test_scores.columns.tolist()
-            n_drop = min(drop_etfs, len(available) - 2)  # keep at least 2
+            if isinstance(drop_etfs, tuple):
+                n_drop = rng.integers(drop_etfs[0], drop_etfs[1] + 1)
+            else:
+                n_drop = drop_etfs
+            n_drop = min(n_drop, len(available) - 2)  # keep at least 2
             dropped = rng.choice(available, size=n_drop, replace=False)
             test_scores[dropped] = np.nan
 
