@@ -39,7 +39,17 @@ SHARPE_POWER = 0.8  # Sharpe weight = sharpe^SHARPE_POWER (0=equal, 1=linear, 2=
 
 TEMPERATURE = 1.0     # softmax concentration (fixed)
 REBAL_DAYS = 4       # jours entre rebalances
-TOP_N_SCORES = 3     # keep only top N scores before softmax (None = all positives)
+TOP_N_SCORES = 4     # default top N (overridden by VIX-adaptive if VIX_ADAPTIVE=True)
+VIX_ADAPTIVE = True  # adjust TOP_N and REBAL based on VIX level
+VIX_LOW = 15         # below this: calm market
+VIX_HIGH = 25        # above this: crisis
+TOP_N_LOW = 7        # top N when VIX < VIX_LOW (calm → diversify)
+TOP_N_HIGH = 3       # top N when VIX > VIX_HIGH (crisis → concentrate)
+REBAL_DAYS_LOW = 5   # rebalance frequency when VIX < VIX_LOW (calm → slower)
+REBAL_DAYS_HIGH = 2  # rebalance frequency when VIX > VIX_HIGH (crisis → faster)
+VIX_SPIKE_THRESHOLD = 5.0  # VIX 5-day change > this → spike detected
+VIX_SPIKE_REBAL = 1        # rebalance every day during spike
+VIX_SPIKE_MAX_ALLOC = 0.5  # cap total allocation to 50% during spike (rest = cash)
 
 
 def sigmoid(x: np.ndarray) -> np.ndarray:
@@ -60,6 +70,8 @@ def run_backtest(
     daily_returns_wide: pd.DataFrame,
     prev_weights: np.ndarray | None = None,
     sharpe_weights: np.ndarray | None = None,
+    rebal_days_override: int | None = None,
+    max_alloc: float = 1.0,
 ) -> tuple[pd.Series, pd.DataFrame]:
     """
     Vectorised portfolio simulation.
@@ -74,10 +86,10 @@ def run_backtest(
 
     # Use Sharpe weights if provided, else equal weight
     sw = sharpe_weights if sharpe_weights is not None else np.ones(n_etfs)
-    rebal_days = REBAL_DAYS
+    rebal_days = rebal_days_override if rebal_days_override is not None else REBAL_DAYS
 
     def _alloc(scores: np.ndarray, sw: np.ndarray) -> np.ndarray:
-        """Top N positive scores → softmax(score/T) × Sharpe weights."""
+        """Score > 0 → on, softmax(score/T) × Sharpe weights (top-N pre-filtered)."""
         out = np.zeros_like(scores)
         for i in range(scores.shape[0]):
             row = scores[i]
@@ -85,12 +97,6 @@ def run_backtest(
             on = valid & (row > 0)
             if not on.any():
                 continue
-            # Keep only top N among positives
-            if TOP_N_SCORES is not None and on.sum() > TOP_N_SCORES:
-                on_idx = np.where(on)[0]
-                top_idx = on_idx[np.argsort(row[on_idx])[::-1][:TOP_N_SCORES]]
-                on = np.zeros(len(row), dtype=bool)
-                on[top_idx] = True
             if USE_SOFTMAX:
                 s = row[on] / max(TEMPERATURE, 1e-6)
                 s = s - s.max()
@@ -105,6 +111,9 @@ def run_backtest(
         return out
 
     weights = _alloc(scores, sw)
+    # Cap total allocation (VIX spike → partial cash)
+    if max_alloc < 1.0:
+        weights = weights * max_alloc
     # Remaining = cash (implicit: 1 - sum(weights))
 
     # Lot-based portfolio simulation
@@ -587,6 +596,37 @@ def main():
         etf_sharpe = (exp_mean / exp_std.replace(0, np.nan)).clip(0.0).fillna(0.0).values
         etf_sharpe = etf_sharpe ** SHARPE_POWER
 
+        # --- VIX-adaptive TOP_N + REBAL_DAYS + spike detection ---
+        step_max_alloc = 1.0  # default: fully invested
+        if VIX_ADAPTIVE and not vix_s.empty:
+            vix_aligned = vix_s.reindex(val_scores.index, method="ffill")
+            vix_at_step = vix_aligned.iloc[-1]
+            # Detect VIX spike: 5-day change
+            vix_5d_change = vix_aligned.diff(5).iloc[-1] if len(vix_aligned) > 5 else 0.0
+
+            if not np.isnan(vix_at_step):
+                # Spike detection: steep VIX rise
+                if not np.isnan(vix_5d_change) and vix_5d_change > VIX_SPIKE_THRESHOLD:
+                    step_top_n = TOP_N_HIGH
+                    step_rebal = VIX_SPIKE_REBAL
+                    step_max_alloc = VIX_SPIKE_MAX_ALLOC
+                elif vix_at_step < VIX_LOW:
+                    step_top_n = TOP_N_LOW
+                    step_rebal = REBAL_DAYS_LOW
+                elif vix_at_step > VIX_HIGH:
+                    step_top_n = TOP_N_HIGH
+                    step_rebal = REBAL_DAYS_HIGH
+                else:
+                    frac = (vix_at_step - VIX_LOW) / (VIX_HIGH - VIX_LOW)
+                    step_top_n = int(round(TOP_N_LOW + frac * (TOP_N_HIGH - TOP_N_LOW)))
+                    step_rebal = int(round(REBAL_DAYS_LOW + frac * (REBAL_DAYS_HIGH - REBAL_DAYS_LOW)))
+            else:
+                step_top_n = TOP_N_SCORES
+                step_rebal = REBAL_DAYS
+        else:
+            step_top_n = TOP_N_SCORES
+            step_rebal = REBAL_DAYS
+
         # --- Evaluate on test (true OOS) ---
         test_scores = _pivot_step(test_data)
 
@@ -603,11 +643,25 @@ def main():
         row_std = test_scores.std(axis=1).replace(0, 1.0)
         test_scores = test_scores.sub(row_mean, axis=0).div(row_std, axis=0)
 
+        # Pre-filter to top N scores per row (VIX-adaptive)
+        if step_top_n is not None:
+            for idx in range(len(test_scores)):
+                row = test_scores.iloc[idx].values
+                valid = ~np.isnan(row)
+                pos = valid & (row > 0)
+                if pos.sum() > step_top_n:
+                    pos_idx = np.where(pos)[0]
+                    keep = pos_idx[np.argsort(row[pos_idx])[::-1][:step_top_n]]
+                    drop = np.setdiff1d(pos_idx, keep)
+                    test_scores.iloc[idx, drop] = np.nan
+
         # Daily returns for test period
         test_dr = daily_ret_panel.reindex(index=test_scores.index, columns=test_scores.columns).fillna(0)
         test_returns, test_weights = run_backtest(test_scores, test_dr,
                                                    prev_weights=prev_w,
-                                                   sharpe_weights=etf_sharpe)
+                                                   sharpe_weights=etf_sharpe,
+                                                   rebal_days_override=step_rebal,
+                                                   max_alloc=step_max_alloc)
 
         # Save final weights for next step
         carry_weights = dict(zip(test_weights.columns, test_weights.iloc[-1].values))
