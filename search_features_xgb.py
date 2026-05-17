@@ -41,13 +41,14 @@ N_BEST = 5
 
 def select_features_by_stability(panel, feature_cols, device, power, cap):
     """Run 3-period feature selection and return top features."""
+    N_PERIODS = 3
     dates = panel.index.get_level_values("date").unique().sort_values()
     date_to_pos = {d: i for i, d in enumerate(dates)}
     row_dates = panel.index.get_level_values("date")
     row_pos = pd.Series([date_to_pos[d] for d in row_dates], index=panel.index)
 
     block_idx = row_pos // BLOCK_ROWS
-    block_id = block_idx % 3
+    block_id = block_idx % N_PERIODS
     pos_in_block = row_pos % BLOCK_ROWS
     not_embargoed = (pos_in_block >= EMBARGO_ROWS) & (pos_in_block < BLOCK_ROWS - EMBARGO_ROWS)
 

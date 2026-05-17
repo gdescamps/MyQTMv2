@@ -72,8 +72,9 @@ def main():
     row_pos = pd.Series([date_to_pos[d] for d in row_dates], index=panel.index)
 
     # 3-way interlaced split with embargo
+    N_PERIODS = 3
     block_idx = row_pos // BLOCK_SIZE
-    block_id = block_idx % 3
+    block_id = block_idx % N_PERIODS
     # Embargo: exclude rows near block boundaries
     pos_in_block = row_pos % BLOCK_SIZE
     not_embargoed = (pos_in_block >= EMBARGO_ROWS) & (pos_in_block < BLOCK_SIZE - EMBARGO_ROWS)

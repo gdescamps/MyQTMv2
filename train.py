@@ -121,6 +121,56 @@ def _try_gpu() -> str:
         return "cpu"
 
 
+def _select_features_on_train(panel_train, all_feature_cols, device, power=1.7, cap=150):
+    """Walk-forward feature selection: 3-period stability on train data only."""
+    y_all = panel_train[LABEL_COL].astype(np.float32)
+    y_z = _zscore_per_date(y_all).astype(np.float32)
+
+    dates = panel_train.index.get_level_values("date").unique().sort_values()
+    date_to_pos = {d: i for i, d in enumerate(dates)}
+    row_dates = panel_train.index.get_level_values("date")
+    row_pos = pd.Series([date_to_pos[d] for d in row_dates], index=panel_train.index)
+
+    block_idx = row_pos // BLOCK_ROWS
+    block_id = block_idx % 3
+    pos_in_block = row_pos % BLOCK_ROWS
+    not_embargoed = (pos_in_block >= EMBARGO_ROWS) & (pos_in_block < BLOCK_ROWS - EMBARGO_ROWS)
+
+    X = panel_train[all_feature_cols].astype(np.float32).replace([np.inf, -np.inf], np.nan)
+    params = {**XGB_PARAMS, "device": device, "max_depth": 7}
+
+    importances = {}
+    for period in range(3):
+        tr_mask = (block_id != period) & y_all.notna() & not_embargoed
+        val_mask = (block_id == period) & y_all.notna() & not_embargoed
+        tr_idx = panel_train.index[tr_mask]
+        val_idx = panel_train.index[val_mask]
+        if len(tr_idx) < 50 or len(val_idx) < 10:
+            continue
+        model = xgb.XGBRegressor(**params)
+        model.fit(X.loc[tr_idx].values, y_z.loc[tr_idx].values,
+                  eval_set=[(X.loc[val_idx].values, y_z.loc[val_idx].values)],
+                  verbose=False)
+        importances[f"period_{period}"] = model.feature_importances_
+
+    if len(importances) < 2:
+        return all_feature_cols[:cap]
+
+    import pandas as _pd
+    imp_df = _pd.DataFrame(importances, index=all_feature_cols)
+    imp_df["mean"] = imp_df.mean(axis=1)
+    imp_df["std"] = imp_df.std(axis=1)
+    imp_df["stability"] = imp_df["mean"] / (imp_df["std"].replace(0, np.nan) ** power)
+    imp_df = imp_df.sort_values("stability", ascending=False)
+    imp_df = imp_df[imp_df["stability"].notna() & (imp_df["mean"] > 0)]
+    return imp_df.index[:cap].tolist()
+
+
+# Feature selection config
+FEAT_SEL_POWER = 1.7
+FEAT_SEL_CAP = 150
+
+
 def run_walk_forward(
     panel: pd.DataFrame,
     device: str,
@@ -128,6 +178,7 @@ def run_walk_forward(
     verbose: bool = True,
     save_models: bool = True,
     dual_model: bool = True,
+    wf_feature_selection: bool = False,
 ) -> pd.DataFrame:
     params = {**XGB_PARAMS, **(xgb_params or {})}
     params["device"] = device
@@ -136,6 +187,7 @@ def run_walk_forward(
     n = len(dates)
 
     available_cols = [c for c in FEATURE_COLS if c in panel.columns]
+    all_candidate_cols = available_cols  # for WF feature selection
     X_all   = panel[available_cols].astype(np.float32)
     X_all   = X_all.replace([np.inf, -np.inf], np.nan)  # XGBoost: inf → missing
     y_all   = panel[LABEL_COL].astype(np.float32)          # original labels (saved + IC)
@@ -149,6 +201,7 @@ def run_walk_forward(
     ic_log      = []   # [(step, val_ic, test_ic)]
     importance_log = []  # [(step, test_date, {feat: importance})]
     step_n      = 0
+    prev_selected = None  # cache for WF feature selection (recompute every 5 steps)
 
     train_end_pos = MIN_TRAIN_ROWS
     while train_end_pos + TEST_WINDOW <= n:
@@ -166,6 +219,18 @@ def run_walk_forward(
 
         test_mask    = (row_pos >= train_end_pos) & (row_pos < test_end_pos)
         test_idx     = panel.index[test_mask]
+
+        # Walk-forward feature selection (recompute every 5 steps)
+        if wf_feature_selection and (prev_selected is None or step_n % 5 == 0):
+            train_panel = panel.loc[panel.index[in_train]]
+            prev_selected = _select_features_on_train(
+                train_panel, all_candidate_cols, device,
+                power=FEAT_SEL_POWER, cap=FEAT_SEL_CAP
+            )
+            available_cols = prev_selected
+            X_all = panel[available_cols].astype(np.float32).replace([np.inf, -np.inf], np.nan)
+            if verbose:
+                print(f"  [feat_sel step {step_n}] {len(available_cols)} features selected")
 
         # Check if model B's val (even blocks) last block touches the test period
         # If the last even block ends within EMBARGO_ROWS of test start → skip B
