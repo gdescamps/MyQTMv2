@@ -37,8 +37,9 @@ AV_DELAYS = False  # True = délais arbitrage AV (J+0 sell, J+1 buy cash dispo, 
 USE_SOFTMAX = True  # True = softmax(score/T) × Sharpe, False = equal weight among score > 0 × Sharpe
 SHARPE_POWER = 0.8  # Sharpe weight = sharpe^SHARPE_POWER (0=equal, 1=linear, 2=concentrated)
 
-TEMPERATURE = 1.0     # softmax concentration
+TEMPERATURE = 1.0     # softmax concentration (fixed)
 REBAL_DAYS = 4       # jours entre rebalances
+TOP_N_SCORES = 3     # keep only top N scores before softmax (None = all positives)
 
 
 def sigmoid(x: np.ndarray) -> np.ndarray:
@@ -76,7 +77,7 @@ def run_backtest(
     rebal_days = REBAL_DAYS
 
     def _alloc(scores: np.ndarray, sw: np.ndarray) -> np.ndarray:
-        """Score > 0 → on, softmax(score/T) × Sharpe weights among positives."""
+        """Top N positive scores → softmax(score/T) × Sharpe weights."""
         out = np.zeros_like(scores)
         for i in range(scores.shape[0]):
             row = scores[i]
@@ -84,6 +85,12 @@ def run_backtest(
             on = valid & (row > 0)
             if not on.any():
                 continue
+            # Keep only top N among positives
+            if TOP_N_SCORES is not None and on.sum() > TOP_N_SCORES:
+                on_idx = np.where(on)[0]
+                top_idx = on_idx[np.argsort(row[on_idx])[::-1][:TOP_N_SCORES]]
+                on = np.zeros(len(row), dtype=bool)
+                on[top_idx] = True
             if USE_SOFTMAX:
                 s = row[on] / max(TEMPERATURE, 1e-6)
                 s = s - s.max()
@@ -557,7 +564,9 @@ def main():
     all_test_scores  = []   # scores_A per test step
     carry_weights    = None   # chain positions between steps
 
-    print(f"{'Step':>4}  {'Test period':>24}  {'Sharpe':>7}")
+    print(f"Temperature: {TEMPERATURE:.2f}")
+
+    print(f"\n{'Step':>4}  {'Test period':>24}  {'Sharpe':>7}")
     print("-" * 45)
 
     for step in steps:
