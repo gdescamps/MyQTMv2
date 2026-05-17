@@ -47,9 +47,11 @@ TOP_N_LOW = 7        # top N when VIX < VIX_LOW (calm → diversify)
 TOP_N_HIGH = 3       # top N when VIX > VIX_HIGH (crisis → concentrate)
 REBAL_DAYS_LOW = 5   # rebalance frequency when VIX < VIX_LOW (calm → slower)
 REBAL_DAYS_HIGH = 2  # rebalance frequency when VIX > VIX_HIGH (crisis → faster)
-VIX_SPIKE_THRESHOLD = 5.0  # VIX 5-day change > this → spike detected
+VIX_SPIKE_MIN = 4.0        # VIX 5-day change above this → start reducing allocation
+VIX_SPIKE_MAX = 10.0       # VIX 5-day change above this → max reduction
 VIX_SPIKE_REBAL = 1        # rebalance every day during spike
-VIX_SPIKE_MAX_ALLOC = 0.5  # cap total allocation to 50% during spike (rest = cash)
+CAP_AT_SPIKE_MIN = 0.8     # allocation cap when slope = VIX_SPIKE_MIN
+CAP_AT_SPIKE_MAX = 0.4     # allocation cap when slope >= VIX_SPIKE_MAX
 
 
 def sigmoid(x: np.ndarray) -> np.ndarray:
@@ -605,11 +607,12 @@ def main():
             vix_5d_change = vix_aligned.diff(5).iloc[-1] if len(vix_aligned) > 5 else 0.0
 
             if not np.isnan(vix_at_step):
-                # Spike detection: steep VIX rise
-                if not np.isnan(vix_5d_change) and vix_5d_change > VIX_SPIKE_THRESHOLD:
+                # Spike detection: progressive cap based on VIX slope
+                if not np.isnan(vix_5d_change) and vix_5d_change > VIX_SPIKE_MIN:
                     step_top_n = TOP_N_HIGH
                     step_rebal = VIX_SPIKE_REBAL
-                    step_max_alloc = VIX_SPIKE_MAX_ALLOC
+                    frac_spike = min((vix_5d_change - VIX_SPIKE_MIN) / (VIX_SPIKE_MAX - VIX_SPIKE_MIN), 1.0)
+                    step_max_alloc = CAP_AT_SPIKE_MIN + frac_spike * (CAP_AT_SPIKE_MAX - CAP_AT_SPIKE_MIN)
                 elif vix_at_step < VIX_LOW:
                     step_top_n = TOP_N_LOW
                     step_rebal = REBAL_DAYS_LOW
