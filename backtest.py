@@ -53,6 +53,7 @@ CAP_AT_SPIKE_MIN = 0.8     # allocation cap when slope = VIX_SPIKE_MIN
 CAP_AT_SPIKE_MAX = 0.4     # allocation cap when slope >= VIX_SPIKE_MAX
 RECOVERY_RATE = 0.20       # restore +20% allocation per step after spike (no new spike)
 FLAT_TAX_RATE = 0.30       # PFU 30% on realized gains (paid Jan 1st)
+BROKER = "boursorama"      # "ib" or "boursorama"
 
 
 def sigmoid(x: np.ndarray) -> np.ndarray:
@@ -75,7 +76,8 @@ def run_backtest(
     sharpe_weights: np.ndarray | None = None,
     rebal_days_override: int | None = None,
     max_alloc: float = 1.0,
-) -> tuple[pd.Series, pd.DataFrame]:
+    tax_state: dict | None = None,
+) -> tuple:
     """
     Vectorised portfolio simulation.
     Score > 0 → on, softmax(score/temp) × Sharpe weights.
@@ -123,12 +125,28 @@ def run_backtest(
     LOT_SIZE = 10_000.0       # 10k€ tranches
     INIT_CAPITAL = 150_000.0  # 150k€ portfolio
 
-    # IB fees Euronext (Fixed SmartRouting): 0.05% of trade value, min 3€ per order
-    IB_FEE_PCT = 0.0005      # 0.05% per order
-    IB_FEE_MIN = 3.0         # minimum 3€ per order
-
     # Bid/ask spread: ~0.01% for liquid ETFs (iShares core on Euronext)
     SPREAD_COST = 0.0001     # 0.01% per trade
+
+    # Broker fee functions
+    def _broker_fee(order_amount, is_buy):
+        """Compute broker fee for a single order."""
+        if BROKER == "ib":
+            # IB Euronext Fixed SmartRouting: 0.05% of trade value, min 3€
+            return max(order_amount * 0.0005, 3.0)
+        elif BROKER == "boursorama":
+            # Boursomarkets: 0€ achat, vente forfait Découverte
+            if is_buy:
+                return 0.0  # Boursomarkets: free buy for iShares ETFs
+            else:
+                # Vente: < 500€ → 1.99€, 500-2000€ → 0.50%, > 2000€ → 5.99€
+                if order_amount < 500:
+                    return 1.99
+                elif order_amount <= 2000:
+                    return order_amount * 0.005
+                else:
+                    return 5.99
+        return 0.0
 
     # iShares ETF TER: already included in NAV (price returns are net of TER)
 
@@ -137,9 +155,24 @@ def run_backtest(
 
     total_fees = 0.0
     total_taxes = 0.0
-    realized_gains_ytd = 0.0   # gains réalisés depuis le 1er janvier
-    cost_basis = np.zeros(n_etfs)  # PRU total par position (coût d'achat)
-    current_year = None
+
+    # Tax state: persists between steps via tax_state dict
+    if tax_state is not None:
+        realized_gains_ytd = tax_state.get("realized_gains_ytd", 0.0)
+        cost_basis = tax_state.get("cost_basis", np.zeros(n_etfs)).copy()
+        current_year = tax_state.get("current_year", None)
+        # Remap cost_basis to current ETF columns
+        if "etf_list" in tax_state and tax_state["etf_list"] != etf_list:
+            old_cb = tax_state["cost_basis"]
+            old_etfs = tax_state["etf_list"]
+            cost_basis = np.zeros(n_etfs)
+            for i, etf in enumerate(etf_list):
+                if etf in old_etfs:
+                    cost_basis[i] = old_cb[old_etfs.index(etf)]
+    else:
+        realized_gains_ytd = 0.0
+        cost_basis = np.zeros(n_etfs)
+        current_year = None
 
     safe_ret = np.where(np.isnan(daily_ret), 0.0, daily_ret)
     n_days = len(dates)
@@ -152,7 +185,9 @@ def run_backtest(
         for j in range(n_etfs):
             target_val = prev_weights[j] * total_val
             positions[j] = int(target_val / LOT_SIZE) * LOT_SIZE
-            cost_basis[j] = positions[j]  # initial cost = position value
+            # Only set cost_basis if not restored from tax_state
+            if tax_state is None:
+                cost_basis[j] = positions[j]
         cash = total_val - positions.sum()
 
     port_returns = np.zeros(n_days)
@@ -205,15 +240,17 @@ def run_backtest(
             current_w = positions / total_val if total_val > 0 else np.zeros(n_etfs)
             weight_change = np.abs(target_w - current_w).sum()
             if not np.allclose(target_pos, positions) and weight_change >= REBAL_MIN_CHANGE:
-                # Compute fees (IB commission + spread)
+                # Compute fees (broker commission + spread)
                 trade_fees = 0.0
                 for j in range(n_etfs):
-                    diff = abs(target_pos[j] - positions[j])
-                    if diff >= LOT_SIZE:
-                        order_amount = int(diff / LOT_SIZE) * LOT_SIZE
-                        ib_fee = max(order_amount * IB_FEE_PCT, IB_FEE_MIN)
+                    diff = target_pos[j] - positions[j]
+                    abs_diff = abs(diff)
+                    if abs_diff >= LOT_SIZE:
+                        order_amount = int(abs_diff / LOT_SIZE) * LOT_SIZE
+                        is_buy = diff > 0
+                        broker_fee = _broker_fee(order_amount, is_buy)
                         spread_fee = order_amount * SPREAD_COST
-                        trade_fees += ib_fee + spread_fee
+                        trade_fees += broker_fee + spread_fee
                 total_fees += trade_fees
                 cash -= trade_fees
 
@@ -246,7 +283,14 @@ def run_backtest(
     ret_series = pd.Series(port_returns, index=dates, name="port_return")
     weights_df = pd.DataFrame(actual_weights, index=dates, columns=etf_list)
     final_val = positions.sum() + cash
-    return ret_series, weights_df, total_fees, total_taxes, n_rebalances, final_val
+    # Return tax state for chaining between steps
+    out_tax_state = {
+        "realized_gains_ytd": realized_gains_ytd,
+        "cost_basis": cost_basis.copy(),
+        "current_year": current_year,
+        "etf_list": etf_list,
+    }
+    return ret_series, weights_df, total_fees, total_taxes, n_rebalances, final_val, out_tax_state
 
 
 def sharpe(returns: pd.Series, min_obs: int = 30) -> float:
@@ -574,6 +618,7 @@ def main():
     cumul_fees       = 0.0    # cumulative IB trading fees
     total_taxes      = 0.0    # cumulative flat tax paid
     cumul_rebals     = 0     # total rebalances
+    chain_tax_state  = None  # tax state chained between steps
 
     print(f"Temperature: {TEMPERATURE:.2f}")
 
@@ -668,11 +713,13 @@ def main():
 
         # Daily returns for test period
         test_dr = daily_ret_panel.reindex(index=test_scores.index, columns=test_scores.columns).fillna(0)
-        test_returns, test_weights, step_fees, step_taxes, step_rebals, _ = run_backtest(test_scores, test_dr,
+        test_returns, test_weights, step_fees, step_taxes, step_rebals, _, chain_tax_state = run_backtest(
+                                                   test_scores, test_dr,
                                                    prev_weights=prev_w,
                                                    sharpe_weights=etf_sharpe,
                                                    rebal_days_override=step_rebal,
-                                                   max_alloc=step_max_alloc)
+                                                   max_alloc=step_max_alloc,
+                                                   tax_state=chain_tax_state)
 
         # Save final weights for next step
         carry_weights = dict(zip(test_weights.columns, test_weights.iloc[-1].values))
@@ -720,27 +767,31 @@ def main():
     final_sharpe = sharpe(port_returns)
     max_dd       = (eq_curve / eq_curve.cummax() - 1).min()
 
-    # Compute flat tax on annual realized gains from equity curve
-    # Each year: gain = value at Dec 31 - value at Jan 1 (approximation of realized gains)
-    # Since we rebalance frequently, most gains are realized
+    # Flat tax 30% on annual gains — computed on equity curve
+    # With frequent rebalancing (~130/year), virtually all gains are realized
     init_capital = 150_000.0
-    eq_values = eq_curve * init_capital  # actual € values
+    eq_values = eq_curve * init_capital
     total_taxes = 0.0
+    capital_after_tax = init_capital
     for year in range(int(port_returns.index[0].year), int(port_returns.index[-1].year) + 1):
         year_mask = eq_values.index.year == year
         if year_mask.sum() == 0:
             continue
+        # Growth factor during this year
         year_eq = eq_values[year_mask]
-        year_start = year_eq.iloc[0]
-        year_end = year_eq.iloc[-1]
-        year_gain = year_end - year_start
+        year_growth = year_eq.iloc[-1] / year_eq.iloc[0]
+        # Gain on capital_after_tax
+        year_end_val = capital_after_tax * year_growth
+        year_gain = year_end_val - capital_after_tax
         if year_gain > 0:
             tax = year_gain * FLAT_TAX_RATE
             total_taxes += tax
+            capital_after_tax = year_end_val - tax
+        else:
+            capital_after_tax = year_end_val
 
-    # Fee & tax summary
     final_portfolio = eq_curve.iloc[-1] * init_capital
-    net_final = final_portfolio - cumul_fees - total_taxes
+    net_final = capital_after_tax - cumul_fees  # capital_after_tax already has taxes deducted
     net_return = net_final / init_capital - 1
     net_ann = (1 + net_return) ** (1 / n_years) - 1
 
@@ -753,7 +804,8 @@ def main():
     print(f"  Ann. vol:     {ann_vol:.1%}")
     print(f"  Sharpe:       {final_sharpe:.3f}")
     print(f"  Max drawdown: {max_dd:.1%}")
-    print(f"  --- Fees (IB Euronext, {init_capital/1000:.0f}k€) ---")
+    broker_name = "IB Euronext" if BROKER == "ib" else "Boursorama"
+    print(f"  --- Fees ({broker_name}, {init_capital/1000:.0f}k€) ---")
     print(f"  Rebalances:   {cumul_rebals} ({cumul_rebals/n_years:.0f}/an)")
     print(f"  Trading fees: {cumul_fees:,.0f}€ ({cumul_fees/n_years:,.0f}€/an)")
     print(f"  Flat tax 30%: {total_taxes:,.0f}€ ({total_taxes/n_years:,.0f}€/an)")
@@ -761,12 +813,6 @@ def main():
     print(f"  Final value:  {net_final:,.0f}€")
     print(f"  Net return:   {net_return:.1%}")
     print(f"  Net ann.:     {net_ann:.1%}")
-    # Net Sharpe: approximate by reducing returns by annual fee+tax drag
-    annual_drag = (cumul_fees + total_taxes) / n_years / init_capital
-    net_ann_vol = ann_vol
-    net_sharpe = (ann_ret - annual_drag) / net_ann_vol if net_ann_vol > 0 else 0
-    print(f"  Net Sharpe:   {net_sharpe:.3f}")
-    print(f"  Max drawdown: {max_dd:.1%}")
 
     # Save results
     port_returns.to_frame().to_parquet(DATA / "backtest_results.parquet")
