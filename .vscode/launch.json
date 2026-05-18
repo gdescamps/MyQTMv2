@@ -2,10 +2,10 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "backtest",
+            "name": "backtest (equity + robustness)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/backtest.py",
+            "program": "${workspaceFolder}/backtest_all.py",
             "console": "integratedTerminal",
             "justMyCode": true
         },
@@ -14,22 +14,6 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/train.py",
-            "console": "integratedTerminal",
-            "justMyCode": true
-        },
-        {
-            "name": "Robustness Test",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/backtest_robustness.py",
-            "console": "integratedTerminal",
-            "justMyCode": true
-        },
-        {
-            "name": "Current File",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true
         }

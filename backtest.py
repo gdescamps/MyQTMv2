@@ -53,7 +53,6 @@ CAP_AT_SPIKE_MIN = 0.8     # allocation cap when slope = VIX_SPIKE_MIN
 CAP_AT_SPIKE_MAX = 0.4     # allocation cap when slope >= VIX_SPIKE_MAX
 RECOVERY_RATE = 0.20       # restore +20% allocation per step until next steep ascending slope
 FLAT_TAX_RATE = 0.30       # PFU 30% on realized gains (paid Jan 1st)
-BROKER = "ib"              # "ib" or "boursorama"
 
 
 def sigmoid(x: np.ndarray) -> np.ndarray:
@@ -128,27 +127,11 @@ def run_backtest(
     # Bid/ask spread: ~0.01% for liquid ETFs (iShares core on Euronext)
     SPREAD_COST = 0.0001     # 0.01% per trade
 
-    # Broker fee functions
-    def _broker_fee(order_amount, is_buy):
-        """Compute broker fee for a single order."""
-        if BROKER == "ib":
-            # IB Euronext Fixed SmartRouting: 0.05% of trade value, min 3€
-            return max(order_amount * 0.0005, 3.0)
-        elif BROKER == "boursorama":
-            # Boursomarkets: 0€ achat ≥500€, grille standard pour vente
-            if is_buy and order_amount >= 500:
-                return 0.0  # Boursomarkets: free buy for iShares ETFs ≥500€
-            else:
-                # Grille standard Découverte/Classic (Euronext)
-                if order_amount <= 500:
-                    return 1.99
-                elif order_amount <= 1000:
-                    return 3.50
-                elif order_amount <= 2000:
-                    return 6.50
-                else:
-                    return order_amount * 0.0048  # 0.48% au-delà de 2000€
-        return 0.0
+    # Broker fee — Interactive Brokers Euronext Fixed SmartRouting:
+    # 0.05% of trade value, minimum 3€ per order.
+    def _broker_fee(order_amount):
+        """Compute the Interactive Brokers fee for a single order."""
+        return max(order_amount * 0.0005, 3.0)
 
     # iShares ETF TER: already included in NAV (price returns are net of TER)
 
@@ -249,8 +232,7 @@ def run_backtest(
                     abs_diff = abs(diff)
                     if abs_diff >= LOT_SIZE:
                         order_amount = int(abs_diff / LOT_SIZE) * LOT_SIZE
-                        is_buy = diff > 0
-                        broker_fee = _broker_fee(order_amount, is_buy)
+                        broker_fee = _broker_fee(order_amount)
                         spread_fee = order_amount * SPREAD_COST
                         trade_fees += broker_fee + spread_fee
                 total_fees += trade_fees
@@ -582,12 +564,6 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
                     transform=ax_leg.transAxes, color="#333333")
         ax_leg.text(0.95, y, f"{dd:.0%}", fontsize=fs, va="center", ha="right",
                     transform=ax_leg.transAxes, color="#cc0000" if dd < -0.30 else "#666666")
-    import subprocess
-    sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
-    n_etfs = len(weights_df.columns) if len(weights_df) > 0 else 0
-    depth = 7  # current XGB max_depth
-    fname = f"backtest_{sha}_{n_etfs}etf_d{depth}.jpg"
-    fig1.savefig(out_dir / fname, dpi=100, bbox_inches="tight", format="jpeg", pil_kwargs={"quality": 60, "optimize": True})
     fig1.savefig(out_dir / "backtest_equity.jpg", dpi=100, bbox_inches="tight", format="jpeg", pil_kwargs={"quality": 60, "optimize": True})
     plt.close(fig1)
 
@@ -864,8 +840,7 @@ def main():
     print(f"  Ann. vol:     {ann_vol:.1%}")
     print(f"  Sharpe:       {final_sharpe:.3f}")
     print(f"  Max drawdown: {max_dd:.1%}")
-    broker_name = "IB Euronext" if BROKER == "ib" else "Boursorama"
-    print(f"  --- Fees ({broker_name}, {init_capital/1000:.0f}k€) ---")
+    print(f"  --- Fees (IB Euronext, {init_capital/1000:.0f}k€) ---")
     print(f"  Rebalances:   {cumul_rebals} ({cumul_rebals/n_years:.0f}/an)")
     print(f"  Trading fees: {cumul_fees:,.0f}€ ({cumul_fees/n_years:,.0f}€/an)")
     print(f"  Flat tax 30%: {total_taxes:,.0f}€ ({total_taxes/n_years:,.0f}€/an)")

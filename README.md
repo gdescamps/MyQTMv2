@@ -181,7 +181,7 @@ Tested with 50 Monte Carlo runs, randomly dropping 5-10 ETFs (18-37% of universe
 | `select_features.py` | Standalone feature selection (3-period stability) |
 | `backtest.py` | Portfolio simulation + VIX-adaptive allocation |
 | `backtest_robustness.py` | Monte Carlo robustness test |
-| `backtest_compare.py` | Multi-model comparison |
+| `backtest_all.py` | Runs `backtest.py` + `backtest_robustness.py` in parallel |
 | `search_features_xgb.py` | Grid search (power x cap x depth) |
 | `download_ishares_xls.py` | iShares XLS downloader (smart money) |
 
@@ -194,13 +194,16 @@ source venv/bin/activate
 # Full pipeline
 python feature_engineering.py   # Build 250 features -> data/features.parquet
 python train.py                 # Walk-forward training -> data/oos_predictions.parquet
-python backtest.py              # Portfolio backtest -> outputs/backtest_equity.png
+python backtest_all.py          # Equity + robustness backtests in parallel
+                                #   -> outputs/backtest_equity.jpg
+                                #   -> outputs/backtest_robustness.jpg
 
 # Hyperparameter search
 python search_features_xgb.py  # Grid search power x cap x depth
 
-# Robustness
-python backtest_robustness.py   # 50 Monte Carlo runs
+# Individual backtests (also runnable on their own)
+python backtest.py              # Portfolio backtest -> outputs/backtest_equity.jpg
+python backtest_robustness.py   # 50 Monte Carlo runs -> outputs/backtest_robustness.jpg
 
 # Feature selection (standalone)
 python select_features.py       # 3-period stability -> outputs/selected_features.json

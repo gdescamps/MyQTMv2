@@ -7,7 +7,7 @@ For each of 20 runs:
   - Record equity curve
 
 Output:
-  outputs/backtest_robustness.png  — 20 equity curves + median + original
+  outputs/backtest_robustness.jpg  — 20 equity curves + median + original
   myfiles/backtest_robustness.csv  — summary stats per run
 """
 
@@ -23,7 +23,7 @@ import matplotlib.ticker as mtick
 sys.path.insert(0, str(Path(__file__).parent))
 from backtest import (
     run_backtest, TEMPERATURE, REBAL_DAYS, USE_SOFTMAX, SHARPE_POWER,
-    DATA, OUTPUTS,
+    DATA, OUTPUTS, FLAT_TAX_RATE,
     VIX_ADAPTIVE, VIX_LOW, VIX_HIGH, TOP_N_LOW, TOP_N_HIGH,
     REBAL_DAYS_LOW, REBAL_DAYS_HIGH, TOP_N_SCORES,
     VIX_SPIKE_MIN, VIX_SPIKE_MAX, VIX_SPIKE_REBAL,
@@ -32,6 +32,7 @@ from backtest import (
 
 N_RUNS = 50
 N_DROP = (5, 10)  # random between 5 and 10 ETFs dropped per rebalance
+INIT_CAPITAL = 150_000.0  # same starting capital as backtest.py
 
 
 def sharpe(returns: pd.Series) -> float:
@@ -87,95 +88,220 @@ def run_robustness():
 
     # Run original (no drop) first
     print("Running original (no drop)...", flush=True)
-    orig_returns = _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None, vix_s=vix_s)
+    orig_returns, orig_fees = _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None, vix_s=vix_s)
+    orig_m = _metrics(orig_returns, orig_fees)
 
     # Run N_RUNS with random drops
     all_run_returns = []
+    stats = []
     for run in range(N_RUNS):
         print(f"  Run {run+1:2d}/{N_RUNS}...", end="", flush=True)
-        run_returns = _run_single(oos, steps, daily_ret_panel, drop_etfs=N_DROP, seed=run, vix_s=vix_s)
+        run_returns, run_fees = _run_single(oos, steps, daily_ret_panel, drop_etfs=N_DROP, seed=run, vix_s=vix_s)
         all_run_returns.append(run_returns)
-        eq = (1 + run_returns).cumprod()
-        print(f"  ret={eq.iloc[-1]-1:+.1%}  sharpe={sharpe(run_returns):.2f}  "
-              f"dd={(eq/eq.cummax()-1).min():.1%}", flush=True)
+        m = _metrics(run_returns, run_fees)
+        m["run"] = run + 1
+        stats.append(m)
+        print(f"  brut={m['ann_gross_pct']:+.1f}%/an  net={m['net_ann_pct']:+.1f}%/an  "
+              f"sharpe={m['sharpe']:.2f}  dd={m['max_dd_pct']:.1f}%", flush=True)
+
+    stats_df = pd.DataFrame(stats)[["run", "total_return_pct", "ann_gross_pct",
+                                    "net_return_pct", "net_ann_pct", "net_final",
+                                    "sharpe", "max_dd_pct"]]
+    stats_df.to_csv(Path(__file__).parent / "myfiles" / "backtest_robustness.csv", index=False)
 
     # Build equity curves
     orig_eq = (1 + orig_returns).cumprod()
-    run_eqs = [((1 + r).cumprod()) for r in all_run_returns]
+    run_eqs = [(1 + r).cumprod() for r in all_run_returns]
 
-    # Stats
-    stats = []
-    for i, r in enumerate(all_run_returns):
-        eq = (1 + r).cumprod()
-        stats.append({
-            "run": i + 1,
-            "total_return_pct": (eq.iloc[-1] - 1) * 100,
-            "sharpe": sharpe(r),
-            "max_dd_pct": (eq / eq.cummax() - 1).min() * 100,
-        })
-    stats_df = pd.DataFrame(stats)
-    stats_df.to_csv(Path(__file__).parent / "myfiles" / "backtest_robustness.csv", index=False)
+    # Aggregate stats across the runs: (median, min, max)
+    def _agg(col):
+        return stats_df[col].median(), stats_df[col].min(), stats_df[col].max()
 
-    # Plot
-    fig, ax = plt.subplots(figsize=(14, 7))
+    ann_g, ann_n = _agg("ann_gross_pct"), _agg("net_ann_pct")
+    tot_g, tot_n = _agg("total_return_pct"), _agg("net_return_pct")
+    netf, shp, dd = _agg("net_final"), _agg("sharpe"), _agg("max_dd_pct")
 
-    # 20 runs in light gray
+    # --- Chart harmonised with backtest_equity.jpg ---
+    fig = plt.figure(figsize=(24, 14))
+    gs = fig.add_gridspec(1, 2, width_ratios=[3, 1], wspace=0.02,
+                          top=0.96, bottom=0.05, left=0.05, right=0.98)
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax_leg = fig.add_subplot(gs[0, 1])
+    ax_leg.axis("off")
+
+    # All runs in light grey
     for eq in run_eqs:
-        ax.plot(eq.index, eq.values, lw=0.7, color="#888888", alpha=0.4)
+        ax1.plot(eq.index, eq.values, lw=0.8, color="#888888", alpha=0.30, zorder=2)
 
     # Median curve
     eq_matrix = pd.DataFrame({i: eq for i, eq in enumerate(run_eqs)})
     median_eq = eq_matrix.median(axis=1)
-    ax.plot(median_eq.index, median_eq.values, lw=2.0, color="#1f77b4", label="Median (20 runs)")
+    ax1.plot(median_eq.index, median_eq.values, lw=2.8, color="#1f77b4", zorder=8,
+             label=f"Médiane ({N_RUNS} runs)")
 
-    # Original
-    ax.plot(orig_eq.index, orig_eq.values, lw=2.5, color="#d62728", label="Original (no drop)")
+    # Original (no drop) — bold red, like the portfolio in the equity chart
+    ax1.plot(orig_eq.index, orig_eq.values, lw=3.5, color="#d62728", zorder=10,
+             label="Original (sans retrait)")
 
-    ax.set_yscale("log")
-    ax.yaxis.set_major_formatter(mtick.FuncFormatter(lambda x, _: f"{x:.1f}x"))
-    ax.set_ylabel("Equity (log scale)")
-    ax.set_title(f"Robustness: {N_RUNS} runs, dropping {N_DROP} random ETFs at each rebalance")
-    ax.legend(loc="upper left", fontsize=11)
-    ax.grid(True, alpha=0.3, which="both")
-    ax.set_facecolor("#f8f8f8")
+    ax1.set_yscale("log")
+    ax1.yaxis.set_major_formatter(mtick.FuncFormatter(lambda x, _: f"{x:.1f}x"))
+    ax1.set_ylabel("Equity (log scale, base 1)")
+    ax1.set_title(f"MyQTM-ETF — Robustesse  ({N_RUNS} backtests, "
+                  f"{N_DROP[0]}-{N_DROP[1]} ETF retirés au hasard)")
+    ax1.legend(loc="upper left", fontsize=12)
+    ax1.grid(True, alpha=0.3, which="both")
+    ax1.set_facecolor("#f8f8f8")
 
-    # Add stats box
-    med_sharpe = stats_df["sharpe"].median()
-    med_dd = stats_df["max_dd_pct"].median()
-    med_ret = stats_df["total_return_pct"].median()
-    orig_sharpe = sharpe(orig_returns)
-    orig_dd = (orig_eq / orig_eq.cummax() - 1).min() * 100
+    # VIX shaded background (same as the equity chart)
+    vix_path = DATA / "fred_vix.parquet"
+    if vix_path.exists():
+        vix_raw = pd.read_parquet(vix_path).iloc[:, 0]
+        vix_raw = vix_raw.reindex(orig_eq.index, method="ffill").dropna()
+        ax1b = ax1.twinx()
+        ax1b.fill_between(vix_raw.index, vix_raw.values, alpha=0.10, color="#d62728")
+        ax1b.set_yticks([])
+        ax1b.set_ylabel("")
+        ax1b.set_ylim(0, 80)
 
-    txt = (f"Original:  Sharpe={orig_sharpe:.2f}  DD={orig_dd:.1f}%\n"
-           f"Median:    Sharpe={med_sharpe:.2f}  DD={med_dd:.1f}%\n"
-           f"Range:     Sharpe=[{stats_df['sharpe'].min():.2f}, {stats_df['sharpe'].max():.2f}]  "
-           f"DD=[{stats_df['max_dd_pct'].min():.1f}%, {stats_df['max_dd_pct'].max():.1f}%]")
-    ax.text(0.02, 0.02, txt, transform=ax.transAxes, fontsize=10,
-            verticalalignment="bottom", fontfamily="monospace",
-            bbox=dict(boxstyle="round", facecolor="white", alpha=0.8))
+    # --- Right column: gross/net return stats across the runs ---
+    def _eur(x):
+        return f"{x:,.0f}".replace(",", " ") + " €"
 
-    fig.tight_layout()
-    out_path = OUTPUTS / "backtest_robustness.png"
-    fig.savefig(out_path, dpi=100, bbox_inches="tight")
+    rows = [
+        ("title", "ROBUSTESSE", "", ""),
+        ("text", f"{N_RUNS} backtests · {N_DROP[0]}-{N_DROP[1]} ETF retirés au hasard", "", ""),
+        ("kv", "Capital initial", _eur(INIT_CAPITAL), ""),
+        ("sep", "", "", ""),
+        ("hdr3", "", "Brut", "Net"),
+        ("sub", "Rendement annuel", "", ""),
+        ("r3", "Original", f"{orig_m['ann_gross_pct']:+.1f}%", f"{orig_m['net_ann_pct']:+.1f}%"),
+        ("r3", "Médian", f"{ann_g[0]:+.1f}%", f"{ann_n[0]:+.1f}%"),
+        ("r3", "Min", f"{ann_g[1]:+.1f}%", f"{ann_n[1]:+.1f}%"),
+        ("r3", "Max", f"{ann_g[2]:+.1f}%", f"{ann_n[2]:+.1f}%"),
+        ("sep", "", "", ""),
+        ("sub", "Rendement total", "", ""),
+        ("r3", "Original", f"{orig_m['total_return_pct']:+.0f}%", f"{orig_m['net_return_pct']:+.0f}%"),
+        ("r3", "Médian", f"{tot_g[0]:+.0f}%", f"{tot_n[0]:+.0f}%"),
+        ("r3", "Min", f"{tot_g[1]:+.0f}%", f"{tot_n[1]:+.0f}%"),
+        ("r3", "Max", f"{tot_g[2]:+.0f}%", f"{tot_n[2]:+.0f}%"),
+        ("sep", "", "", ""),
+        ("sub", "Valeur finale nette", "", ""),
+        ("kv", "Original", _eur(orig_m["net_final"]), ""),
+        ("kv", "Médian", _eur(netf[0]), ""),
+        ("kv", "Min", _eur(netf[1]), ""),
+        ("kv", "Max", _eur(netf[2]), ""),
+        ("sep", "", "", ""),
+        ("sub", "Sharpe (brut)", "", ""),
+        ("kv", "Original", f"{orig_m['sharpe']:.2f}", ""),
+        ("kv", "Médian", f"{shp[0]:.2f}", ""),
+        ("kv", "Min – Max", f"{shp[1]:.2f} – {shp[2]:.2f}", ""),
+        ("sep", "", "", ""),
+        ("sub", "Max Drawdown", "", ""),
+        ("kv", "Médian", f"{dd[0]:.1f}%", ""),
+        ("kv", "Pire – Meilleur", f"{dd[1]:.1f}% / {dd[2]:.1f}%", ""),
+    ]
+
+    y, ystep = 0.99, 0.0305
+    for kind, a, b, c in rows:
+        if kind == "sep":
+            ax_leg.plot([0.0, 0.99], [y + 0.012, y + 0.012], color="#bbbbbb",
+                        lw=1.0, transform=ax_leg.transAxes)
+            y -= ystep * 0.7
+        elif kind == "title":
+            ax_leg.text(0.0, y, a, fontsize=20, fontweight="bold", va="top",
+                        transform=ax_leg.transAxes, color="#d62728")
+            y -= ystep * 1.25
+        elif kind == "text":
+            ax_leg.text(0.0, y, a, fontsize=11, va="top",
+                        transform=ax_leg.transAxes, color="#666666")
+            y -= ystep
+        elif kind == "sub":
+            ax_leg.text(0.0, y, a, fontsize=13, fontweight="bold", va="top",
+                        transform=ax_leg.transAxes, color="#222222")
+            y -= ystep
+        elif kind == "hdr3":
+            ax_leg.text(0.66, y, b, fontsize=12, fontweight="bold", va="top", ha="right",
+                        transform=ax_leg.transAxes, color="#333333")
+            ax_leg.text(0.99, y, c, fontsize=12, fontweight="bold", va="top", ha="right",
+                        transform=ax_leg.transAxes, color="#1a7a1a")
+            y -= ystep
+        elif kind == "r3":
+            ax_leg.text(0.04, y, a, fontsize=12.5, va="top", transform=ax_leg.transAxes)
+            ax_leg.text(0.66, y, b, fontsize=12.5, va="top", ha="right",
+                        transform=ax_leg.transAxes, color="#333333")
+            ax_leg.text(0.99, y, c, fontsize=12.5, va="top", ha="right",
+                        transform=ax_leg.transAxes, color="#1a7a1a")
+            y -= ystep
+        elif kind == "kv":
+            ax_leg.text(0.04, y, a, fontsize=12.5, va="top", transform=ax_leg.transAxes)
+            ax_leg.text(0.99, y, b, fontsize=12.5, va="top", ha="right",
+                        transform=ax_leg.transAxes, color="#333333")
+            y -= ystep
+
+    out_path = OUTPUTS / "backtest_robustness.jpg"
+    fig.savefig(out_path, dpi=100, bbox_inches="tight", format="jpeg",
+                pil_kwargs={"quality": 60, "optimize": True})
     plt.close(fig)
 
-    print(f"\n{'='*60}")
-    print(f"  Original:  return={orig_eq.iloc[-1]-1:+.1%}  Sharpe={orig_sharpe:.2f}  DD={orig_dd:.1f}%")
-    print(f"  Median:    return={med_ret:+.1f}%  Sharpe={med_sharpe:.2f}  DD={med_dd:.1f}%")
-    print(f"  Min:       return={stats_df['total_return_pct'].min():+.1f}%  "
-          f"Sharpe={stats_df['sharpe'].min():.2f}  DD={stats_df['max_dd_pct'].min():.1f}%")
-    print(f"  Max:       return={stats_df['total_return_pct'].max():+.1f}%  "
-          f"Sharpe={stats_df['sharpe'].max():.2f}  DD={stats_df['max_dd_pct'].max():.1f}%")
-    print(f"{'='*60}")
-    print(f"\nSaved → outputs/backtest_robustness.png")
+    print(f"\n{'='*70}")
+    print(f"  Original:  brut {orig_m['ann_gross_pct']:+.1f}%/an  net {orig_m['net_ann_pct']:+.1f}%/an  "
+          f"Sharpe {orig_m['sharpe']:.2f}  DD {orig_m['max_dd_pct']:.1f}%")
+    print(f"  Médian:    brut {ann_g[0]:+.1f}%/an  net {ann_n[0]:+.1f}%/an  "
+          f"Sharpe {shp[0]:.2f}  DD {dd[0]:.1f}%")
+    print(f"  Min:       brut {ann_g[1]:+.1f}%/an  net {ann_n[1]:+.1f}%/an  Sharpe {shp[1]:.2f}")
+    print(f"  Max:       brut {ann_g[2]:+.1f}%/an  net {ann_n[2]:+.1f}%/an  Sharpe {shp[2]:.2f}")
+    print(f"{'='*70}")
+    print(f"\nSaved → outputs/backtest_robustness.jpg")
     print(f"Saved → myfiles/backtest_robustness.csv")
 
 
+def _compute_net(returns: pd.Series, cumul_fees: float) -> float:
+    """Net final value after IB fees + flat tax (same logic as backtest.py main)."""
+    if returns.empty:
+        return INIT_CAPITAL
+    eq_values = (1 + returns).cumprod() * INIT_CAPITAL
+    capital_after_tax = INIT_CAPITAL
+    for year in range(int(returns.index[0].year), int(returns.index[-1].year) + 1):
+        ymask = eq_values.index.year == year
+        if ymask.sum() == 0:
+            continue
+        yeq = eq_values[ymask]
+        year_end_val = capital_after_tax * (yeq.iloc[-1] / yeq.iloc[0])
+        year_gain = year_end_val - capital_after_tax
+        if year_gain > 0:
+            capital_after_tax = year_end_val - year_gain * FLAT_TAX_RATE
+        else:
+            capital_after_tax = year_end_val
+    return capital_after_tax - cumul_fees
+
+
+def _metrics(returns: pd.Series, cumul_fees: float) -> dict:
+    """Gross + net performance metrics for one run."""
+    eq = (1 + returns).cumprod()
+    n_years = max(len(returns), 1) / 252
+    total_ret = eq.iloc[-1] - 1
+    ann_gross = (1 + total_ret) ** (1 / n_years) - 1
+    net_final = _compute_net(returns, cumul_fees)
+    net_ret = net_final / INIT_CAPITAL - 1
+    net_ann = (1 + net_ret) ** (1 / n_years) - 1
+    return {
+        "total_return_pct": total_ret * 100,
+        "ann_gross_pct": ann_gross * 100,
+        "net_final": net_final,
+        "net_return_pct": net_ret * 100,
+        "net_ann_pct": net_ann * 100,
+        "sharpe": sharpe(returns),
+        "max_dd_pct": (eq / eq.cummax() - 1).min() * 100,
+    }
+
+
 def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None, vix_s=None):
-    """Run a single backtest with full VIX-adaptive logic, optionally dropping N random ETFs."""
+    """Run a single backtest with full VIX-adaptive logic, optionally dropping N
+    random ETFs. Returns (daily_returns, cumulative_trading_fees)."""
     rng = np.random.default_rng(seed) if seed is not None else None
 
     all_test_returns = []
+    cumul_fees = 0.0
     current_alloc_cap = 1.0
     recovering = False
 
@@ -273,11 +399,12 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None, vix_s=No
         result = run_backtest(test_scores, test_dr, sharpe_weights=etf_sharpe,
                               rebal_days_override=step_rebal, max_alloc=step_max_alloc)
         test_returns = result[0]
+        cumul_fees += result[2]
         all_test_returns.append(test_returns)
 
     if not all_test_returns:
-        return pd.Series(dtype=float)
-    return pd.concat(all_test_returns).sort_index()
+        return pd.Series(dtype=float), 0.0
+    return pd.concat(all_test_returns).sort_index(), cumul_fees
 
 
 if __name__ == "__main__":
