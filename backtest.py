@@ -665,6 +665,103 @@ def _save_winners_losers_pie(period_label: str, weights_df: pd.DataFrame,
     plt.close(fig)
 
 
+def _plot_feature_importance() -> None:
+    """SHAP feature-importance evolution chart, with the red backtest equity
+    curve overlaid.
+
+    Reads two inputs:
+      outputs/feature_importances.parquet  — produced by train.py (the model)
+      outputs/backtest_equity.csv          — produced by this backtest run
+    Drawing it here (rather than in train.py) keeps the overlaid backtest
+    curve in sync with the current backtest whenever the backtest changes.
+    """
+    path = OUTPUTS / "feature_importances.parquet"
+    if not path.exists():
+        print("  (feature_importances.parquet absent — run train.py to generate it)")
+        return
+
+    df = pd.read_parquet(path)
+    if "step" in df.columns:
+        df = df.drop(columns=["step"])
+
+    mean_imp = df.mean().sort_values(ascending=False)
+    TOP_N = min(50, len(mean_imp))
+    top_features = mean_imp.head(TOP_N).index.tolist()
+
+    print(f"\nTop {TOP_N} features by mean SHAP importance:")
+    for i, feat in enumerate(top_features):
+        is_sm = "so_" in feat or "shares" in feat
+        tag = " <- SMART MONEY" if is_sm else ""
+        print(f"  {i+1:2d}. {feat:<35s}  mean={mean_imp[feat]:.4f}{tag}")
+
+    fig = plt.figure(figsize=(24, 14))
+    gs = fig.add_gridspec(2, 2, width_ratios=[3, 1], height_ratios=[3, 1],
+                          hspace=0.08, wspace=0.02,
+                          top=0.95, bottom=0.05, left=0.05, right=0.98)
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax2 = fig.add_subplot(gs[1, 0], sharex=ax1)
+    ax_leg = fig.add_subplot(gs[:, 1])
+    ax_leg.axis("off")
+
+    top_df = df[top_features]
+    top_smooth = top_df.rolling(5, min_periods=1).mean()
+
+    base_colors = plt.cm.gist_ncar(np.linspace(0.02, 0.95, TOP_N))
+    colors = []
+    for i, feat in enumerate(top_features):
+        if "so_" in feat or "shares" in feat:
+            colors.append("#d62728")
+        else:
+            colors.append(base_colors[i])
+
+    ax1.stackplot(top_smooth.index, top_smooth.values.T,
+                  labels=top_features, colors=colors, alpha=0.85)
+    ax1.set_ylabel("SHAP Importance (stacked)")
+    ax1.set_title(f"Top {TOP_N} Feature SHAP Importance — Walk-Forward", fontsize=14)
+    ax1.grid(True, alpha=0.3)
+
+    # Overlay the red backtest equity curve (IB fees only) on a twin axis
+    bt_path = OUTPUTS / "backtest_equity.csv"
+    if bt_path.exists():
+        bt = pd.read_csv(bt_path, parse_dates=["date"]).set_index("date")["equity"]
+        ax1b = ax1.twinx()
+        ax1b.plot(bt.index, bt.values, lw=3.0, color="#d62728", zorder=20,
+                  label="Backtest (frais IB)")
+        ax1b.set_yscale("log")
+        ax1b.set_ylabel("Backtest equity — frais IB (log, base 1)", color="#d62728")
+        ax1b.tick_params(axis="y", colors="#d62728")
+        ax1b.yaxis.set_major_formatter(mtick.FuncFormatter(lambda x, _: f"{x:.0f}x"))
+        ax1b.legend(loc="upper left", fontsize=11, framealpha=0.92)
+
+    fs = 9 if TOP_N <= 25 else 7
+    mk = min(16, max(7, 0.9 / max(TOP_N, 1) * 620))
+    y_start = 0.98
+    y_step = min(0.035, 0.94 / max(TOP_N, 1))
+    for i, feat in enumerate(top_features):
+        y = y_start - i * y_step
+        is_sm = "so_" in feat or "shares" in feat
+        color = "#d62728" if is_sm else colors[i]
+        fw = "bold" if is_sm else "normal"
+        ax_leg.text(0.0, y, "■", fontsize=mk, color=color, va="center",
+                    transform=ax_leg.transAxes)
+        ax_leg.text(0.08, y, f"{i+1:2d}. {feat}", fontsize=fs, fontweight=fw,
+                    va="center", transform=ax_leg.transAxes)
+        ax_leg.text(0.97, y, f"{mean_imp[feat]:.4f}", fontsize=fs, va="center",
+                    ha="right", transform=ax_leg.transAxes, color="#333333")
+
+    n_active = (df > 0.001).sum(axis=1)
+    ax2.plot(n_active.index, n_active.values, lw=2, color="#1f77b4")
+    ax2.set_ylabel("Active features (SHAP > 0.001)")
+    ax2.set_xlabel("Date")
+    ax2.grid(True, alpha=0.3)
+
+    out = OUTPUTS / "feature_importance_evolution.jpg"
+    fig.savefig(out, dpi=100, bbox_inches="tight", format="jpeg",
+                pil_kwargs={"quality": 70, "optimize": True})
+    plt.close(fig)
+    print(f"Saved → outputs/feature_importance_evolution.jpg")
+
+
 def run_equity():
     """Equity backtest → global + per-year equity charts and winner/loser pies."""
     oos_path = DATA / "oos_predictions.parquet"
@@ -1002,6 +1099,9 @@ def run_equity():
         _save_winners_losers_pie(str(yr), yr_weights, daily_ret_panel,
                                  OUTPUTS, f"backtest_pie_{yr}.jpg")
         print(f"Saved → outputs/backtest_pie_{yr}.jpg")
+
+    # --- Feature-importance evolution, with this backtest's curve overlaid ---
+    _plot_feature_importance()
 
 
 # ===========================================================================
