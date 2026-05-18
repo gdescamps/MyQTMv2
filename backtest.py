@@ -314,12 +314,54 @@ def _load_benchmark(ticker: str, dates: pd.DatetimeIndex) -> pd.Series | None:
     return None
 
 
+def compute_red_orange(port_returns: pd.Series, step_fee_records: list,
+                       init_capital: float = 150_000.0) -> tuple:
+    """Build the two parallel equity curves from a gross daily-return series
+    and per-step IB fees:
+      RED    — pays IB fees only (no tax). Each step's fee enters as a
+               scale-invariant fractional drag (fee / 150k base) so fees
+               stay correct as the portfolio grows.
+      ORANGE — same, plus the 30% flat tax withdrawn from capital each
+               1st January on the prior year's realised gain (net of fees).
+    Returns (eq_red, eq_orange, daily_factor, cumul_fees, total_taxes).
+    """
+    if len(port_returns) == 0:
+        empty = pd.Series(dtype=float)
+        return empty, empty, empty, 0.0, 0.0
+
+    fee_drag = pd.Series(1.0, index=port_returns.index)
+    for idx, sf in step_fee_records:
+        fee_drag.loc[idx.max()] *= (1.0 - sf / init_capital)
+    daily_factor = (1.0 + port_returns) * fee_drag
+    eq_red = daily_factor.cumprod()                       # IB fees only
+
+    eq_orange = pd.Series(index=port_returns.index, dtype=float)
+    orange_start = 1.0
+    total_taxes = 0.0
+    for year in range(int(port_returns.index[0].year), int(port_returns.index[-1].year) + 1):
+        ymask = port_returns.index.year == year
+        if ymask.sum() == 0:
+            continue
+        ycum = daily_factor[ymask].cumprod()
+        eq_orange[ymask] = orange_start * ycum
+        year_end = orange_start * ycum.iloc[-1]
+        net_gain = year_end - orange_start                # already net of IB fees
+        tax = FLAT_TAX_RATE * net_gain if net_gain > 0 else 0.0
+        total_taxes += tax * init_capital
+        orange_start = year_end - tax                     # next year starts after tax
+
+    # Real cumulative IB fees, scaled to the (growing) red portfolio
+    cumul_fees = sum(sf * eq_red.loc[idx.max()] for idx, sf in step_fee_records)
+    return eq_red, eq_orange, daily_factor, cumul_fees, total_taxes
+
+
 def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
                      weights_df: pd.DataFrame,
                      params_df: pd.DataFrame, out_dir: Path,
                      scores_A: pd.DataFrame | None = None,
                      fin: dict | None = None,
-                     fname: str = "backtest_equity.jpg") -> None:
+                     fname: str = "backtest_equity.jpg",
+                     eq_orange: pd.Series | None = None) -> None:
     """Save chart: equity, allocation, temp_A + scores_A."""
     from etf import BY_BOURSO
     # Compound annual growth rate (CAGR) — same definition as the summary box
@@ -330,79 +372,54 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
     title = (f"MyQTM-ETF — Walk-Forward OOS  "
              f"(Sharpe={sh:.2f}  Ann={ann_ret:.1%}  Vol={ann_vol:.1%}  MaxDD={max_dd:.1%})")
 
-    # --- Unified color map (ticker → color), shared between panels ---
+    # --- Unified colour map (bourso ticker → colour), shared between panels.
+    #     Principals (S&P 500, Nasdaq, Gold Miners) get saturated colours so
+    #     they stand out next to the red/orange portfolio curves. Every ETF
+    #     of the universe gets a distinct colour (no grey fallback). ---
     etf_color_map = {
-        # Existing (keep)
-        "IVV": "#ff7f0e",     # S&P 500 = orange
-        "SOXX": "#9467bd",    # Semiconductors = violet
-        "GLD": "#d4af37",     # Gold = gold
-        "EEM": "#2ca02c",     # Emerging = green
-        "TLT": "#17becf",     # Treasury 20y+ = cyan
-        "IEO": "#8b4513",     # Oil & Gas = brown
-        "EXX1.DE": "#e377c2", # Euro Banks = pink
-        "EXV1.DE": "#c49bc8", # Euro Tech = light pink
-        "QQQ": "#98df8a",     # Nasdaq 100 = light green
-        # US Sectors
-        "XLK": "#1f77b4",     # US Tech = blue
-        "XLE": "#d62728",     # US Energy = red
-        "XLI": "#7f7f7f",     # US Industrials = grey
-        "XLY": "#bcbd22",     # US Cons. Disc. = olive
-        "XLV": "#ff9896",     # US Healthcare = light red
-        "XLP": "#aec7e8",     # US Cons. Staples = light blue
-        "XLF": "#c7c7c7",     # US Financials = silver
-        "XLU": "#dbdb8d",     # US Utilities = khaki
-        "XLB": "#c49c94",     # US Materials = tan
-        # Countries
-        "EWJ": "#393b79",     # Japan = navy
-        "EWC": "#e7969c",     # Canada = salmon
-        "EWY": "#7b4173",     # South Korea = plum
-        "EWZ": "#a55194",     # Brazil = magenta
-        "EWW": "#ce6dbd",     # Mexico = orchid
-        "FXI": "#de9ed6",     # China = light violet
-        "TUR": "#ad494a",     # Turkey = brick red
-        # Bonds
-        "IEF": "#6b6ecf",     # Treasury 7-10y = indigo
-        "HYG": "#b5cf6b",     # High Yield = lime
-        "TIP": "#e7ba52",     # TIPS = amber
-        # Alternatif
-        "RING": "#ffcc00",    # Gold Miners = yellow
+        # Principals
+        "IVV":     "#1565c0",  # S&P 500             — strong blue
+        "QQQ":     "#2ca02c",  # Nasdaq 100          — strong green
+        "RING":    "#f4b400",  # Gold Miners         — gold
+        # Geo equity
+        "ACWI":    "#17becf",  # MSCI World          — cyan
+        "EEM":     "#9467bd",  # Emerging Markets    — violet
+        "IEMG":    "#8c564b",  # Core EM IMI         — brown
+        "EMXC":    "#e377c2",  # EM ex-China         — pink
+        "ILF":     "#bcbd22",  # Latin America 40    — olive
+        "EWY":     "#7b4173",  # South Korea         — plum
+        "EWT":     "#393b79",  # Taiwan              — navy
+        "EWZ":     "#a55194",  # Brazil              — magenta
+        "EWW":     "#ce6dbd",  # Mexico              — orchid
+        "EWC":     "#e7969c",  # Canada              — salmon
+        "EWJ":     "#6b6ecf",  # Japan               — indigo
+        "TUR":     "#ad494a",  # Turkey              — brick
+        "FXI":     "#de9ed6",  # China Large-Cap     — light violet
+        "ISF.L":   "#637939",  # FTSE 100            — dark olive
+        "IEUR":    "#3182bd",  # Core Europe         — mid blue
+        "EZU":     "#b5cf6b",  # Eurozone            — lime
+        "EPP":     "#9c9ede",  # Pacific ex-Japan    — periwinkle
+        "SUSA":    "#5254a3",  # USA SRI             — blue-purple
+        # Thematic
+        "SOXX":    "#756bb1",  # Semiconductors      — medium purple
+        "ROBO":    "#c49c94",  # Automation&Robotics — tan
+        "ICLN":    "#66c2a5",  # Global Clean Energy — teal-green
+        "EXX1.DE": "#1ab0a8",  # EURO STOXX Banks    — teal
+        # Commodity
+        "IEO":     "#8b4513",  # Oil & Gas E&P       — saddle brown
+        "SXRS.DE": "#bd9e39",  # Diversified Commod. — dark gold
     }
-    # Simplified display names (remove iShares, ETF, Shares, etc.)
-    SHORT_NAMES = {
-        "IVV": "S&P 500",
-        "SOXX": "Semiconductors",
-        "GLD": "Gold",
-        "EEM": "Emerging Mkts",
-        "TLT": "Treasury 20y+",
-        "IEO": "Oil & Gas",
-        "EXX1.DE": "Euro Banks",
-        "EXV1.DE": "Euro Tech",
-        "QQQ": "Nasdaq 100",
-        "XLK": "US Tech",
-        "XLE": "US Energy",
-        "XLI": "US Industrials",
-        "XLY": "US Cons. Disc.",
-        "XLV": "US Healthcare",
-        "XLP": "US Cons. Staples",
-        "XLF": "US Financials",
-        "XLU": "US Utilities",
-        "XLB": "US Materials",
-        "EWJ": "Japan",
-        "EWC": "Canada",
-        "EWY": "South Korea",
-        "EWZ": "Brazil",
-        "EWW": "Mexico",
-        "FXI": "China",
-        "TUR": "Turkey",
-        "IEF": "Treasury 7-10y",
-        "HYG": "High Yield",
-        "TIP": "TIPS Inflation",
-        "RING": "Gold Miners",
-    }
+    from etf import UNIVERSE as _UNIVERSE
+
+    # Abbreviated display names: ETF full name minus the iShares / Sector /
+    # ETF / Acc / USD tokens.
+    def _short_name(name: str) -> str:
+        drop = {"ishares", "sector", "etf", "acc", "usd"}
+        words = [w for w in name.split() if w.lower() not in drop]
+        return " ".join(words) or name
+    SHORT_NAMES = {e.bourso: _short_name(e.name) for e in _UNIVERSE}
     # Tickers to show in bold on equity chart (besides portfolio)
     BOLD_TICKERS = {"IVV", "GLD", "IEO", "QQQ", "RING"}
-
-    from etf import UNIVERSE as _UNIVERSE
 
     # --- Chart: Equity + Allocation + Temp/Scores ---
     fig1 = plt.figure(figsize=(24, 14))
@@ -422,32 +439,39 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         trades = active.diff().abs().sum(axis=1)  # count of on/off switches per day
         n_months = max(len(port_returns) / 21, 1)
         trades_per_month = trades.sum() / n_months
+        mean_alloc = w.mean()
     else:
         trades_per_month = 0
+        mean_alloc = pd.Series(dtype=float)
+    # Mean allocation per ETF (short name) — drives the legend bullet size
+    alloc_by_short = {SHORT_NAMES.get(t, t): float(mean_alloc.get(t, 0.0))
+                      for t in mean_alloc.index}
 
     # --- Right column header: performance + financial summary ---
     def _eur(x):
         return f"{x:,.0f}".replace(",", " ") + " €"
 
+    # Colour code: gross/performance items in red, everything about fees,
+    # tax, initial capital and the net final value in orange.
+    RED, ORANGE = "#d62728", "#ff7f0e"
     hdr = [
-        ("Ann. brut", f"{ann_ret:+.1%}", "#000000", True),
+        ("Ann (brut-frais)", f"{ann_ret:+.1%}", RED, True),
     ]
     if fin is not None:
-        hdr.append(("Ann. net", f"{fin['ann_net']:+.1%}", "#1a7a1a", True))
+        hdr.append(("Ann. net", f"{fin['ann_net']:+.1%}", ORANGE, True))
     hdr += [
-        ("Vol", f"{ann_vol:.1%}", "#333333", False),
-        ("MaxDD", f"{max_dd:.1%}", "#cc0000", False),
-        ("Trades", f"{trades_per_month:.1f}/mois", "#333333", False),
+        ("Vol", f"{ann_vol:.1%}", RED, False),
+        ("MaxDD", f"{max_dd:.1%}", RED, False),
+        ("Trades", f"{trades_per_month:.1f}/mois", RED, False),
     ]
     if fin is not None:
         hdr += [
             ("__sep__", "", "", False),
-            ("Capital initial", _eur(fin['init']), "#333333", False),
-            ("Valeur finale brute", _eur(fin['gross']), "#333333", False),
-            ("Frais Interactive Broker", _eur(-fin['fees']), "#cc0000", False),
-            ("Flat tax 30 % (versée)", _eur(-fin['taxes']), "#cc0000", False),
-            ("Capitalisation perdue", _eur(-fin['comp_loss']), "#cc0000", False),
-            ("Valeur finale NETTE", _eur(fin['net']), "#1a7a1a", True),
+            ("Capital initial", _eur(fin['init']), ORANGE, False),
+            ("Valeur finale (brut-frais)", _eur(fin['gross']), ORANGE, True),
+            ("Frais Interactive Broker", _eur(-fin['fees']), ORANGE, False),
+            ("Flat tax 30 % (versée)", _eur(-fin['taxes']), ORANGE, False),
+            ("Valeur finale NETTE", _eur(fin['net']), ORANGE, True),
         ]
 
     y = 1.00
@@ -466,8 +490,13 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         y -= y_step_hdr
     hdr_bottom = y
 
-    # Portfolio: very bold red
-    ax1.plot(eq_curve.index, eq_curve.values, lw=3.5, color="#d62728", zorder=10)
+    # Portfolio curves: red = IB fees only, orange = fees + flat tax 30%
+    ax1.plot(eq_curve.index, eq_curve.values, lw=3.5, color="#d62728", zorder=10,
+             label="Frais IB seuls")
+    if eq_orange is not None:
+        ax1.plot(eq_orange.index, eq_orange.values, lw=3.5, color="#ff7f0e",
+                 zorder=11, label="Frais IB + flat tax 30 %")
+        ax1.legend(loc="upper left", fontsize=12, framealpha=0.92)
 
     # Compute portfolio Sharpe & max DD
     port_sh = sharpe(port_returns)
@@ -493,8 +522,13 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
 
     # Sorted list: portfolio + ETFs all sorted by final value (descending)
     from matplotlib.lines import Line2D
-    all_items = [(eq_curve.iloc[-1], port_sh, port_dd, "Portfolio", "#d62728", True)] + \
-                [(v, sh, dd, s, c, False) for v, sh, dd, s, c in etf_curves]
+    all_items = [(eq_curve.iloc[-1], port_sh, port_dd, "Portefeuille (brut-frais)", "#d62728", True)]
+    if eq_orange is not None:
+        o_ret = eq_orange.pct_change().dropna()
+        all_items.append((eq_orange.iloc[-1], sharpe(o_ret),
+                          (eq_orange / eq_orange.cummax() - 1).min(),
+                          "Portefeuille (net)", "#ff7f0e", True))
+    all_items += [(v, sh, dd, s, c, False) for v, sh, dd, s, c in etf_curves]
     sorted_items = sorted(all_items, key=lambda x: -x[0])
 
     # Sort by Sharpe (descending) for right-side list
@@ -550,12 +584,20 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
     y_start = hdr_bottom - 0.030
     avail = y_start + 0.06
     y_step = min(0.030, avail / max(n_items, 1))
-    marker_fs = min(26, max(12, y_step * 850))
+    marker_fs = min(26, max(12, y_step * 850))   # max bullet size
+    marker_min = 5.0                              # bullet size at zero allocation
+    max_a = max(alloc_by_short.values(), default=0.0)
     for i, (val, sh, dd, short, color, is_port) in enumerate(sorted_by_sharpe):
         y = y_start - i * y_step
         fw = "bold" if is_port else "normal"
         fs = (11 if is_port else 10) if y_step > 0.024 else (10 if is_port else 9)
-        ax_leg.text(0.0, y, "■", fontsize=marker_fs, color=color, va="center",
+        # Bullet size ∝ mean allocation (portfolio rows always full size)
+        if is_port:
+            m_fs = marker_fs
+        else:
+            frac = (alloc_by_short.get(short, 0.0) / max_a) if max_a > 0 else 0.0
+            m_fs = marker_min + (marker_fs - marker_min) * frac
+        ax_leg.text(0.0, y, "■", fontsize=m_fs, color=color, va="center",
                     transform=ax_leg.transAxes)
         ax_leg.text(0.08, y, f"{short}", fontsize=fs, fontweight=fw, va="center",
                     transform=ax_leg.transAxes)
@@ -635,9 +677,7 @@ def main():
     carry_weights    = None   # chain positions between steps
     current_alloc_cap = 1.0   # persists between steps, reduced on spike, recovers gradually
     recovering        = False # once recovery starts, climb monthly until 100% (ignore new spikes)
-    cumul_fees       = 0.0    # cumulative IB trading fees
-    year_fees        = {}     # IB trading fees per calendar year
-    total_taxes      = 0.0    # cumulative flat tax paid
+    step_fee_records = []     # (date_index, fee) per step — fees scaled later
     cumul_rebals     = 0     # total rebalances
     chain_tax_state  = None  # tax state chained between steps
 
@@ -771,12 +811,7 @@ def main():
 
         all_test_returns.append(test_returns)
         all_test_weights.append(test_weights)
-        cumul_fees += step_fees
-        # Attribute the step's fees to calendar years by trading-day count
-        syears = pd.Series(test_returns.index).dt.year
-        for yv, cnt in syears.value_counts().items():
-            year_fees[yv] = year_fees.get(yv, 0.0) + step_fees * cnt / len(syears)
-        total_taxes += step_taxes
+        step_fee_records.append((test_returns.index, step_fees))
         cumul_rebals += step_rebals
         all_params_rows.append({"step": step, "temperature": TEMPERATURE, "rebal_days": REBAL_DAYS,
                                 "alloc_cap": step_max_alloc})
@@ -800,57 +835,40 @@ def main():
 
     # --- Final backtest stats (true OOS: test periods only) ---
     port_returns = pd.concat(all_test_returns).sort_index()
-    eq_curve     = (1 + port_returns).cumprod()
-
-    total_ret    = eq_curve.iloc[-1] - 1
+    init_capital = 150_000.0
     n_years      = max(len(port_returns), 1) / 252
-    ann_ret      = (1 + total_ret) ** (1 / n_years) - 1
     ann_vol      = port_returns.std() * np.sqrt(252)
     final_sharpe = sharpe(port_returns)
-    max_dd       = (eq_curve / eq_curve.cummax() - 1).min()
 
-    # Flat tax 30% on annual gains — computed on equity curve
-    # With frequent rebalancing (~130/year), virtually all gains are realized
-    init_capital = 150_000.0
-    eq_values = eq_curve * init_capital
-    total_taxes = 0.0
-    capital_after_tax = init_capital
-    for year in range(int(port_returns.index[0].year), int(port_returns.index[-1].year) + 1):
-        year_mask = eq_values.index.year == year
-        if year_mask.sum() == 0:
-            continue
-        # Growth factor during this year
-        year_eq = eq_values[year_mask]
-        year_growth = year_eq.iloc[-1] / year_eq.iloc[0]
-        # Gain on capital_after_tax
-        year_end_val = capital_after_tax * year_growth
-        year_gain = year_end_val - capital_after_tax
-        if year_gain > 0:
-            tax = year_gain * FLAT_TAX_RATE
-            total_taxes += tax
-            capital_after_tax = year_end_val - tax
-        else:
-            capital_after_tax = year_end_val
+    # --- Two parallel backtests: red (IB fees only) + orange (fees + tax) ---
+    eq_red, eq_orange, daily_factor, cumul_fees, total_taxes = compute_red_orange(
+        port_returns, step_fee_records, init_capital)
 
-    final_portfolio = eq_curve.iloc[-1] * init_capital
-    net_final = capital_after_tax - cumul_fees  # capital_after_tax already has taxes deducted
+    eq_curve     = eq_red                                 # red = reference curve
+    total_ret    = eq_red.iloc[-1] - 1
+    ann_ret      = (1 + total_ret) ** (1 / n_years) - 1
+    max_dd       = (eq_red / eq_red.cummax() - 1).min()
+
+    final_portfolio = eq_red.iloc[-1] * init_capital      # red final (fees only)
+    net_final  = eq_orange.iloc[-1] * init_capital        # orange final (fees + tax)
     net_return = net_final / init_capital - 1
-    net_ann = (1 + net_return) ** (1 / n_years) - 1
+    net_ann    = (1 + net_return) ** (1 / n_years) - 1
 
     print("\n" + "=" * 75)
     print("=== Final OOS backtest ===")
     print(f"  Period:       {port_returns.index[0].date()} → {port_returns.index[-1].date()}")
     print(f"  Init capital: {init_capital:,.0f}€")
-    print(f"  Total return: {total_ret:.1%}")
-    print(f"  Ann. return:  {ann_ret:.1%}")
     print(f"  Ann. vol:     {ann_vol:.1%}")
     print(f"  Sharpe:       {final_sharpe:.3f}")
     print(f"  Max drawdown: {max_dd:.1%}")
-    print(f"  --- Fees (IB Euronext, {init_capital/1000:.0f}k€) ---")
+    print(f"  --- RED — IB fees only (no tax) ---")
+    print(f"  Total return: {total_ret:.1%}")
+    print(f"  Ann. return:  {ann_ret:.1%}")
     print(f"  Rebalances:   {cumul_rebals} ({cumul_rebals/n_years:.0f}/an)")
     print(f"  Trading fees: {cumul_fees:,.0f}€ ({cumul_fees/n_years:,.0f}€/an)")
-    print(f"  Flat tax 30%: {total_taxes:,.0f}€ ({total_taxes/n_years:,.0f}€/an)")
-    print(f"  --- Net result (after fees + flat tax) ---")
+    print(f"  Final value:  {final_portfolio:,.0f}€")
+    print(f"  --- ORANGE — IB fees + flat tax 30% ---")
+    print(f"  Flat tax:     {total_taxes:,.0f}€ ({total_taxes/n_years:,.0f}€/an)")
     print(f"  Final value:  {net_final:,.0f}€")
     print(f"  Net return:   {net_return:.1%}")
     print(f"  Net ann.:     {net_ann:.1%}")
@@ -867,24 +885,20 @@ def main():
 
     pd.DataFrame(all_params_rows).to_csv(OUTPUTS / "backtest_steps.csv", index=False)
 
-    # Equity curve PNG
+    # Equity chart — red (fees) + orange (fees + flat tax)
     all_weights = pd.concat(all_test_weights).sort_index()
     all_scores = pd.concat(all_test_scores).sort_index() if all_test_scores else pd.DataFrame()
-    # Lost compounding: gap between gross and net not explained by nominal
-    # fees + taxes — it's the growth foregone on tax withdrawn each year.
-    compounding_loss = final_portfolio - cumul_fees - total_taxes - net_final
     fin = {
         "init": init_capital,
-        "gross": final_portfolio,
-        "net": net_final,
+        "gross": final_portfolio,   # red final  (IB fees only)
+        "net": net_final,           # orange final (fees + flat tax)
         "fees": cumul_fees,
         "taxes": total_taxes,
-        "comp_loss": compounding_loss,
         "ann_gross": ann_ret,
         "ann_net": net_ann,
     }
-    _save_equity_png(port_returns, eq_curve, all_weights, params_df, OUTPUTS,
-                     scores_A=all_scores, fin=fin)
+    _save_equity_png(port_returns, eq_red, all_weights, params_df, OUTPUTS,
+                     scores_A=all_scores, fin=fin, eq_orange=eq_orange)
 
     print(f"\nSaved → data/backtest_results.parquet")
     print(f"Saved → outputs/best_params.csv")
@@ -898,31 +912,32 @@ def main():
         if ymask.sum() < 5:
             continue
         yr_returns = port_returns[ymask]
-        yr_eq      = (1 + yr_returns).cumprod()
+        yr_red     = daily_factor[ymask].cumprod()         # IB fees included
         yr_weights = all_weights[all_weights.index.year == yr]
         yr_scores  = all_scores[all_scores.index.year == yr] if len(all_scores) else all_scores
         yr_days    = max(len(yr_returns), 1)
 
-        gross_yr = yr_eq.iloc[-1] * init_capital
-        fees_yr  = year_fees.get(yr, 0.0)
-        # IB fees are deductible: flat tax applies to the gain net of fees
-        gain_yr  = gross_yr - fees_yr - init_capital
-        tax_yr   = gain_yr * FLAT_TAX_RATE if gain_yr > 0 else 0.0
-        net_yr   = gross_yr - fees_yr - tax_yr
+        yr_red_final = yr_red.iloc[-1] * init_capital       # fees only
+        yr_gain      = yr_red_final - init_capital          # already net of fees
+        yr_tax       = FLAT_TAX_RATE * yr_gain if yr_gain > 0 else 0.0
+        yr_net       = yr_red_final - yr_tax                # fees + flat tax
+        yr_fees      = sum(sf * yr_red.loc[idx.max()] for idx, sf in step_fee_records
+                           if idx.max() in yr_red.index)
+        # Orange curve: net capital with the flat tax on the gain-to-date
+        # marked-to-market (converges to yr_net on the last day).
+        yr_orange = yr_red - FLAT_TAX_RATE * (yr_red - 1.0).clip(lower=0)
         fin_yr = {
             "init": init_capital,
-            "gross": gross_yr,
-            "net": net_yr,
-            "fees": fees_yr,
-            "taxes": tax_yr,
-            # Single isolated year → tax paid once at year-end, no lost compounding
-            "comp_loss": gross_yr - fees_yr - tax_yr - net_yr,
-            "ann_gross": yr_eq.iloc[-1] ** (252.0 / yr_days) - 1,
-            "ann_net": (net_yr / init_capital) ** (252.0 / yr_days) - 1,
+            "gross": yr_red_final,
+            "net": yr_net,
+            "fees": yr_fees,
+            "taxes": yr_tax,
+            "ann_gross": yr_red.iloc[-1] ** (252.0 / yr_days) - 1,
+            "ann_net": (yr_net / init_capital) ** (252.0 / yr_days) - 1,
         }
-        _save_equity_png(yr_returns, yr_eq, yr_weights, params_df, OUTPUTS,
+        _save_equity_png(yr_returns, yr_red, yr_weights, params_df, OUTPUTS,
                          scores_A=yr_scores, fin=fin_yr,
-                         fname=f"backtest_equity_{yr}.jpg")
+                         fname=f"backtest_equity_{yr}.jpg", eq_orange=yr_orange)
         print(f"Saved → outputs/backtest_equity_{yr}.jpg")
 
 
