@@ -25,11 +25,6 @@ from etf import UNIVERSE
 DATA    = Path(__file__).parent / "data"
 MYFILES = Path(__file__).parent / "myfiles"
 
-# The 11 ETFs added in the 27 → 38 expansion (sectors US + bonds).
-ADDED = {"XLK", "XLE", "XLV", "XLF", "XLI", "XLY", "XLP",
-         "TLT", "IEF", "HYG", "TIP"}
-
-
 def load_returns() -> pd.DataFrame:
     rets = {}
     for e in UNIVERSE:
@@ -86,18 +81,17 @@ def main():
     wk = (1 + rets).resample("W-FRI").prod() - 1   # weekly returns
     corr = wk.corr()
     tickers = list(corr.columns)
-    cols27 = [t for t in tickers if t not in ADDED]
+    n = len(tickers)
 
-    print(f"Univers : {len(tickers)} ETF  |  fenêtre commune "
+    print(f"Univers : {n} ETF  |  fenêtre commune "
           f"{rets.index[0].date()} → {rets.index[-1].date()}  "
           f"({len(wk)} semaines)")
 
     # --- 1. Effective number of independent bets ---
-    e27, e38 = n_eff(corr.loc[cols27, cols27]), n_eff(corr)
+    ne = n_eff(corr)
     print("\n=== 1. Nombre effectif de paris indépendants (N_eff) ===")
-    print(f"  27 ETF : N_eff = {e27:5.1f} / 27   ({e27/27:.0%} d'indépendance)")
-    print(f"  38 ETF : N_eff = {e38:5.1f} / 38   ({e38/38:.0%} d'indépendance)")
-    print(f"  → +11 ETF n'apportent que +{e38-e27:.1f} pari(s) vraiment indépendant(s)")
+    print(f"  N_eff = {ne:.1f} / {n}   ({ne/n:.0%} d'indépendance)")
+    print(f"  (univers orthogonal → N_eff = N ; tout corrélé → N_eff = 1)")
 
     # --- 2. Correlated blocks ---
     print("\n=== 2. Blocs corrélés (corr. hebdo moyenne ≥ 0.80) ===")
@@ -106,9 +100,7 @@ def main():
             continue
         sub = corr.loc[blk, blk]
         avg = (sub.values.sum() - len(blk)) / (len(blk) ** 2 - len(blk))
-        mark = [f"{t}*" if t in ADDED else t for t in blk]
-        print(f"  bloc de {len(blk)} (corr moy {avg:.2f}) : {', '.join(mark)}")
-    print("  (* = ETF ajouté dans l'extension 27→38)")
+        print(f"  bloc de {len(blk)} (corr moy {avg:.2f}) : {', '.join(blk)}")
 
     # --- 3. Per-ETF redundancy ---
     print("\n=== 3. Redondance — corrélation au plus proche voisin ===")
@@ -118,8 +110,7 @@ def main():
         rows.append((t, o.abs().mean(), o.max(), o.idxmax()))
     for t, mc, mx, nn in sorted(rows, key=lambda x: -x[2])[:14]:
         flag = "⚠ QUASI-DOUBLON" if mx > 0.90 else ("redondant" if mx > 0.80 else "")
-        tag = " [AJOUTÉ]" if t in ADDED else ""
-        print(f"  {t:9s} voisin={nn:9s} corr={mx:.2f}  (corr moy {mc:.2f})  {flag}{tag}")
+        print(f"  {t:9s} voisin={nn:9s} corr={mx:.2f}  (corr moy {mc:.2f})  {flag}")
 
     # --- 4. Rotation usefulness: volatility of cross-sectional rank ---
     eq = (1 + rets).cumprod()
@@ -130,12 +121,10 @@ def main():
     print("  élevé = visite le haut ET le bas du classement → utile en rotation")
     lo = rank_std.sort_values()
     for t in lo.index[:6]:
-        tag = " [AJOUTÉ]" if t in ADDED else ""
-        print(f"  faible : {t:9s} rang_std={lo[t]:.3f}{tag}")
+        print(f"  faible : {t:9s} rang_std={lo[t]:.3f}")
     hi = rank_std.sort_values(ascending=False)
     for t in hi.index[:6]:
-        tag = " [AJOUTÉ]" if t in ADDED else ""
-        print(f"  fort   : {t:9s} rang_std={hi[t]:.3f}{tag}")
+        print(f"  fort   : {t:9s} rang_std={hi[t]:.3f}")
 
     MYFILES.mkdir(exist_ok=True)
     corr.to_csv(MYFILES / "universe_corr.csv")
