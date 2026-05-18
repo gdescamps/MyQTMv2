@@ -403,6 +403,11 @@ def main():
     panel = panel.reset_index()
     panel["date"] = pd.to_datetime(panel["date"])
     panel = panel.set_index(["date", "etf_id"])
+    # etf_id (ETF identity) is a permanent model feature — ordinal-encoded as a
+    # numeric column so it joins the walk-forward feature-selection candidate
+    # pool (get_all_feature_cols picks it up; the string "etf_id" stays excluded).
+    panel["etf_id_code"] = pd.Categorical(
+        panel.index.get_level_values("etf_id")).codes.astype(np.int32)
 
     n_dates = panel.index.get_level_values("date").nunique()
     n_etfs  = panel.index.get_level_values("etf_id").nunique()
