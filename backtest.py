@@ -683,16 +683,22 @@ def _plot_feature_importance() -> None:
     df = pd.read_parquet(path)
     if "step" in df.columns:
         df = df.drop(columns=["step"])
+    # With walk-forward feature selection a feature is absent from the steps
+    # where it was not selected → treat those as zero importance.
+    df = df.fillna(0.0)
 
-    mean_imp = df.mean().sort_values(ascending=False)
-    TOP_N = min(50, len(mean_imp))
-    top_features = mean_imp.head(TOP_N).index.tolist()
+    # Rank features by CUMULATIVE global SHAP importance (sum over every step),
+    # so a feature that enters/leaves the per-step WF selection is still ranked
+    # on its total contribution across the whole walk-forward.
+    total_imp = df.sum().sort_values(ascending=False)
+    TOP_N = min(50, len(total_imp))
+    top_features = total_imp.head(TOP_N).index.tolist()
 
-    print(f"\nTop {TOP_N} features by mean SHAP importance:")
+    print(f"\nTop {TOP_N} features by cumulative SHAP importance:")
     for i, feat in enumerate(top_features):
         is_sm = "so_" in feat or "shares" in feat
         tag = " <- SMART MONEY" if is_sm else ""
-        print(f"  {i+1:2d}. {feat:<35s}  mean={mean_imp[feat]:.4f}{tag}")
+        print(f"  {i+1:2d}. {feat:<35s}  cumul={total_imp[feat]:.3f}{tag}")
 
     fig = plt.figure(figsize=(24, 14))
     gs = fig.add_gridspec(2, 2, width_ratios=[3, 1], height_ratios=[3, 1],
@@ -717,7 +723,8 @@ def _plot_feature_importance() -> None:
     ax1.stackplot(top_smooth.index, top_smooth.values.T,
                   labels=top_features, colors=colors, alpha=0.85)
     ax1.set_ylabel("SHAP Importance (stacked)")
-    ax1.set_title(f"Top {TOP_N} Feature SHAP Importance — Walk-Forward", fontsize=14)
+    ax1.set_title(f"Top {TOP_N} Features — SHAP Importance Walk-Forward "
+                  f"(ranked by cumulative importance)", fontsize=14)
     ax1.grid(True, alpha=0.3)
 
     # Overlay the red backtest equity curve (IB fees only) on a twin axis
@@ -746,7 +753,7 @@ def _plot_feature_importance() -> None:
                     transform=ax_leg.transAxes)
         ax_leg.text(0.08, y, f"{i+1:2d}. {feat}", fontsize=fs, fontweight=fw,
                     va="center", transform=ax_leg.transAxes)
-        ax_leg.text(0.97, y, f"{mean_imp[feat]:.4f}", fontsize=fs, va="center",
+        ax_leg.text(0.97, y, f"{total_imp[feat]:.2f}", fontsize=fs, va="center",
                     ha="right", transform=ax_leg.transAxes, color="#333333")
 
     n_active = (df > 0.001).sum(axis=1)

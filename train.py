@@ -178,6 +178,12 @@ def run_walk_forward(
     verbose: bool = True,
     save_models: bool = True,
     dual_model: bool = True,
+    # IMPORTANT — keep this True for any real training. False reverts to a
+    # single global feature filter (outputs/selected_features.json, built by
+    # select_features.py over the WHOLE panel): that filter sees future data
+    # and leaks look-ahead bias into which features are kept. The default is
+    # False only so old diagnostic callers keep their previous behaviour;
+    # production main() always passes wf_feature_selection=True.
     wf_feature_selection: bool = False,
 ) -> pd.DataFrame:
     params = {**XGB_PARAMS, **(xgb_params or {})}
@@ -187,7 +193,14 @@ def run_walk_forward(
     n = len(dates)
 
     available_cols = [c for c in FEATURE_COLS if c in panel.columns]
-    all_candidate_cols = available_cols  # for WF feature selection
+    if wf_feature_selection:
+        # WF selection picks from the FULL feature pool each step, on train data
+        # only — so the feature set carries no look-ahead from a global filter
+        # computed over the whole history.
+        from select_features import get_all_feature_cols
+        all_candidate_cols = get_all_feature_cols(panel)
+    else:
+        all_candidate_cols = available_cols
     X_all   = panel[available_cols].astype(np.float32)
     X_all   = X_all.replace([np.inf, -np.inf], np.nan)  # XGBoost: inf → missing
     y_all   = panel[LABEL_COL].astype(np.float32)          # original labels (saved + IC)
@@ -201,7 +214,6 @@ def run_walk_forward(
     ic_log      = []   # [(step, val_ic, test_ic)]
     importance_log = []  # [(step, test_date, {feat: importance})]
     step_n      = 0
-    prev_selected = None  # cache for WF feature selection (recompute every 5 steps)
 
     train_end_pos = MIN_TRAIN_ROWS
     while train_end_pos + TEST_WINDOW <= n:
@@ -220,17 +232,22 @@ def run_walk_forward(
         test_mask    = (row_pos >= train_end_pos) & (row_pos < test_end_pos)
         test_idx     = panel.index[test_mask]
 
-        # Walk-forward feature selection (recompute every 5 steps)
-        if wf_feature_selection and (prev_selected is None or step_n % 5 == 0):
+        # Walk-forward feature selection — recomputed at EVERY step.
+        # "train only" = it runs on `in_train` rows only. `in_train` is
+        # `(row_pos >= train_start_pos) & (row_pos < train_end_pos)`, while the
+        # test block is `row_pos >= train_end_pos`. So `train_panel` excludes
+        # the test block and every future row by construction → the feature
+        # filter never sees data it will later be scored on (no look-ahead).
+        if wf_feature_selection:
             train_panel = panel.loc[panel.index[in_train]]
-            prev_selected = _select_features_on_train(
+            available_cols = _select_features_on_train(
                 train_panel, all_candidate_cols, device,
                 power=FEAT_SEL_POWER, cap=FEAT_SEL_CAP
             )
-            available_cols = prev_selected
             X_all = panel[available_cols].astype(np.float32).replace([np.inf, -np.inf], np.nan)
             if verbose:
-                print(f"  [feat_sel step {step_n}] {len(available_cols)} features selected")
+                print(f"  [feat_sel step {step_n}] {len(available_cols)}/"
+                      f"{len(all_candidate_cols)} features selected", flush=True)
 
         # Check if model B's val (even blocks) last block touches the test period
         # If the last even block ends within EMBARGO_ROWS of test start → skip B
@@ -400,10 +417,11 @@ def main():
     print(
         f"\nWalk-Forward: MIN_TRAIN={MIN_TRAIN_ROWS}d  TEST={TEST_WINDOW}d  "
         f"STEP={STEP}d  BLOCK={BLOCK_ROWS}d\n"
-        f"Labels: binary (ret_10d > 15% ann.), metric: AUC-ROC\n"
+        f"WF feature selection: ON — features re-filtered every step on train "
+        f"data only (no look-ahead)\n"
     )
 
-    oos = run_walk_forward(panel, device, dual_model=True)
+    oos = run_walk_forward(panel, device, dual_model=True, wf_feature_selection=True)
 
     out = DATA / "oos_predictions.parquet"
     oos.to_parquet(out)
