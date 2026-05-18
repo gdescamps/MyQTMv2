@@ -51,7 +51,7 @@ VIX_SPIKE_MAX = 10.0       # VIX 5-day change above this → max reduction
 VIX_SPIKE_REBAL = 1        # rebalance every day during spike
 CAP_AT_SPIKE_MIN = 0.8     # allocation cap when slope = VIX_SPIKE_MIN
 CAP_AT_SPIKE_MAX = 0.4     # allocation cap when slope >= VIX_SPIKE_MAX
-RECOVERY_RATE = 0.20       # restore +20% allocation per step after spike (no new spike)
+RECOVERY_RATE = 0.20       # restore +20% allocation per step until next steep ascending slope
 FLAT_TAX_RATE = 0.30       # PFU 30% on realized gains (paid Jan 1st)
 BROKER = "ib"              # "ib" or "boursorama"
 
@@ -335,10 +335,12 @@ def _load_benchmark(ticker: str, dates: pd.DatetimeIndex) -> pd.Series | None:
 def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
                      weights_df: pd.DataFrame,
                      params_df: pd.DataFrame, out_dir: Path,
-                     scores_A: pd.DataFrame | None = None) -> None:
+                     scores_A: pd.DataFrame | None = None,
+                     fin: dict | None = None) -> None:
     """Save chart: equity, allocation, temp_A + scores_A."""
     from etf import BY_BOURSO
-    ann_ret = port_returns.mean() * 252
+    # Compound annual growth rate (CAGR) — same definition as the summary box
+    ann_ret = eq_curve.iloc[-1] ** (252.0 / max(len(port_returns), 1)) - 1
     ann_vol = port_returns.std() * np.sqrt(252)
     sh      = sharpe(port_returns)
     max_dd  = (eq_curve / eq_curve.cummax() - 1).min()
@@ -415,7 +417,7 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         "RING": "Gold Miners",
     }
     # Tickers to show in bold on equity chart (besides portfolio)
-    BOLD_TICKERS = {"IVV", "GLD", "IEO"}
+    BOLD_TICKERS = {"IVV", "GLD", "IEO", "QQQ"}
 
     from etf import UNIVERSE as _UNIVERSE
 
@@ -440,10 +442,46 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
     else:
         trades_per_month = 0
 
-    ax_leg.text(0.0, 1.00, f"Ann       {ann_ret:.1%}", fontsize=18, fontweight="bold", va="top", transform=ax_leg.transAxes)
-    ax_leg.text(0.0, 0.95, f"Vol        {ann_vol:.1%}", fontsize=18, va="top", transform=ax_leg.transAxes, color="#333333")
-    ax_leg.text(0.0, 0.90, f"Trades  {trades_per_month:.1f}/mois", fontsize=18, va="top", transform=ax_leg.transAxes, color="#333333")
-    ax_leg.text(0.0, 0.85, f"MaxDD  {max_dd:.1%}", fontsize=18, va="top", transform=ax_leg.transAxes, color="#cc0000")
+    # --- Right column header: performance + financial summary ---
+    def _eur(x):
+        return f"{x:,.0f}".replace(",", " ") + " €"
+
+    hdr = [
+        ("Ann. brut", f"{ann_ret:+.1%}", "#000000", True),
+    ]
+    if fin is not None:
+        hdr.append(("Ann. net", f"{fin['ann_net']:+.1%}", "#1a7a1a", True))
+    hdr += [
+        ("Vol", f"{ann_vol:.1%}", "#333333", False),
+        ("MaxDD", f"{max_dd:.1%}", "#cc0000", False),
+        ("Trades", f"{trades_per_month:.1f}/mois", "#333333", False),
+    ]
+    if fin is not None:
+        hdr += [
+            ("__sep__", "", "", False),
+            ("Capital initial", _eur(fin['init']), "#333333", False),
+            ("Valeur finale brute", _eur(fin['gross']), "#333333", False),
+            ("Frais Interactive Broker", _eur(-fin['fees']), "#cc0000", False),
+            ("Flat tax 30 % (versée)", _eur(-fin['taxes']), "#cc0000", False),
+            ("Capitalisation perdue", _eur(-fin['comp_loss']), "#cc0000", False),
+            ("Valeur finale NETTE", _eur(fin['net']), "#1a7a1a", True),
+        ]
+
+    y = 1.00
+    y_step_hdr = 0.033
+    for label, val, color, bold in hdr:
+        if label == "__sep__":
+            ax_leg.plot([0.0, 0.97], [y + 0.010, y + 0.010], color="#999999",
+                        lw=1.0, transform=ax_leg.transAxes)
+            y -= y_step_hdr
+            continue
+        fw = "bold" if bold else "normal"
+        ax_leg.text(0.0, y, label, fontsize=12.5, fontweight=fw, va="top",
+                    transform=ax_leg.transAxes, color=color)
+        ax_leg.text(0.97, y, val, fontsize=12.5, fontweight=fw, va="top", ha="right",
+                    transform=ax_leg.transAxes, color=color)
+        y -= y_step_hdr
+    hdr_bottom = y
 
     # Portfolio: very bold red
     ax1.plot(eq_curve.index, eq_curve.values, lw=3.5, color="#d62728", zorder=10)
@@ -460,9 +498,9 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         bm = _load_benchmark(ticker, eq_curve.index)
         if bm is not None:
             is_bold = ticker in BOLD_TICKERS
-            lw = 2.8 if is_bold else 1.0
+            lw = 3.5 if ticker == "QQQ" else (2.8 if is_bold else 1.0)
             alpha = 0.9 if is_bold else 0.5
-            zorder = 5 if is_bold else 2
+            zorder = 9 if ticker == "QQQ" else (5 if is_bold else 2)
             short = SHORT_NAMES.get(ticker, ticker)
             ax1.plot(bm.index, bm.values, lw=lw, color=color, alpha=alpha, zorder=zorder)
             bm_ret = bm.pct_change().dropna()
@@ -524,15 +562,17 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         ax2.set_facecolor("#f8f8f8")
         ax2.grid(True, alpha=0.3)
 
-    # Right column: ETF list sorted by Sharpe
+    # Right column: ETF list sorted by Sharpe (starts below the header block)
     n_items = len(sorted_by_sharpe)
-    y_start = 0.80
-    y_step = min(0.035, 0.9 / max(n_items, 1))
+    y_start = hdr_bottom - 0.030
+    avail = y_start + 0.06
+    y_step = min(0.030, avail / max(n_items, 1))
+    marker_fs = min(26, max(12, y_step * 850))
     for i, (val, sh, dd, short, color, is_port) in enumerate(sorted_by_sharpe):
         y = y_start - i * y_step
         fw = "bold" if is_port else "normal"
-        fs = 11 if is_port else 10
-        ax_leg.text(0.0, y, "■", fontsize=28, color=color, va="center",
+        fs = (11 if is_port else 10) if y_step > 0.024 else (10 if is_port else 9)
+        ax_leg.text(0.0, y, "■", fontsize=marker_fs, color=color, va="center",
                     transform=ax_leg.transAxes)
         ax_leg.text(0.08, y, f"{short}", fontsize=fs, fontweight=fw, va="center",
                     transform=ax_leg.transAxes)
@@ -617,6 +657,7 @@ def main():
     all_test_scores  = []   # scores_A per test step
     carry_weights    = None   # chain positions between steps
     current_alloc_cap = 1.0   # persists between steps, reduced on spike, recovers gradually
+    recovering        = False # once recovery starts, climb monthly until 100% (ignore new spikes)
     cumul_fees       = 0.0    # cumulative IB trading fees
     total_taxes      = 0.0    # cumulative flat tax paid
     cumul_rebals     = 0     # total rebalances
@@ -654,28 +695,44 @@ def main():
 
             if not np.isnan(vix_at_step):
                 # Spike detection: progressive cap based on VIX slope
-                if not np.isnan(vix_5d_change) and vix_5d_change > VIX_SPIKE_MIN:
+                is_spike = (not np.isnan(vix_5d_change)) and vix_5d_change > VIX_SPIKE_MIN
+
+                # --- TOP_N + REBAL frequency ---
+                if is_spike:
                     step_top_n = TOP_N_HIGH
                     step_rebal = VIX_SPIKE_REBAL
-                    frac_spike = min((vix_5d_change - VIX_SPIKE_MIN) / (VIX_SPIKE_MAX - VIX_SPIKE_MIN), 1.0)
-                    spike_cap = CAP_AT_SPIKE_MIN + frac_spike * (CAP_AT_SPIKE_MAX - CAP_AT_SPIKE_MIN)
-                    # Reduce cap immediately (take the lower of current and spike cap)
-                    current_alloc_cap = min(current_alloc_cap, spike_cap)
                 elif vix_at_step < VIX_LOW:
                     step_top_n = TOP_N_LOW
                     step_rebal = REBAL_DAYS_LOW
-                    # Recover gradually: +RECOVERY_RATE per step when calm
-                    current_alloc_cap = min(1.0, current_alloc_cap + RECOVERY_RATE)
                 elif vix_at_step > VIX_HIGH:
                     step_top_n = TOP_N_HIGH
                     step_rebal = REBAL_DAYS_HIGH
-                    # No recovery during high VIX (hold reduced position)
                 else:
                     frac = (vix_at_step - VIX_LOW) / (VIX_HIGH - VIX_LOW)
                     step_top_n = int(round(TOP_N_LOW + frac * (TOP_N_HIGH - TOP_N_LOW)))
                     step_rebal = int(round(REBAL_DAYS_LOW + frac * (REBAL_DAYS_HIGH - REBAL_DAYS_LOW)))
-                    # Slow recovery in neutral zone
-                    current_alloc_cap = min(1.0, current_alloc_cap + RECOVERY_RATE * 0.5)
+
+                # --- Allocation cap: slope-driven only (independent of VIX level).
+                #     Cut on steep ascending slope; once the slope stops being
+                #     steep ascending, recover monthly until 100% — and stay in
+                #     recovery mode even if new spikes occur (no re-pinning). ---
+                if is_spike and not recovering:
+                    frac_spike = min((vix_5d_change - VIX_SPIKE_MIN) / (VIX_SPIKE_MAX - VIX_SPIKE_MIN), 1.0)
+                    spike_cap = CAP_AT_SPIKE_MIN + frac_spike * (CAP_AT_SPIKE_MAX - CAP_AT_SPIKE_MIN)
+                    # Reduce cap immediately (take the lower of current and spike cap)
+                    current_alloc_cap = min(current_alloc_cap, spike_cap)
+                    # Once the cap hits the floor, start a guaranteed monthly
+                    # recovery — even if spikes keep coming (no more re-pinning)
+                    if current_alloc_cap <= CAP_AT_SPIKE_MAX + 1e-9:
+                        recovering = True
+                else:
+                    # Slope no longer steep ascending (or already recovering)
+                    # → guaranteed monthly recovery toward 100%
+                    if current_alloc_cap < 1.0:
+                        recovering = True
+                    current_alloc_cap = min(1.0, current_alloc_cap + RECOVERY_RATE)
+                    if current_alloc_cap >= 1.0:
+                        recovering = False
             else:
                 step_top_n = TOP_N_SCORES
                 step_rebal = REBAL_DAYS
@@ -739,7 +796,8 @@ def main():
         cumul_fees += step_fees
         total_taxes += step_taxes
         cumul_rebals += step_rebals
-        all_params_rows.append({"step": step, "temperature": TEMPERATURE, "rebal_days": REBAL_DAYS})
+        all_params_rows.append({"step": step, "temperature": TEMPERATURE, "rebal_days": REBAL_DAYS,
+                                "alloc_cap": step_max_alloc})
         # Save scores_A for chart (first day of test step per ETF)
         all_test_scores.append(test_scores.iloc[[0]])
 
@@ -831,8 +889,21 @@ def main():
     # Equity curve PNG
     all_weights = pd.concat(all_test_weights).sort_index()
     all_scores = pd.concat(all_test_scores).sort_index() if all_test_scores else pd.DataFrame()
+    # Lost compounding: gap between gross and net not explained by nominal
+    # fees + taxes — it's the growth foregone on tax withdrawn each year.
+    compounding_loss = final_portfolio - cumul_fees - total_taxes - net_final
+    fin = {
+        "init": init_capital,
+        "gross": final_portfolio,
+        "net": net_final,
+        "fees": cumul_fees,
+        "taxes": total_taxes,
+        "comp_loss": compounding_loss,
+        "ann_gross": ann_ret,
+        "ann_net": net_ann,
+    }
     _save_equity_png(port_returns, eq_curve, all_weights, params_df, OUTPUTS,
-                     scores_A=all_scores)
+                     scores_A=all_scores, fin=fin)
 
     print(f"\nSaved → data/backtest_results.parquet")
     print(f"Saved → outputs/best_params.csv")

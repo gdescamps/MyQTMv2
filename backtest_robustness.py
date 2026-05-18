@@ -177,6 +177,7 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None, vix_s=No
 
     all_test_returns = []
     current_alloc_cap = 1.0
+    recovering = False
 
     for step in steps:
         val_data = oos[(oos["step"] == step) & (oos["split"] == "val")]
@@ -216,16 +217,15 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None, vix_s=No
             vix_5d_change = vix_aligned.diff(5).iloc[-1] if len(vix_aligned) > 5 else 0.0
 
             if not np.isnan(vix_at_step):
-                if not np.isnan(vix_5d_change) and vix_5d_change > VIX_SPIKE_MIN:
+                is_spike = (not np.isnan(vix_5d_change)) and vix_5d_change > VIX_SPIKE_MIN
+
+                # --- TOP_N + REBAL frequency ---
+                if is_spike:
                     step_top_n = TOP_N_HIGH
                     step_rebal = VIX_SPIKE_REBAL
-                    frac_spike = min((vix_5d_change - VIX_SPIKE_MIN) / (VIX_SPIKE_MAX - VIX_SPIKE_MIN), 1.0)
-                    spike_cap = CAP_AT_SPIKE_MIN + frac_spike * (CAP_AT_SPIKE_MAX - CAP_AT_SPIKE_MIN)
-                    current_alloc_cap = min(current_alloc_cap, spike_cap)
                 elif vix_at_step < VIX_LOW:
                     step_top_n = TOP_N_LOW
                     step_rebal = REBAL_DAYS_LOW
-                    current_alloc_cap = min(1.0, current_alloc_cap + RECOVERY_RATE)
                 elif vix_at_step > VIX_HIGH:
                     step_top_n = TOP_N_HIGH
                     step_rebal = REBAL_DAYS_HIGH
@@ -233,7 +233,22 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None, vix_s=No
                     frac = (vix_at_step - VIX_LOW) / (VIX_HIGH - VIX_LOW)
                     step_top_n = int(round(TOP_N_LOW + frac * (TOP_N_HIGH - TOP_N_LOW)))
                     step_rebal = int(round(REBAL_DAYS_LOW + frac * (REBAL_DAYS_HIGH - REBAL_DAYS_LOW)))
-                    current_alloc_cap = min(1.0, current_alloc_cap + RECOVERY_RATE * 0.5)
+
+                # --- Allocation cap: slope-driven only. Cut on steep ascending
+                #     slope; once the floor is hit, recover monthly until 100%
+                #     even if spikes keep coming (no re-pinning). ---
+                if is_spike and not recovering:
+                    frac_spike = min((vix_5d_change - VIX_SPIKE_MIN) / (VIX_SPIKE_MAX - VIX_SPIKE_MIN), 1.0)
+                    spike_cap = CAP_AT_SPIKE_MIN + frac_spike * (CAP_AT_SPIKE_MAX - CAP_AT_SPIKE_MIN)
+                    current_alloc_cap = min(current_alloc_cap, spike_cap)
+                    if current_alloc_cap <= CAP_AT_SPIKE_MAX + 1e-9:
+                        recovering = True
+                else:
+                    if current_alloc_cap < 1.0:
+                        recovering = True
+                    current_alloc_cap = min(1.0, current_alloc_cap + RECOVERY_RATE)
+                    if current_alloc_cap >= 1.0:
+                        recovering = False
 
         step_max_alloc = current_alloc_cap
 
