@@ -355,6 +355,27 @@ def compute_red_orange(port_returns: pd.Series, step_fee_records: list,
     return eq_red, eq_orange, daily_factor, cumul_fees, total_taxes
 
 
+# Unified colour map (bourso ticker → colour), shared by the chart panels.
+# Principals (S&P 500, Nasdaq, Gold Miners) get saturated colours; every ETF
+# of the universe gets a distinct colour (no grey fallback).
+ETF_COLOR_MAP = {
+    "IVV": "#1565c0", "QQQ": "#2ca02c", "RING": "#f4b400",        # principals
+    "ACWI": "#17becf", "EEM": "#9467bd", "IEMG": "#8c564b", "EMXC": "#e377c2",
+    "ILF": "#bcbd22", "EWY": "#7b4173", "EWT": "#393b79", "EWZ": "#a55194",
+    "EWW": "#ce6dbd", "EWC": "#e7969c", "EWJ": "#6b6ecf", "TUR": "#ad494a",
+    "FXI": "#de9ed6", "ISF.L": "#637939", "IEUR": "#3182bd", "EZU": "#b5cf6b",
+    "EPP": "#9c9ede", "SUSA": "#5254a3", "SOXX": "#756bb1", "ROBO": "#c49c94",
+    "ICLN": "#66c2a5", "EXX1.DE": "#1ab0a8", "IEO": "#8b4513", "SXRS.DE": "#bd9e39",
+}
+
+
+def _short_name(name: str) -> str:
+    """ETF display name minus the iShares / Sector / ETF / Acc / USD tokens."""
+    drop = {"ishares", "sector", "etf", "acc", "usd"}
+    words = [w for w in name.split() if w.lower() not in drop]
+    return " ".join(words) or name
+
+
 def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
                      weights_df: pd.DataFrame,
                      params_df: pd.DataFrame, out_dir: Path,
@@ -372,51 +393,9 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
     title = (f"MyQTM-ETF — Walk-Forward OOS  "
              f"(Sharpe={sh:.2f}  Ann={ann_ret:.1%}  Vol={ann_vol:.1%}  MaxDD={max_dd:.1%})")
 
-    # --- Unified colour map (bourso ticker → colour), shared between panels.
-    #     Principals (S&P 500, Nasdaq, Gold Miners) get saturated colours so
-    #     they stand out next to the red/orange portfolio curves. Every ETF
-    #     of the universe gets a distinct colour (no grey fallback). ---
-    etf_color_map = {
-        # Principals
-        "IVV":     "#1565c0",  # S&P 500             — strong blue
-        "QQQ":     "#2ca02c",  # Nasdaq 100          — strong green
-        "RING":    "#f4b400",  # Gold Miners         — gold
-        # Geo equity
-        "ACWI":    "#17becf",  # MSCI World          — cyan
-        "EEM":     "#9467bd",  # Emerging Markets    — violet
-        "IEMG":    "#8c564b",  # Core EM IMI         — brown
-        "EMXC":    "#e377c2",  # EM ex-China         — pink
-        "ILF":     "#bcbd22",  # Latin America 40    — olive
-        "EWY":     "#7b4173",  # South Korea         — plum
-        "EWT":     "#393b79",  # Taiwan              — navy
-        "EWZ":     "#a55194",  # Brazil              — magenta
-        "EWW":     "#ce6dbd",  # Mexico              — orchid
-        "EWC":     "#e7969c",  # Canada              — salmon
-        "EWJ":     "#6b6ecf",  # Japan               — indigo
-        "TUR":     "#ad494a",  # Turkey              — brick
-        "FXI":     "#de9ed6",  # China Large-Cap     — light violet
-        "ISF.L":   "#637939",  # FTSE 100            — dark olive
-        "IEUR":    "#3182bd",  # Core Europe         — mid blue
-        "EZU":     "#b5cf6b",  # Eurozone            — lime
-        "EPP":     "#9c9ede",  # Pacific ex-Japan    — periwinkle
-        "SUSA":    "#5254a3",  # USA SRI             — blue-purple
-        # Thematic
-        "SOXX":    "#756bb1",  # Semiconductors      — medium purple
-        "ROBO":    "#c49c94",  # Automation&Robotics — tan
-        "ICLN":    "#66c2a5",  # Global Clean Energy — teal-green
-        "EXX1.DE": "#1ab0a8",  # EURO STOXX Banks    — teal
-        # Commodity
-        "IEO":     "#8b4513",  # Oil & Gas E&P       — saddle brown
-        "SXRS.DE": "#bd9e39",  # Diversified Commod. — dark gold
-    }
+    etf_color_map = ETF_COLOR_MAP
     from etf import UNIVERSE as _UNIVERSE
-
-    # Abbreviated display names: ETF full name minus the iShares / Sector /
-    # ETF / Acc / USD tokens.
-    def _short_name(name: str) -> str:
-        drop = {"ishares", "sector", "etf", "acc", "usd"}
-        words = [w for w in name.split() if w.lower() not in drop]
-        return " ".join(words) or name
+    # Abbreviated display names (full name minus iShares/Sector/ETF/Acc/USD)
     SHORT_NAMES = {e.bourso: _short_name(e.name) for e in _UNIVERSE}
     # Tickers to show in bold on equity chart (besides portfolio)
     BOLD_TICKERS = {"IVV", "GLD", "IEO", "QQQ", "RING"}
@@ -610,6 +589,73 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
     fig1.savefig(out_dir / fname, dpi=100, bbox_inches="tight", format="jpeg", pil_kwargs={"quality": 60, "optimize": True})
     plt.close(fig1)
 
+
+def _save_winners_losers_pie(period_label: str, weights_df: pd.DataFrame,
+                             daily_ret_panel: pd.DataFrame, out_dir: Path,
+                             fname: str) -> None:
+    """Two pie charts — losers (left) and winners (right). Each ETF held over
+    the period is a slice sized by its allocation volume (Σ daily weight);
+    winner/loser split by the sign of its P&L contribution (Σ weight×return).
+    Pie radius scales with each side's total volume."""
+    from etf import UNIVERSE as _UNIVERSE
+    short = {e.bourso: _short_name(e.name) for e in _UNIVERSE}
+
+    dr = daily_ret_panel.reindex(index=weights_df.index).fillna(0.0)
+    rows = []   # (ticker, volume, contribution)
+    for t in weights_df.columns:
+        if t not in dr.columns:
+            continue
+        w = weights_df[t].fillna(0.0)
+        vol = float(w.sum())
+        if vol < 1e-6:
+            continue
+        rows.append((t, vol, float((w * dr[t]).sum())))
+
+    winners = sorted([r for r in rows if r[2] >= 0], key=lambda x: -x[1])
+    losers  = sorted([r for r in rows if r[2] < 0],  key=lambda x: -x[1])
+    vol_w, vol_l = sum(r[1] for r in winners), sum(r[1] for r in losers)
+    con_w, con_l = sum(r[2] for r in winners), sum(r[2] for r in losers)
+    vmax = max(vol_w, vol_l, 1e-9)
+
+    fig, (axl, axr) = plt.subplots(1, 2, figsize=(20, 11))
+    fig.suptitle(f"Gagnants / Perdants par volume alloué — {period_label}",
+                 fontsize=18, fontweight="bold")
+
+    def _pie(ax, items, side_vol, title, tcolor, radius):
+        ax.set_title(title, fontsize=14, fontweight="bold", color=tcolor)
+        ax.axis("off")
+        if not items or side_vol <= 0:
+            ax.text(0.5, 0.5, "—", ha="center", va="center", fontsize=22,
+                    color="#999999")
+            return
+        # Group slices below 2.5% of the side into a single "Autres" wedge
+        thr = 0.025 * side_vol
+        big = [r for r in items if r[1] >= thr]
+        small = [r for r in items if r[1] < thr]
+        sizes  = [r[1] for r in big]
+        colors = [ETF_COLOR_MAP.get(r[0], "#999999") for r in big]
+        labels = [f"{short.get(r[0], r[0])}  {r[1] / side_vol:.0%}" for r in big]
+        if small:
+            sv = sum(r[1] for r in small)
+            sizes.append(sv)
+            colors.append("#cccccc")
+            labels.append(f"Autres ({len(small)})  {sv / side_vol:.0%}")
+        ax.pie(sizes, labels=labels, colors=colors, radius=radius,
+               startangle=90, counterclock=False,
+               wedgeprops=dict(edgecolor="white", linewidth=1.0),
+               textprops=dict(fontsize=9), labeldistance=1.06)
+        ax.set(aspect="equal")
+
+    _pie(axl, losers, vol_l,
+         f"Perdants — {len(losers)} ETF   (contribution {con_l:+.1%})",
+         "#d62728", radius=(vol_l / vmax) ** 0.5)
+    _pie(axr, winners, vol_w,
+         f"Gagnants — {len(winners)} ETF   (contribution {con_w:+.1%})",
+         "#1a7a1a", radius=(vol_w / vmax) ** 0.5)
+
+    fig.savefig(out_dir / fname, dpi=100, bbox_inches="tight", format="jpeg",
+                pil_kwargs={"quality": 60, "optimize": True})
+    plt.close(fig)
 
 
 def main():
@@ -906,6 +952,12 @@ def main():
     print(f"Saved → outputs/backtest_equity.csv")
     print(f"Saved → outputs/backtest_equity.jpg")
 
+    # --- Winners / losers pie (global, all years chained) ---
+    global_label = f"{port_returns.index[0].year}-{port_returns.index[-1].year}"
+    _save_winners_losers_pie(global_label, all_weights, daily_ret_panel,
+                             OUTPUTS, "backtest_pie.jpg")
+    print(f"Saved → outputs/backtest_pie.jpg")
+
     # --- Per-year equity charts (each year restarts fresh at 150k€) ---
     for yr in range(int(port_returns.index[0].year), int(port_returns.index[-1].year) + 1):
         ymask = port_returns.index.year == yr
@@ -939,6 +991,9 @@ def main():
                          scores_A=yr_scores, fin=fin_yr,
                          fname=f"backtest_equity_{yr}.jpg", eq_orange=yr_orange)
         print(f"Saved → outputs/backtest_equity_{yr}.jpg")
+        _save_winners_losers_pie(str(yr), yr_weights, daily_ret_panel,
+                                 OUTPUTS, f"backtest_pie_{yr}.jpg")
+        print(f"Saved → outputs/backtest_pie_{yr}.jpg")
 
 
 if __name__ == "__main__":
