@@ -318,7 +318,8 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
                      weights_df: pd.DataFrame,
                      params_df: pd.DataFrame, out_dir: Path,
                      scores_A: pd.DataFrame | None = None,
-                     fin: dict | None = None) -> None:
+                     fin: dict | None = None,
+                     fname: str = "backtest_equity.jpg") -> None:
     """Save chart: equity, allocation, temp_A + scores_A."""
     from etf import BY_BOURSO
     # Compound annual growth rate (CAGR) — same definition as the summary box
@@ -364,7 +365,7 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         "HYG": "#b5cf6b",     # High Yield = lime
         "TIP": "#e7ba52",     # TIPS = amber
         # Alternatif
-        "RING": "#8c6d31",    # Gold Miners = dark gold
+        "RING": "#ffcc00",    # Gold Miners = yellow
     }
     # Simplified display names (remove iShares, ETF, Shares, etc.)
     SHORT_NAMES = {
@@ -399,7 +400,7 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         "RING": "Gold Miners",
     }
     # Tickers to show in bold on equity chart (besides portfolio)
-    BOLD_TICKERS = {"IVV", "GLD", "IEO", "QQQ"}
+    BOLD_TICKERS = {"IVV", "GLD", "IEO", "QQQ", "RING"}
 
     from etf import UNIVERSE as _UNIVERSE
 
@@ -564,7 +565,7 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
                     transform=ax_leg.transAxes, color="#333333")
         ax_leg.text(0.95, y, f"{dd:.0%}", fontsize=fs, va="center", ha="right",
                     transform=ax_leg.transAxes, color="#cc0000" if dd < -0.30 else "#666666")
-    fig1.savefig(out_dir / "backtest_equity.jpg", dpi=100, bbox_inches="tight", format="jpeg", pil_kwargs={"quality": 60, "optimize": True})
+    fig1.savefig(out_dir / fname, dpi=100, bbox_inches="tight", format="jpeg", pil_kwargs={"quality": 60, "optimize": True})
     plt.close(fig1)
 
 
@@ -635,6 +636,7 @@ def main():
     current_alloc_cap = 1.0   # persists between steps, reduced on spike, recovers gradually
     recovering        = False # once recovery starts, climb monthly until 100% (ignore new spikes)
     cumul_fees       = 0.0    # cumulative IB trading fees
+    year_fees        = {}     # IB trading fees per calendar year
     total_taxes      = 0.0    # cumulative flat tax paid
     cumul_rebals     = 0     # total rebalances
     chain_tax_state  = None  # tax state chained between steps
@@ -770,6 +772,10 @@ def main():
         all_test_returns.append(test_returns)
         all_test_weights.append(test_weights)
         cumul_fees += step_fees
+        # Attribute the step's fees to calendar years by trading-day count
+        syears = pd.Series(test_returns.index).dt.year
+        for yv, cnt in syears.value_counts().items():
+            year_fees[yv] = year_fees.get(yv, 0.0) + step_fees * cnt / len(syears)
         total_taxes += step_taxes
         cumul_rebals += step_rebals
         all_params_rows.append({"step": step, "temperature": TEMPERATURE, "rebal_days": REBAL_DAYS,
@@ -884,7 +890,40 @@ def main():
     print(f"Saved → outputs/best_params.csv")
     print(f"Saved → outputs/backtest_steps.csv")
     print(f"Saved → outputs/backtest_equity.csv")
-    print(f"Saved → outputs/backtest_equity.png")
+    print(f"Saved → outputs/backtest_equity.jpg")
+
+    # --- Per-year equity charts (each year restarts fresh at 150k€) ---
+    for yr in range(int(port_returns.index[0].year), int(port_returns.index[-1].year) + 1):
+        ymask = port_returns.index.year == yr
+        if ymask.sum() < 5:
+            continue
+        yr_returns = port_returns[ymask]
+        yr_eq      = (1 + yr_returns).cumprod()
+        yr_weights = all_weights[all_weights.index.year == yr]
+        yr_scores  = all_scores[all_scores.index.year == yr] if len(all_scores) else all_scores
+        yr_days    = max(len(yr_returns), 1)
+
+        gross_yr = yr_eq.iloc[-1] * init_capital
+        fees_yr  = year_fees.get(yr, 0.0)
+        # IB fees are deductible: flat tax applies to the gain net of fees
+        gain_yr  = gross_yr - fees_yr - init_capital
+        tax_yr   = gain_yr * FLAT_TAX_RATE if gain_yr > 0 else 0.0
+        net_yr   = gross_yr - fees_yr - tax_yr
+        fin_yr = {
+            "init": init_capital,
+            "gross": gross_yr,
+            "net": net_yr,
+            "fees": fees_yr,
+            "taxes": tax_yr,
+            # Single isolated year → tax paid once at year-end, no lost compounding
+            "comp_loss": gross_yr - fees_yr - tax_yr - net_yr,
+            "ann_gross": yr_eq.iloc[-1] ** (252.0 / yr_days) - 1,
+            "ann_net": (net_yr / init_capital) ** (252.0 / yr_days) - 1,
+        }
+        _save_equity_png(yr_returns, yr_eq, yr_weights, params_df, OUTPUTS,
+                         scores_A=yr_scores, fin=fin_yr,
+                         fname=f"backtest_equity_{yr}.jpg")
+        print(f"Saved → outputs/backtest_equity_{yr}.jpg")
 
 
 if __name__ == "__main__":
