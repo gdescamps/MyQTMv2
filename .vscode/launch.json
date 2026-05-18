@@ -5,7 +5,7 @@
             "name": "backtest (equity + robustness)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/backtest_all.py",
+            "program": "${workspaceFolder}/backtest.py",
             "console": "integratedTerminal",
             "justMyCode": true
         },
