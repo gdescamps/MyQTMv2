@@ -56,7 +56,8 @@ VIX_SPIKE_REBAL = 1        # rebalance every day during spike
 CAP_AT_SPIKE_MIN = 0.8     # allocation cap when slope = VIX_SPIKE_MIN
 CAP_AT_SPIKE_MAX = 0.4     # allocation cap when slope >= VIX_SPIKE_MAX
 RECOVERY_RATE = 0.20       # restore +20% allocation per step until next steep ascending slope
-VIX_CALM_THRESHOLD = 22.0  # VIX EMA100 below this + EMA100 < EMA300 → calm market
+VIX_CALM_THRESHOLD = 22.0  # VIX EMA100 below this → calm market
+VIX_CALM_COND_EMA100_SUP_EMA300 = False  # if True, also require EMA100 < EMA300
 FLAT_TAX_RATE = 0.30       # PFU 30% on realized gains (paid Jan 1st)
 INIT_CAPITAL  = 150_000.0  # portfolio starting capital
 
@@ -594,20 +595,41 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         vix_ema100_chart = vix_raw.ewm(span=100).mean()
         vix_ema300_chart = vix_raw.ewm(span=300).mean()
         vix_5d_chart = vix_raw.diff(5)
+
         # Regime masks
+        # 1) Spike: VIX 5d change > threshold → cash for 3 days
         _spike_mask = pd.Series(False, index=vix_raw.index)
         for _sd in vix_5d_chart[vix_5d_chart > VIX_SPIKE_MIN].index:
             _pos = vix_raw.index.get_loc(_sd)
             for _off in range(3):
                 if _pos + _off < len(vix_raw):
                     _spike_mask.iloc[_pos + _off] = True
-        _calm_mask = ((vix_ema100_chart < VIX_CALM_THRESHOLD)
-                      & (vix_ema100_chart < vix_ema300_chart)).reindex(vix_raw.index).fillna(False)
-        # Colored VIX fill by regime
-        for _m, _c in [(_spike_mask, "#d62728"),
-                        (_calm_mask & ~_spike_mask, "#2ca02c"),
-                        (~_calm_mask & ~_spike_mask, "#ff7f0e")]:
-            ax1b.fill_between(vix_raw.index, vix_raw.where(_m, 0).values, alpha=0.12, color=_c)
+        # 2) Calm: same logic as backtest (EMA100 < threshold, optionally & EMA100 < EMA300)
+        _calm_cond = vix_ema100_chart < VIX_CALM_THRESHOLD
+        if VIX_CALM_COND_EMA100_SUP_EMA300:
+            _calm_cond = _calm_cond & (vix_ema100_chart < vix_ema300_chart)
+        _calm_mask = _calm_cond.reindex(vix_raw.index).fillna(False)
+        # 3) Model: everything else
+
+        # Assign color per date: spike > calm > model (priority order)
+        _colors = pd.Series("#ff7f0e", index=vix_raw.index)  # default: orange (model)
+        _colors[_calm_mask] = "#2ca02c"                        # green (calm)
+        _colors[_spike_mask] = "#d62728"                       # red (spike)
+
+        # Draw VIX line colored by regime (segment by segment)
+        prev_c = _colors.iloc[0]
+        seg_start = 0
+        for _i in range(1, len(vix_raw)):
+            if _colors.iloc[_i] != prev_c or _i == len(vix_raw) - 1:
+                end = _i + 1 if _i == len(vix_raw) - 1 else _i + 1
+                seg = slice(seg_start, end)
+                ax1b.fill_between(vix_raw.index[seg], vix_raw.values[seg],
+                                  alpha=0.15, color=prev_c, linewidth=0)
+                ax1b.plot(vix_raw.index[seg], vix_raw.values[seg],
+                          color=prev_c, alpha=0.6, linewidth=0.8)
+                seg_start = _i
+                prev_c = _colors.iloc[_i]
+
         ax1b.plot(vix_ema100_chart.index, vix_ema100_chart.values, color="#d62728", alpha=0.7,
                   linewidth=2.0, linestyle=(0, (8, 4)))
         ax1b.plot(vix_ema300_chart.index, vix_ema300_chart.values, color="#1565c0", alpha=0.7,
@@ -885,7 +907,6 @@ def run_equity():
     hy_z60_s = macro.get("hy_spread_z60", pd.Series(dtype=float))
 
     # VIX EMA for calm-market detection
-    VIX_CALM_COND_EMA100_SUP_EMA300 = False
     vix_ema100 = vix_s.ewm(span=100).mean() if not vix_s.empty else pd.Series(dtype=float)
     vix_ema300 = vix_s.ewm(span=300).mean() if not vix_s.empty else pd.Series(dtype=float)
 
@@ -1511,20 +1532,41 @@ def run_robustness():
         vix_ema100_chart = vix_raw.ewm(span=100).mean()
         vix_ema300_chart = vix_raw.ewm(span=300).mean()
         vix_5d_chart = vix_raw.diff(5)
+
         # Regime masks
+        # 1) Spike: VIX 5d change > threshold → cash for 3 days
         _spike_mask = pd.Series(False, index=vix_raw.index)
         for _sd in vix_5d_chart[vix_5d_chart > VIX_SPIKE_MIN].index:
             _pos = vix_raw.index.get_loc(_sd)
             for _off in range(3):
                 if _pos + _off < len(vix_raw):
                     _spike_mask.iloc[_pos + _off] = True
-        _calm_mask = ((vix_ema100_chart < VIX_CALM_THRESHOLD)
-                      & (vix_ema100_chart < vix_ema300_chart)).reindex(vix_raw.index).fillna(False)
-        # Colored VIX fill by regime
-        for _m, _c in [(_spike_mask, "#d62728"),
-                        (_calm_mask & ~_spike_mask, "#2ca02c"),
-                        (~_calm_mask & ~_spike_mask, "#ff7f0e")]:
-            ax1b.fill_between(vix_raw.index, vix_raw.where(_m, 0).values, alpha=0.12, color=_c)
+        # 2) Calm: same logic as backtest (EMA100 < threshold, optionally & EMA100 < EMA300)
+        _calm_cond = vix_ema100_chart < VIX_CALM_THRESHOLD
+        if VIX_CALM_COND_EMA100_SUP_EMA300:
+            _calm_cond = _calm_cond & (vix_ema100_chart < vix_ema300_chart)
+        _calm_mask = _calm_cond.reindex(vix_raw.index).fillna(False)
+        # 3) Model: everything else
+
+        # Assign color per date: spike > calm > model (priority order)
+        _colors = pd.Series("#ff7f0e", index=vix_raw.index)  # default: orange (model)
+        _colors[_calm_mask] = "#2ca02c"                        # green (calm)
+        _colors[_spike_mask] = "#d62728"                       # red (spike)
+
+        # Draw VIX line colored by regime (segment by segment)
+        prev_c = _colors.iloc[0]
+        seg_start = 0
+        for _i in range(1, len(vix_raw)):
+            if _colors.iloc[_i] != prev_c or _i == len(vix_raw) - 1:
+                end = _i + 1 if _i == len(vix_raw) - 1 else _i + 1
+                seg = slice(seg_start, end)
+                ax1b.fill_between(vix_raw.index[seg], vix_raw.values[seg],
+                                  alpha=0.15, color=prev_c, linewidth=0)
+                ax1b.plot(vix_raw.index[seg], vix_raw.values[seg],
+                          color=prev_c, alpha=0.6, linewidth=0.8)
+                seg_start = _i
+                prev_c = _colors.iloc[_i]
+
         ax1b.plot(vix_ema100_chart.index, vix_ema100_chart.values, color="#d62728", alpha=0.7,
                   linewidth=2.0, linestyle=(0, (8, 4)))
         ax1b.plot(vix_ema300_chart.index, vix_ema300_chart.values, color="#1565c0", alpha=0.7,
