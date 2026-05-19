@@ -1358,7 +1358,7 @@ def run_robustness():
     stats_df = pd.DataFrame(stats)[["run", "total_return_pct", "ann_gross_pct",
                                     "net_return_pct", "net_ann_pct", "net_final",
                                     "sharpe", "max_dd_pct"]]
-    stats_df.to_csv(Path(__file__).parent / "myfiles" / "backtest_robustness.csv", index=False)
+    stats_df.to_csv(OUTPUTS / "backtest_robustness.csv", index=False)
 
     # Aggregate stats across the runs: (median, min, max)
     def _agg(col):
@@ -1513,7 +1513,7 @@ def run_robustness():
     print(f"  Max:       brut {ann_g[2]:+.1f}%/an  net {ann_n[2]:+.1f}%/an  Sharpe {shp[2]:.2f}")
     print(f"{'='*70}")
     print(f"\nSaved → outputs/backtest_robustness.jpg")
-    print(f"Saved → myfiles/backtest_robustness.csv")
+    print(f"Saved → outputs/backtest_robustness.csv")
 
 
 # ===========================================================================
