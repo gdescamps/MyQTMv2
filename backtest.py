@@ -61,6 +61,46 @@ INIT_CAPITAL  = 150_000.0  # portfolio starting capital
 N_RUNS = 50                # number of perturbed backtests
 N_DROP = (5, 10)           # random 5-10 ETFs dropped at each rebalance
 
+# --- Correlated-block diversification (idea #2) ---
+# ETFs sharing a block are near-duplicates (weekly-return corr > 0.9, confirmed
+# by asset class). The top-N pre-filter keeps at most ONE ETF per block, so the
+# allocator cannot go all-in on a single bet (e.g. IVV+SUSA+ACWI = 3x S&P 500).
+# Any ETF not listed is its own singleton block.
+BLOCK_DIVERSIFY = False
+CORR_BLOCKS = {
+    "IVV": "US",   "QQQ": "US",  "ACWI": "US", "SUSA": "US",   # US large/mega cap
+    "IEUR": "EUR", "EZU": "EUR",                               # Europe / eurozone
+    "EEM": "EM",   "IEMG": "EM", "EMXC": "EM",                 # broad emerging mkts
+    "ILF": "LATAM", "EWZ": "LATAM",                            # Latin America
+}
+
+
+def _topn_keep(row: np.ndarray, n: int, block_ids: list) -> np.ndarray:
+    """Indices of the top-n positive scores, at most one ETF per correlated
+    block. Falls back to pure score order if fewer than n distinct blocks
+    carry a positive score."""
+    pos = np.where((~np.isnan(row)) & (row > 0))[0]
+    if len(pos) <= n:
+        return pos
+    order = pos[np.argsort(row[pos])[::-1]]          # descending score
+    if not BLOCK_DIVERSIFY:
+        return order[:n]
+    keep, used = [], set()
+    for j in order:                                  # pass 1: max 1 per block
+        if len(keep) >= n:
+            break
+        b = block_ids[j]
+        if b in used:
+            continue
+        keep.append(j)
+        used.add(b)
+    for j in order:                                  # pass 2: fill if short
+        if len(keep) >= n:
+            break
+        if j not in keep:
+            keep.append(j)
+    return np.array(keep, dtype=int)
+
 
 def sigmoid(x: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-np.clip(x, -20, 20)))
@@ -934,17 +974,16 @@ def run_equity():
         row_std = test_scores.std(axis=1).replace(0, 1.0)
         test_scores = test_scores.sub(row_mean, axis=0).div(row_std, axis=0)
 
-        # Pre-filter to top N scores per row (VIX-adaptive)
+        # Pre-filter to top N scores per row (VIX-adaptive),
+        # at most 1 ETF per correlated block
         if step_top_n is not None:
+            block_ids = [CORR_BLOCKS.get(c, c) for c in test_scores.columns]
             for idx in range(len(test_scores)):
                 row = test_scores.iloc[idx].values
-                valid = ~np.isnan(row)
-                pos = valid & (row > 0)
-                if pos.sum() > step_top_n:
-                    pos_idx = np.where(pos)[0]
-                    keep = pos_idx[np.argsort(row[pos_idx])[::-1][:step_top_n]]
-                    drop = np.setdiff1d(pos_idx, keep)
-                    test_scores.iloc[idx, drop] = np.nan
+                keep = _topn_keep(row, step_top_n, block_ids)
+                pos_idx = np.where((~np.isnan(row)) & (row > 0))[0]
+                drop = np.setdiff1d(pos_idx, keep)
+                test_scores.iloc[idx, drop] = np.nan
 
         # Daily returns for test period
         test_dr = daily_ret_panel.reindex(index=test_scores.index, columns=test_scores.columns).fillna(0)
@@ -1233,16 +1272,14 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None, vix_s=No
         row_std = test_scores.std(axis=1).replace(0, 1.0)
         test_scores = test_scores.sub(row_mean, axis=0).div(row_std, axis=0)
 
-        # Pre-filter top N
+        # Pre-filter top N — at most 1 ETF per correlated block
+        block_ids = [CORR_BLOCKS.get(c, c) for c in test_scores.columns]
         for idx in range(len(test_scores)):
             row = test_scores.iloc[idx].values
-            valid = ~np.isnan(row)
-            pos = valid & (row > 0)
-            if pos.sum() > step_top_n:
-                pos_idx = np.where(pos)[0]
-                keep = pos_idx[np.argsort(row[pos_idx])[::-1][:step_top_n]]
-                drop_idx = np.setdiff1d(pos_idx, keep)
-                test_scores.iloc[idx, drop_idx] = np.nan
+            keep = _topn_keep(row, step_top_n, block_ids)
+            pos_idx = np.where((~np.isnan(row)) & (row > 0))[0]
+            drop_idx = np.setdiff1d(pos_idx, keep)
+            test_scores.iloc[idx, drop_idx] = np.nan
 
         # Daily returns
         test_dr = daily_ret_panel.reindex(index=test_scores.index, columns=test_scores.columns).fillna(0)

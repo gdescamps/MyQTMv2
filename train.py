@@ -121,7 +121,7 @@ def _try_gpu() -> str:
         return "cpu"
 
 
-def _select_features_on_train(panel_train, all_feature_cols, device, power=1.7, cap=150):
+def _select_features_on_train(panel_train, all_feature_cols, device, power=1.7, cap=150, seed=0):
     """Walk-forward feature selection: 3-period stability on train data only."""
     y_all = panel_train[LABEL_COL].astype(np.float32)
     y_z = _zscore_per_date(y_all).astype(np.float32)
@@ -137,7 +137,7 @@ def _select_features_on_train(panel_train, all_feature_cols, device, power=1.7, 
     not_embargoed = (pos_in_block >= EMBARGO_ROWS) & (pos_in_block < BLOCK_ROWS - EMBARGO_ROWS)
 
     X = panel_train[all_feature_cols].astype(np.float32).replace([np.inf, -np.inf], np.nan)
-    params = {**XGB_PARAMS, "device": device, "max_depth": 7}
+    params = {**XGB_PARAMS, "device": device, "max_depth": 7, "seed": seed}
 
     importances = {}
     for period in range(3):
@@ -185,9 +185,11 @@ def run_walk_forward(
     # False only so old diagnostic callers keep their previous behaviour;
     # production main() always passes wf_feature_selection=True.
     wf_feature_selection: bool = False,
+    seed: int = 0,
 ) -> pd.DataFrame:
     params = {**XGB_PARAMS, **(xgb_params or {})}
     params["device"] = device
+    params["seed"] = seed
 
     dates = panel.index.get_level_values("date").unique().sort_values()
     n = len(dates)
@@ -242,7 +244,7 @@ def run_walk_forward(
             train_panel = panel.loc[panel.index[in_train]]
             available_cols = _select_features_on_train(
                 train_panel, all_candidate_cols, device,
-                power=FEAT_SEL_POWER, cap=FEAT_SEL_CAP
+                power=FEAT_SEL_POWER, cap=FEAT_SEL_CAP, seed=seed
             )
             X_all = panel[available_cols].astype(np.float32).replace([np.inf, -np.inf], np.nan)
             if verbose:
@@ -393,6 +395,29 @@ def run_walk_forward(
     return pd.concat(predictions).sort_index()
 
 
+# Number of independent training seeds averaged into oos_predictions.parquet.
+# XGBoost's row/column subsampling makes a single run noisy (~0.05 Sharpe of
+# downstream backtest jitter); averaging the per-row scores across N seeds
+# cancels that noise so experiments become comparable. Each seed re-runs the
+# whole pipeline (WF feature selection + dual A/B fit) → genuinely independent.
+N_SEEDS = 5
+
+
+def _average_oos(oos_runs: list[pd.DataFrame]) -> pd.DataFrame:
+    """Average the `score` column across seed runs. The row set, step, split
+    and label are seed-independent (masks don't depend on the seed), so after
+    each run's stable sort_index the rows align positionally."""
+    base = oos_runs[0].copy()
+    for k, o in enumerate(oos_runs[1:], 1):
+        if (len(o) != len(base)
+                or not (o["step"].values == base["step"].values).all()
+                or not (o["split"].values == base["split"].values).all()):
+            raise RuntimeError(f"seed run {k} has a structure mismatch — cannot average")
+    score_stack = np.array([o["score"].values for o in oos_runs], dtype=float)
+    base["score"] = np.nanmean(score_stack, axis=0)
+    return base
+
+
 def main():
     feat_path = DATA / "features.parquet"
     if not feat_path.exists():
@@ -426,7 +451,18 @@ def main():
         f"data only (no look-ahead)\n"
     )
 
-    oos = run_walk_forward(panel, device, dual_model=True, wf_feature_selection=True)
+    print(f"Seed-averaged training: {N_SEEDS} independent seeds\n")
+    oos_runs = []
+    for s in range(N_SEEDS):
+        print(f"\n{'#'*70}\n#  SEED {s + 1}/{N_SEEDS}\n{'#'*70}")
+        oos_s = run_walk_forward(
+            panel, device, dual_model=True, wf_feature_selection=True,
+            seed=s, save_models=(s == N_SEEDS - 1),
+        )
+        oos_s.to_parquet(DATA / f"oos_seed{s}.parquet")  # per-seed, for noise diagnostic
+        oos_runs.append(oos_s)
+
+    oos = _average_oos(oos_runs) if N_SEEDS > 1 else oos_runs[0]
 
     out = DATA / "oos_predictions.parquet"
     oos.to_parquet(out)
