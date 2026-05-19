@@ -25,6 +25,7 @@ import sys
 import numpy as np
 import pandas as pd
 import xgboost as xgb
+import lightgbm as lgb
 from pathlib import Path
 
 DATA    = Path(__file__).parent / "data"
@@ -85,6 +86,22 @@ XGB_PARAMS = dict(
     eval_metric          = "rmse",
     verbosity            = 0,
 )
+
+LGB_PARAMS = dict(
+    max_depth            = 6,
+    min_child_samples    = 40,       # ≈ min_child_weight
+    subsample            = 0.900,
+    colsample_bytree     = 0.678,
+    learning_rate        = 0.040,
+    reg_alpha            = 0.001,
+    reg_lambda           = 1.674,
+    n_estimators         = 1000,
+    objective            = "regression",
+    metric               = "rmse",
+    verbosity            = -1,
+)
+
+USE_LGB = True   # ensemble XGBoost + LightGBM
 
 
 def _zscore_per_date(y: pd.Series) -> pd.Series:
@@ -269,15 +286,25 @@ def run_walk_forward(
             train_end_pos += STEP
             continue
 
-        # Train Model A (even→train, odd→val_ES)
+        # Train XGBoost Model A (even→train, odd→val_ES)
         model_A = xgb.XGBRegressor(**params)
         model_A.fit(X_all.loc[tr_A_idx].values, y_train.loc[tr_A_idx].values,
                      eval_set=[(X_all.loc[val_A_idx].values, y_train.loc[val_A_idx].values)],
                      verbose=False)
         best_iter_A = model_A.best_iteration
 
+        # Train LightGBM Model A (same split)
+        lgb_A = None
+        if USE_LGB:
+            lgb_params_A = {**LGB_PARAMS, "random_state": seed}
+            lgb_A = lgb.LGBMRegressor(**lgb_params_A)
+            lgb_A.fit(X_all.loc[tr_A_idx].values, y_train.loc[tr_A_idx].values,
+                      eval_set=[(X_all.loc[val_A_idx].values, y_train.loc[val_A_idx].values)],
+                      callbacks=[lgb.early_stopping(30, verbose=False), lgb.log_evaluation(-1)])
+
         # Train Model B (opposite phase) — skip if B's val block touches test
         model_B = None
+        lgb_B = None
         best_iter_B = 0
         if dual_model and not skip_B:
             train_B_mask = in_train & (block_parity == 1) & not_embargoed
@@ -289,6 +316,12 @@ def run_walk_forward(
                          eval_set=[(X_all.loc[val_B_idx].values, y_train.loc[val_B_idx].values)],
                          verbose=False)
             best_iter_B = model_B.best_iteration
+            if USE_LGB:
+                lgb_params_B = {**LGB_PARAMS, "random_state": seed}
+                lgb_B = lgb.LGBMRegressor(**lgb_params_B)
+                lgb_B.fit(X_all.loc[tr_B_idx].values, y_train.loc[tr_B_idx].values,
+                          eval_set=[(X_all.loc[val_B_idx].values, y_train.loc[val_B_idx].values)],
+                          callbacks=[lgb.early_stopping(30, verbose=False), lgb.log_evaluation(-1)])
 
         if save_models:
             model_dir = OUTPUTS / "models"
@@ -309,12 +342,16 @@ def run_walk_forward(
                 all_val_idx = panel.index[in_train & y_all.notna()]
                 scores_A_all = model_A.predict(X_all.loc[all_val_idx].values)
                 scores_B_all = model_B.predict(X_all.loc[all_val_idx].values)
-                val_ic = (_daily_ic(scores_A_all, y_all.loc[all_val_idx].values, all_val_idx) +
-                          _daily_ic(scores_B_all, y_all.loc[all_val_idx].values, all_val_idx)) / 2
+                # Average in LGB if enabled
+                if USE_LGB and lgb_A:
+                    lgb_A_all = lgb_A.predict(X_all.loc[all_val_idx].values)
+                    lgb_B_all = lgb_B.predict(X_all.loc[all_val_idx].values) if lgb_B else lgb_A_all
+                    combined_all = (scores_A_all + scores_B_all + lgb_A_all + lgb_B_all) / 4
+                else:
+                    combined_all = (scores_A_all + scores_B_all) / 2
+                val_ic = _daily_ic(combined_all, y_all.loc[all_val_idx].values, all_val_idx)
                 val_df = pd.DataFrame({
-                    "score_A": scores_A_all,
-                    "score_B": scores_B_all,
-                    "score": (scores_A_all + scores_B_all) / 2,
+                    "score": combined_all,
                     "label": y_all.loc[all_val_idx].values,
                     "block_parity": block_parity.loc[all_val_idx].values,
                 }, index=all_val_idx)
@@ -330,14 +367,19 @@ def run_walk_forward(
             val_df["val_ic"]    = val_ic
             predictions.append(val_df)
 
-        # Test predictions — model A only (most distant from test, no leakage)
+        # Test predictions — XGB_A + LGB_A averaged (most distant from test)
         test_ic = float("nan")
         if len(test_idx) > 0:
             scores_A_test = model_A.predict(X_all.loc[test_idx].values)
-            test_ic = _daily_ic(scores_A_test, y_all.loc[test_idx].values, test_idx)
+            if USE_LGB and lgb_A:
+                lgb_A_test = lgb_A.predict(X_all.loc[test_idx].values)
+                combined_test = (scores_A_test + lgb_A_test) / 2
+            else:
+                combined_test = scores_A_test
+            test_ic = _daily_ic(combined_test, y_all.loc[test_idx].values, test_idx)
 
             test_df = pd.DataFrame({
-                "score": scores_A_test,
+                "score": combined_test,
                 "label": y_all.loc[test_idx].values,
             }, index=test_idx)
             test_df["step"]      = step_n
