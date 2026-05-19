@@ -36,12 +36,14 @@ DEFENSIVE_SECTIONS = {"bond", "commodity", "crypto"}
 GEO_SECTOR_REDIRECT = []
 
 USE_SOFTMAX = True  # True = softmax(score/T) × Sharpe, False = equal weight among score > 0 × Sharpe
-SHARPE_POWER = 0.8  # Sharpe weight = sharpe^SHARPE_POWER (0=equal, 1=linear, 2=concentrated)
+SHARPE_POWER = 0.0  # Sharpe weight = sharpe^SHARPE_POWER (0=equal, 1=linear, 2=concentrated)
 
 TEMPERATURE = 1.0     # softmax concentration (fixed)
-REBAL_DAYS = 4       # jours entre rebalances
-TOP_N_SCORES = 4     # default top N (overridden by VIX-adaptive if VIX_ADAPTIVE=True)
-VIX_ADAPTIVE = True  # adjust TOP_N and REBAL based on VIX level
+REBAL_DAYS = 5       # jours entre rebalances
+TOP_N_ALLOC   = 3     # allocate to top 3
+TOP_N_MONITOR = 3     # monitor top 3 — rebalance only when allocated asset leaves top 3
+TOP_N_SCORES  = 3     # (legacy, used as fallback)
+VIX_ADAPTIVE = False  # adjust TOP_N and REBAL based on VIX level
 VIX_LOW = 15         # below this: calm market
 VIX_HIGH = 25        # above this: crisis
 TOP_N_LOW = 3        # top N when VIX < VIX_LOW (calm → concentrate on best scores)
@@ -123,6 +125,7 @@ def run_backtest(
     rebal_days_override: int | None = None,
     max_alloc: float = 1.0,
     tax_state: dict | None = None,
+    monitor_mask: np.ndarray | None = None,
 ) -> tuple:
     """
     Vectorised portfolio simulation.
@@ -225,6 +228,7 @@ def run_backtest(
     port_returns = np.zeros(n_days)
     actual_weights = np.zeros((n_days, n_etfs))
     n_rebalances = 0  # count actual rebalances
+    prev_topn_set = set()  # track current TOP_N composition
 
     def _compute_target_lots(target_w, total_val):
         """Compute target positions in LOT_SIZE lots given weights and total value."""
@@ -263,8 +267,16 @@ def run_backtest(
             current_year = day.year
             total_val = positions.sum() + cash  # recalc after tax
 
-        # Rebalance every N days
-        if i % rebal_days != 0:
+        # Rebalance only when a currently allocated asset leaves the monitor set (top 6)
+        if monitor_mask is not None:
+            cur_monitor_set = set(j for j in range(n_etfs) if monitor_mask[i, j])
+            # Check if any currently held position dropped out of monitor set
+            allocated_out = prev_topn_set - cur_monitor_set
+            topn_changed = len(allocated_out) > 0 or len(prev_topn_set) == 0
+        else:
+            cur_topn_set = set(j for j in range(n_etfs) if weights[i, j] > 0)
+            topn_changed = (cur_topn_set != prev_topn_set)
+        if not topn_changed:
             pass
         elif total_val >= LOT_SIZE:
             target_w = weights[i]
@@ -300,6 +312,7 @@ def run_backtest(
                 positions = target_pos.copy()
                 cash = total_val - positions.sum() - trade_fees
                 n_rebalances += 1
+                prev_topn_set = set(j for j in range(n_etfs) if target_pos[j] > 0)
 
         # Daily P&L on current positions
         total_val = positions.sum() + cash
@@ -445,7 +458,7 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
     # Abbreviated display names (full name minus iShares/Sector/ETF/Acc/USD)
     SHORT_NAMES = {e.bourso: _short_name(e.name) for e in _UNIVERSE}
     # Tickers to show in bold on equity chart (besides portfolio)
-    BOLD_TICKERS = {"IVV", "GLD", "IEO", "QQQ", "RING", "ACWI"}
+    BOLD_TICKERS = {"IVV", "GLD", "IEO", "QQQ", "RING"}
 
     # --- Chart: Equity + Allocation + Temp/Scores ---
     fig1 = plt.figure(figsize=(24, 14))
@@ -520,7 +533,7 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
     ax1.plot(eq_curve.index, eq_curve.values, lw=3.5, color="#d62728", zorder=10,
              label="Frais IB seuls")
     if eq_orange is not None:
-        ax1.plot(eq_orange.index, eq_orange.values, lw=3.5, color="#ff7f0e",
+        ax1.plot(eq_orange.index, eq_orange.values, lw=1.5, color="#ff7f0e",
                  zorder=11, label="Frais IB + flat tax 30 %")
         ax1.legend(loc="upper left", fontsize=12, framealpha=0.92)
 
@@ -536,9 +549,7 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         bm = _load_benchmark(ticker, eq_curve.index)
         if bm is not None:
             is_bold = ticker in BOLD_TICKERS
-            if ticker == "ACWI":
-                lw, alpha, zorder = 3.0, 0.9, 8
-            elif ticker == "QQQ":
+            if ticker == "QQQ":
                 lw, alpha, zorder = 3.5, 0.9, 9
             elif is_bold:
                 lw, alpha, zorder = 2.8, 0.9, 5
@@ -615,6 +626,32 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         ax2.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
         ax2.set_facecolor("#f8f8f8")
         ax2.grid(True, alpha=0.3)
+
+    # VIX spike vertical lines — top 10 distinct events (10d cooldown), proportional thickness
+    vix_spike_path = DATA / "fred_vix.parquet"
+    if vix_spike_path.exists():
+        vix_for_spikes = pd.read_parquet(vix_spike_path).iloc[:, 0]
+        vix_for_spikes = vix_for_spikes.reindex(eq_curve.index, method="ffill").dropna()
+        vix_5d = vix_for_spikes.diff(5)
+        # Deduplicate: keep only first spike per event (10d cooldown)
+        all_spikes = vix_5d[vix_5d > VIX_SPIKE_MIN].sort_values(ascending=False)
+        events = []
+        used_dates = set()
+        for d, val in all_spikes.items():
+            if any(abs((d - u).days) <= 20 for u in used_dates):
+                continue
+            events.append((d, val))
+            used_dates.add(d)
+        # Top 10 by intensity, then display in chronological order
+        events.sort(key=lambda x: -x[1])
+        events = events[:10]
+        if events:
+            max_spike = max(v for _, v in events)
+            for d, val in events:
+                frac = val / max_spike
+                lw = 0.8 + 2.5 * frac
+                ax1.axvline(d, color="black", linewidth=lw, alpha=0.5 + 0.4 * frac, zorder=1)
+                ax2.axvline(d, color="black", linewidth=lw, alpha=0.5 + 0.4 * frac, zorder=1)
 
     # Right column: ETF list sorted by Sharpe (starts below the header block)
     n_items = len(sorted_by_sharpe)
@@ -853,6 +890,11 @@ def run_equity():
     vix_s    = macro.get("vix_level",     pd.Series(dtype=float))
     hy_z60_s = macro.get("hy_spread_z60", pd.Series(dtype=float))
 
+    # VIX EMA for calm-market detection
+    VIX_CALM_THRESHOLD = 18.0
+    vix_ema100 = vix_s.ewm(span=100).mean() if not vix_s.empty else pd.Series(dtype=float)
+    vix_ema300 = vix_s.ewm(span=300).mean() if not vix_s.empty else pd.Series(dtype=float)
+
     # Load actual daily returns for all ETFs (from price data)
     from etf import UNIVERSE, BY_BOURSO
     daily_returns_all = {}
@@ -980,20 +1022,58 @@ def run_equity():
                 if etf in carry_weights:
                     prev_w[i] = carry_weights[etf]
 
-        # Z-score scores cross-sectionally before softmax
-        row_mean = test_scores.mean(axis=1)
-        row_std = test_scores.std(axis=1).replace(0, 1.0)
-        test_scores = test_scores.sub(row_mean, axis=0).div(row_std, axis=0)
+        # --- Calm market override: VIX EMA300 < threshold → Sharpe leaders ---
+        calm_market = False
+        if not vix_ema100.empty and not vix_ema300.empty:
+            ema100_aligned = vix_ema100.reindex(val_scores.index, method="ffill")
+            ema300_aligned = vix_ema300.reindex(val_scores.index, method="ffill")
+            if len(ema100_aligned) > 0 and len(ema300_aligned) > 0:
+                ema100_at_step = ema100_aligned.iloc[-1]
+                ema300_at_step = ema300_aligned.iloc[-1]
+                calm_market = (not np.isnan(ema100_at_step)
+                               and not np.isnan(ema300_at_step)
+                               and ema100_at_step < VIX_CALM_THRESHOLD
+                               and ema100_at_step < ema300_at_step)
 
-        # Pre-filter to top N scores per row (VIX-adaptive),
-        # at most 1 ETF per correlated block
-        if step_top_n is not None:
+        if calm_market:
+            # Ignore model scores — allocate top 3 by rolling 252d Sharpe
+            test_scores = _pivot_step(test_data)
+            roll_mean = dr_hist.rolling(252, min_periods=200).mean().iloc[-1] * 252
+            roll_std = dr_hist.rolling(252, min_periods=200).std().iloc[-1] * np.sqrt(252)
+            roll_sharpe = (roll_mean / roll_std.replace(0, np.nan)).clip(0.0).fillna(0.0)
+            # Align to test columns
+            sharpe_series = roll_sharpe.reindex(test_scores.columns).fillna(0.0)
+            top3_sharpe = sharpe_series.nlargest(TOP_N_ALLOC).index.tolist()
+            # Build scores = rolling Sharpe for top 3, NaN for rest
+            for col in test_scores.columns:
+                col_loc = test_scores.columns.get_loc(col)
+                if col in top3_sharpe:
+                    test_scores.iloc[:, col_loc] = sharpe_series[col]
+                else:
+                    test_scores.iloc[:, col_loc] = np.nan
+            # Monitor mask: top 3 = monitor (no hysteresis in calm mode)
+            n_cols = len(test_scores.columns)
+            step_monitor_mask = np.zeros((len(test_scores), n_cols), dtype=bool)
+            for col in top3_sharpe:
+                step_monitor_mask[:, test_scores.columns.get_loc(col)] = True
+        else:
+            # Z-score scores cross-sectionally before softmax
+            row_mean = test_scores.mean(axis=1)
+            row_std = test_scores.std(axis=1).replace(0, 1.0)
+            test_scores = test_scores.sub(row_mean, axis=0).div(row_std, axis=0)
+
+            # Build monitor mask (top N_MONITOR) and allocation scores (top N_ALLOC)
             block_ids = [CORR_BLOCKS.get(c, c) for c in test_scores.columns]
+            n_cols = len(test_scores.columns)
+            step_monitor_mask = np.zeros((len(test_scores), n_cols), dtype=bool)
+
             for idx in range(len(test_scores)):
                 row = test_scores.iloc[idx].values
-                keep = _topn_keep(row, step_top_n, block_ids)
+                keep_monitor = _topn_keep(row, TOP_N_MONITOR, block_ids)
+                step_monitor_mask[idx, keep_monitor] = True
+                keep_alloc = _topn_keep(row, TOP_N_ALLOC, block_ids)
                 pos_idx = np.where((~np.isnan(row)) & (row > 0))[0]
-                drop = np.setdiff1d(pos_idx, keep)
+                drop = np.setdiff1d(pos_idx, keep_alloc)
                 test_scores.iloc[idx, drop] = np.nan
 
         # Daily returns for test period
@@ -1004,7 +1084,8 @@ def run_equity():
                                                    sharpe_weights=etf_sharpe,
                                                    rebal_days_override=step_rebal,
                                                    max_alloc=step_max_alloc,
-                                                   tax_state=chain_tax_state)
+                                                   tax_state=chain_tax_state,
+                                                   monitor_mask=step_monitor_mask)
 
         # Save final weights for next step
         carry_weights = dict(zip(test_weights.columns, test_weights.iloc[-1].values))
@@ -1401,7 +1482,7 @@ def run_robustness():
     # same two-curve presentation as the equity chart
     ax1.plot(orig_red.index, orig_red.values, lw=3.5, color="#d62728", zorder=10,
              label="Original — frais IB")
-    ax1.plot(orig_orange.index, orig_orange.values, lw=3.5, color="#ff7f0e", zorder=11,
+    ax1.plot(orig_orange.index, orig_orange.values, lw=1.5, color="#ff7f0e", zorder=11,
              label="Original — frais IB + flat tax")
 
     ax1.set_yscale("log")
@@ -1549,27 +1630,9 @@ def main():
         run_robustness()
         return
 
-    # Parent: launch robustness as a parallel labelled child process.
-    print("▶ launching robustness backtest in parallel ...", flush=True)
-    rob = subprocess.Popen(
-        [sys.executable, str(Path(__file__).resolve()), "--robustness"],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-
-    def _stream():
-        for line in rob.stdout:
-            print(f"[robust] {line.rstrip()}", flush=True)
-
-    t = threading.Thread(target=_stream, daemon=True)
-    t.start()
-
-    # Equity backtest runs in the main process.
+    # Equity backtest only (robustness disabled for iteration speed).
     run_equity()
-
-    rc = rob.wait()
-    t.join()
-    if rc != 0:
-        sys.exit(f"\nrobustness backtest FAILED (exit {rc})")
-    print("\n■ all backtests done — equity, per-year, pies, robustness")
+    print("\n■ all backtests done — equity, per-year, pies")
 
 
 if __name__ == "__main__":
