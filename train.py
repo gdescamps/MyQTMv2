@@ -1,12 +1,14 @@
 """
 Walk-Forward Expanding XGBoost training for MyQTM-ETF.
 
-For each step in the walk-forward:
-  - Split the training period into interlaced monthly blocks (50/50):
-      Even blocks → XGBoost training
-      Odd blocks  → Early stopping + CMA-ES optimisation (in backtest.py)
-  - Predict on odd blocks (split="val") → used by CMA-ES in backtest.py
-  - Predict on next TEST_WINDOW days (split="test") → true OOS backtest
+For each step in the walk-forward (42-day test block):
+  1. Feature selection — 5 folds with varying final embargo (30→10d by 5d):
+     each fold trains XGB on even blocks / early-stops on odd blocks,
+     collects feature importances. Features ranked by mean/std^1.5 across
+     folds; top 110 kept.
+  2. Train 10 models — varying final embargo (30→12d by 2d) × different
+     seeds. Each model: even blocks → train, odd blocks → early stop.
+  3. Average 10 model predictions on the 42-day test block.
 
 IC maximisation:
   Labels are z-scored cross-sectionally per date before training.
@@ -31,12 +33,22 @@ DATA    = Path(__file__).parent / "data"
 OUTPUTS = Path(__file__).parent / "outputs"
 
 # Walk-forward parameters
-MIN_TRAIN_ROWS = 5031  # first test at 2020 (smart money sectors from 2015)
+MIN_TRAIN_ROWS = 5031  # first test at ~2020 (smart money sectors from 2015)
 TEST_WINDOW    = 21    # ~1 month per test step
 STEP           = 21    # refit every ~1 month
 BLOCK_ROWS     = 21    # ~1 month alternating blocks for interlaced train/val
 EMBARGO_ROWS   = 10    # 10-day gap between train/val blocks (>= label horizon)
 ROLLING_WINDOW = 1250  # ~5 years rolling train window
+
+# Feature selection: 10 folds, final embargo varies 30→12 by 2d
+FEAT_SEL_EMBARGOS = list(range(30, 10, -2))  # [30, 28, 26, ..., 12]
+FEAT_SEL_POWER    = 1.7
+FEAT_SEL_CAP      = 110
+
+# Model ensemble: 20 models, final embargo varies 30→11 by 1d
+N_MODELS            = 20
+MODEL_EMBARGO_START = 30
+MODEL_EMBARGO_STEP  = 1   # → [30, 29, 28, ..., 11]
 
 def _load_feature_cols() -> list[str]:
     """Load selected features from select_features.py output, or fallback to defaults."""
@@ -121,265 +133,247 @@ def _try_gpu() -> str:
         return "cpu"
 
 
-def _select_features_on_train(panel_train, all_feature_cols, device, power=1.7, cap=150, seed=0):
-    """Walk-forward feature selection: 3-period stability on train data only."""
-    y_all = panel_train[LABEL_COL].astype(np.float32)
-    y_z = _zscore_per_date(y_all).astype(np.float32)
-
-    dates = panel_train.index.get_level_values("date").unique().sort_values()
-    date_to_pos = {d: i for i, d in enumerate(dates)}
-    row_dates = panel_train.index.get_level_values("date")
-    row_pos = pd.Series([date_to_pos[d] for d in row_dates], index=panel_train.index)
-
-    block_idx = row_pos // BLOCK_ROWS
-    block_id = block_idx % 3
+# ── Block masks (reused by feature selection and model training) ─────────
+def _block_masks(row_pos):
+    """Return block_parity and not_embargoed masks."""
+    block_idx    = row_pos // BLOCK_ROWS
+    block_parity = block_idx % 2
     pos_in_block = row_pos % BLOCK_ROWS
     not_embargoed = (pos_in_block >= EMBARGO_ROWS) & (pos_in_block < BLOCK_ROWS - EMBARGO_ROWS)
+    return block_parity, not_embargoed
 
-    X = panel_train[all_feature_cols].astype(np.float32).replace([np.inf, -np.inf], np.nan)
-    params = {**XGB_PARAMS, "device": device, "max_depth": 7, "seed": seed}
+
+# ── Feature selection (per WF step) ─────────────────────────────────────
+def _select_features_for_step(panel, row_pos, y_all,
+                              train_start_pos, test_start_pos,
+                              all_feature_cols, device):
+    """5-fold feature selection with varying final embargo (30→10d by 5d).
+
+    Each fold trains XGB on even blocks / early-stops on odd blocks using
+    data up to (test_start - final_embargo). Features ranked by
+    mean / std^power across folds; top FEAT_SEL_CAP kept.
+    """
+    y_z = _zscore_per_date(y_all).astype(np.float32)
+    X = panel[all_feature_cols].astype(np.float32).replace([np.inf, -np.inf], np.nan)
+    block_parity, not_embargoed = _block_masks(row_pos)
 
     importances = {}
-    for period in range(3):
-        tr_mask = (block_id != period) & y_all.notna() & not_embargoed
-        val_mask = (block_id == period) & y_all.notna() & not_embargoed
-        tr_idx = panel_train.index[tr_mask]
-        val_idx = panel_train.index[val_mask]
+    for fold_i, final_emb in enumerate(FEAT_SEL_EMBARGOS):
+        usable_end = test_start_pos - final_emb
+        if usable_end <= train_start_pos + 100:
+            continue
+
+        in_usable = (row_pos >= train_start_pos) & (row_pos < usable_end)
+        tr_mask  = in_usable & (block_parity == 0) & not_embargoed & y_all.notna()
+        val_mask = in_usable & (block_parity == 1) & not_embargoed & y_all.notna()
+
+        tr_idx  = panel.index[tr_mask]
+        val_idx = panel.index[val_mask]
         if len(tr_idx) < 50 or len(val_idx) < 10:
             continue
+
+        params = {**XGB_PARAMS, "device": device, "max_depth": 7, "seed": fold_i}
         model = xgb.XGBRegressor(**params)
         model.fit(X.loc[tr_idx].values, y_z.loc[tr_idx].values,
                   eval_set=[(X.loc[val_idx].values, y_z.loc[val_idx].values)],
                   verbose=False)
-        importances[f"period_{period}"] = model.feature_importances_
+        importances[f"fold_{fold_i}"] = model.feature_importances_
 
     if len(importances) < 2:
-        return all_feature_cols[:cap]
+        return all_feature_cols[:FEAT_SEL_CAP]
 
-    import pandas as _pd
-    imp_df = _pd.DataFrame(importances, index=all_feature_cols)
+    imp_df = pd.DataFrame(importances, index=all_feature_cols)
     imp_df["mean"] = imp_df.mean(axis=1)
-    imp_df["std"] = imp_df.std(axis=1)
-    imp_df["stability"] = imp_df["mean"] / (imp_df["std"].replace(0, np.nan) ** power)
+    imp_df["std"]  = imp_df.std(axis=1)
+    imp_df["stability"] = imp_df["mean"] / (imp_df["std"].replace(0, np.nan) ** FEAT_SEL_POWER)
     imp_df = imp_df.sort_values("stability", ascending=False)
     imp_df = imp_df[imp_df["stability"].notna() & (imp_df["mean"] > 0)]
-    return imp_df.index[:cap].tolist()
+    return imp_df.index[:FEAT_SEL_CAP].tolist()
 
 
-# Feature selection config
-FEAT_SEL_POWER = 1.7
-FEAT_SEL_CAP = 150
-
-
+# ── Main walk-forward loop ───────────────────────────────────────────────
 def run_walk_forward(
     panel: pd.DataFrame,
     device: str,
     xgb_params: dict | None = None,
     verbose: bool = True,
     save_models: bool = True,
-    dual_model: bool = True,
-    # IMPORTANT — keep this True for any real training. False reverts to a
-    # single global feature filter (outputs/selected_features.json, built by
-    # select_features.py over the WHOLE panel): that filter sees future data
-    # and leaks look-ahead bias into which features are kept. The default is
-    # False only so old diagnostic callers keep their previous behaviour;
-    # production main() always passes wf_feature_selection=True.
-    wf_feature_selection: bool = False,
-    seed: int = 0,
+    wf_feature_selection: bool = True,
 ) -> pd.DataFrame:
-    params = {**XGB_PARAMS, **(xgb_params or {})}
-    params["device"] = device
-    params["seed"] = seed
+    params_base = {**XGB_PARAMS, **(xgb_params or {})}
+    params_base["device"] = device
 
     dates = panel.index.get_level_values("date").unique().sort_values()
     n = len(dates)
 
+    # Feature pool
     available_cols = [c for c in FEATURE_COLS if c in panel.columns]
     if wf_feature_selection:
-        # WF selection picks from the FULL feature pool each step, on train data
-        # only — so the feature set carries no look-ahead from a global filter
-        # computed over the whole history.
         from select_features import get_all_feature_cols
         all_candidate_cols = get_all_feature_cols(panel)
     else:
         all_candidate_cols = available_cols
-    X_all   = panel[available_cols].astype(np.float32)
-    X_all   = X_all.replace([np.inf, -np.inf], np.nan)  # XGBoost: inf → missing
-    y_all   = panel[LABEL_COL].astype(np.float32)          # original labels (saved + IC)
-    y_train = _zscore_per_date(y_all).astype(np.float32)   # z-scored labels (for fit)
+
+    X_all   = panel[available_cols].astype(np.float32).replace([np.inf, -np.inf], np.nan)
+    y_all   = panel[LABEL_COL].astype(np.float32)
+    y_z     = _zscore_per_date(y_all).astype(np.float32)
 
     date_to_pos = {d: i for i, d in enumerate(dates)}
     row_dates   = panel.index.get_level_values("date")
     row_pos     = pd.Series([date_to_pos[d] for d in row_dates], index=panel.index)
 
-    predictions = []
-    ic_log      = []   # [(step, val_ic, test_ic)]
-    importance_log = []  # [(step, test_date, {feat: importance})]
-    step_n      = 0
+    block_parity, not_embargoed = _block_masks(row_pos)
 
-    train_end_pos = MIN_TRAIN_ROWS
-    while train_end_pos + TEST_WINDOW <= n:
-        test_end_pos = min(train_end_pos + TEST_WINDOW, n)
+    # Model embargo schedule: 30, 28, 26, …, 12
+    model_embargos = list(range(MODEL_EMBARGO_START,
+                                MODEL_EMBARGO_START - N_MODELS * MODEL_EMBARGO_STEP,
+                                -MODEL_EMBARGO_STEP))
 
-        train_start_pos = max(0, train_end_pos - ROLLING_WINDOW)
-        in_train     = (row_pos >= train_start_pos) & (row_pos < train_end_pos)
-        block_idx    = row_pos // BLOCK_ROWS
-        block_parity = block_idx % 2
-        # Position within each block (0..BLOCK_ROWS-1)
-        pos_in_block = row_pos % BLOCK_ROWS
-        # Embargo: exclude first/last EMBARGO_ROWS days at block boundaries
-        in_embargo = (pos_in_block < EMBARGO_ROWS) | (pos_in_block >= BLOCK_ROWS - EMBARGO_ROWS)
-        not_embargoed = ~in_embargo
+    predictions    = []
+    ic_log         = []
+    importance_log = []
+    step_n         = 0
 
-        test_mask    = (row_pos >= train_end_pos) & (row_pos < test_end_pos)
-        test_idx     = panel.index[test_mask]
+    test_start_pos = MIN_TRAIN_ROWS
+    while test_start_pos + TEST_WINDOW <= n:
+        test_end_pos    = min(test_start_pos + TEST_WINDOW, n)
+        train_start_pos = max(0, test_start_pos - ROLLING_WINDOW)
 
-        # Walk-forward feature selection — recomputed at EVERY step.
-        # "train only" = it runs on `in_train` rows only. `in_train` is
-        # `(row_pos >= train_start_pos) & (row_pos < train_end_pos)`, while the
-        # test block is `row_pos >= train_end_pos`. So `train_panel` excludes
-        # the test block and every future row by construction → the feature
-        # filter never sees data it will later be scored on (no look-ahead).
+        test_mask = (row_pos >= test_start_pos) & (row_pos < test_end_pos)
+        test_idx  = panel.index[test_mask]
+
+        # ── 1. Feature selection (5 folds, varying final embargo) ────────
         if wf_feature_selection:
-            train_panel = panel.loc[panel.index[in_train]]
-            available_cols = _select_features_on_train(
-                train_panel, all_candidate_cols, device,
-                power=FEAT_SEL_POWER, cap=FEAT_SEL_CAP, seed=seed
+            available_cols = _select_features_for_step(
+                panel, row_pos, y_all,
+                train_start_pos, test_start_pos,
+                all_candidate_cols, device,
             )
             X_all = panel[available_cols].astype(np.float32).replace([np.inf, -np.inf], np.nan)
             if verbose:
                 print(f"  [feat_sel step {step_n}] {len(available_cols)}/"
                       f"{len(all_candidate_cols)} features selected", flush=True)
 
-        # Check if model B's val (even blocks) last block touches the test period
-        # If the last even block ends within EMBARGO_ROWS of test start → skip B
-        last_train_block = (train_end_pos - 1) // BLOCK_ROWS
-        last_block_is_odd = (last_train_block % 2) == 1
-        # Model B trains on odd, val on even. If last block before test is even
-        # (i.e. B's val), it's too close to test → use only model A
-        skip_B = not last_block_is_odd  # last block is even = B's val block
+        # ── 2. Train N_MODELS (varying final embargo + seed) ─────────────
+        trained_models = []
+        best_iters     = []
 
-        # Model A: train on even blocks, val on odd blocks (with embargo)
-        train_A_mask = in_train & (block_parity == 0) & not_embargoed
-        val_A_mask   = in_train & (block_parity == 1) & not_embargoed
-        tr_A_idx  = panel.index[train_A_mask & y_all.notna()]
-        val_A_idx = panel.index[val_A_mask   & y_all.notna()]
+        for m_i, final_emb in enumerate(model_embargos):
+            usable_end = test_start_pos - final_emb
+            if usable_end <= train_start_pos + 100:
+                continue
 
-        if len(tr_A_idx) < 100 or len(val_A_idx) < 10:
-            train_end_pos += STEP
+            in_usable = (row_pos >= train_start_pos) & (row_pos < usable_end)
+            tr_mask   = in_usable & (block_parity == 0) & not_embargoed & y_all.notna()
+            val_mask  = in_usable & (block_parity == 1) & not_embargoed & y_all.notna()
+
+            tr_idx  = panel.index[tr_mask]
+            val_idx = panel.index[val_mask]
+            if len(tr_idx) < 100 or len(val_idx) < 10:
+                continue
+
+            params = {**params_base, "seed": m_i}
+            model  = xgb.XGBRegressor(**params)
+            model.fit(
+                X_all.loc[tr_idx].values, y_z.loc[tr_idx].values,
+                eval_set=[(X_all.loc[val_idx].values, y_z.loc[val_idx].values)],
+                verbose=False,
+            )
+            trained_models.append(model)
+            best_iters.append(model.best_iteration)
+
+            if save_models:
+                model_dir = OUTPUTS / "models"
+                model_dir.mkdir(parents=True, exist_ok=True)
+                model.save_model(str(model_dir / f"step_{step_n:02d}_m{m_i}.ubj"))
+
+        if not trained_models:
+            test_start_pos += STEP
             continue
 
-        # Train Model A (even→train, odd→val_ES)
-        model_A = xgb.XGBRegressor(**params)
-        model_A.fit(X_all.loc[tr_A_idx].values, y_train.loc[tr_A_idx].values,
-                     eval_set=[(X_all.loc[val_A_idx].values, y_train.loc[val_A_idx].values)],
-                     verbose=False)
-        best_iter_A = model_A.best_iteration
+        avg_iter = int(np.mean(best_iters))
 
-        # Train Model B (opposite phase) — skip if B's val block touches test
-        model_B = None
-        best_iter_B = 0
-        if dual_model and not skip_B:
-            train_B_mask = in_train & (block_parity == 1) & not_embargoed
-            val_B_mask   = in_train & (block_parity == 0) & not_embargoed
-            tr_B_idx  = panel.index[train_B_mask & y_all.notna()]
-            val_B_idx = panel.index[val_B_mask   & y_all.notna()]
-            model_B = xgb.XGBRegressor(**params)
-            model_B.fit(X_all.loc[tr_B_idx].values, y_train.loc[tr_B_idx].values,
-                         eval_set=[(X_all.loc[val_B_idx].values, y_train.loc[val_B_idx].values)],
-                         verbose=False)
-            best_iter_B = model_B.best_iteration
+        # ── 3. Val predictions (conservative cutoff: embargo = max) ──────
+        # All models predict on full training window up to embargo=30.
+        # Even blocks are in-sample, odd blocks are true OOS for all models.
+        common_usable_end = test_start_pos - MODEL_EMBARGO_START
+        in_common = (row_pos >= train_start_pos) & (row_pos < common_usable_end)
+        common_val_mask = in_common & y_all.notna()
+        common_val_idx  = panel.index[common_val_mask]
 
-        if save_models:
-            model_dir = OUTPUTS / "models"
-            model_dir.mkdir(parents=True, exist_ok=True)
-            model_A.save_model(str(model_dir / f"step_{step_n:02d}_A.ubj"))
-            if model_B:
-                model_B.save_model(str(model_dir / f"step_{step_n:02d}_B.ubj"))
-
-        train_dates = dates[:train_end_pos]
-        test_dates  = dates[train_end_pos:test_end_pos]
-
-        # Val predictions
         val_ic = float("nan")
-        val_idx = val_A_idx
-        if len(val_idx) > 0:
-            scores_A_val = model_A.predict(X_all.loc[val_idx].values)
-            if model_B:
-                all_val_idx = panel.index[in_train & y_all.notna()]
-                scores_A_all = model_A.predict(X_all.loc[all_val_idx].values)
-                scores_B_all = model_B.predict(X_all.loc[all_val_idx].values)
-                val_ic = (_daily_ic(scores_A_all, y_all.loc[all_val_idx].values, all_val_idx) +
-                          _daily_ic(scores_B_all, y_all.loc[all_val_idx].values, all_val_idx)) / 2
-                val_df = pd.DataFrame({
-                    "score_A": scores_A_all,
-                    "score_B": scores_B_all,
-                    "score": (scores_A_all + scores_B_all) / 2,
-                    "label": y_all.loc[all_val_idx].values,
-                    "block_parity": block_parity.loc[all_val_idx].values,
-                }, index=all_val_idx)
-            else:
-                val_ic = _daily_ic(scores_A_val, y_all.loc[val_idx].values, val_idx)
-                val_df = pd.DataFrame({
-                    "score": scores_A_val,
-                    "label": y_all.loc[val_idx].values,
-                }, index=val_idx)
+        if len(common_val_idx) > 0:
+            val_scores_stack = [m.predict(X_all.loc[common_val_idx].values)
+                                for m in trained_models]
+            val_scores = np.mean(val_scores_stack, axis=0)
+            val_ic = _daily_ic(val_scores, y_all.loc[common_val_idx].values,
+                               common_val_idx)
+
+            val_df = pd.DataFrame({
+                "score": val_scores,
+                "label": y_all.loc[common_val_idx].values,
+            }, index=common_val_idx)
             val_df["step"]      = step_n
             val_df["split"]     = "val"
-            val_df["best_iter"] = best_iter_A
+            val_df["best_iter"] = avg_iter
             val_df["val_ic"]    = val_ic
             predictions.append(val_df)
 
-        # Test predictions — model A only (most distant from test, no leakage)
+        # ── 4. Test predictions (average of N models) ────────────────────
         test_ic = float("nan")
         if len(test_idx) > 0:
-            scores_A_test = model_A.predict(X_all.loc[test_idx].values)
-            test_ic = _daily_ic(scores_A_test, y_all.loc[test_idx].values, test_idx)
+            test_scores_stack = [m.predict(X_all.loc[test_idx].values)
+                                 for m in trained_models]
+            test_scores = np.mean(test_scores_stack, axis=0)
+            test_ic = _daily_ic(test_scores, y_all.loc[test_idx].values, test_idx)
 
             test_df = pd.DataFrame({
-                "score": scores_A_test,
+                "score": test_scores,
                 "label": y_all.loc[test_idx].values,
             }, index=test_idx)
             test_df["step"]      = step_n
             test_df["split"]     = "test"
-            test_df["best_iter"] = best_iter_A
+            test_df["best_iter"] = avg_iter
             test_df["val_ic"]    = val_ic
             predictions.append(test_df)
 
-        ic_log.append((step_n, val_ic, val_ic, val_ic, test_ic))
-        # Save SHAP-based feature importances on test predictions
-        test_date = dates[train_end_pos] if train_end_pos < n else dates[-1]
+        ic_log.append((step_n, val_ic, test_ic))
+
+        # Feature importance (SHAP from first model)
+        test_date = dates[test_start_pos] if test_start_pos < n else dates[-1]
         if len(test_idx) > 0:
-            dtest = xgb.DMatrix(X_all.loc[test_idx].values, feature_names=available_cols)
-            shap_vals = model_A.get_booster().predict(dtest, pred_contribs=True)
-            # shap_vals: (n_samples, n_features + 1), last col = bias
+            dtest = xgb.DMatrix(X_all.loc[test_idx].values,
+                                feature_names=available_cols)
+            shap_vals = trained_models[0].get_booster().predict(
+                dtest, pred_contribs=True)
             mean_abs_shap = np.abs(shap_vals[:, :-1]).mean(axis=0)
             imp = dict(zip(available_cols, mean_abs_shap))
         else:
-            imp = dict(zip(available_cols, model_A.feature_importances_))
+            imp = dict(zip(available_cols,
+                           trained_models[0].feature_importances_))
         importance_log.append({"step": step_n, "date": test_date, **imp})
-        step_n += 1
 
+        step_n += 1
         if verbose:
+            test_dates = dates[test_start_pos:test_end_pos]
             print(
                 f"  Step {step_n:2d}  "
-                f"val_auc={val_ic:.4f}  "
-                f"test_auc={test_ic:.4f}  "
+                f"val_ic={val_ic:.4f}  test_ic={test_ic:.4f}  "
                 f"[{test_dates[0].date()} → {test_dates[-1].date()}]  "
-                f"iter_A={best_iter_A} iter_B={best_iter_B}"
+                f"models={len(trained_models)}  avg_iter={avg_iter}"
             )
 
-        train_end_pos += STEP
+        test_start_pos += STEP
 
     if not predictions:
-        raise RuntimeError("No predictions produced — check MIN_TRAIN_ROWS vs data length")
+        raise RuntimeError(
+            "No predictions produced — check MIN_TRAIN_ROWS vs data length")
 
     # IC summary
-    ic_df = pd.DataFrame(ic_log, columns=["step", "train_ic", "val_ic", "val_cma_ic", "test_ic"])
+    ic_df = pd.DataFrame(ic_log, columns=["step", "val_ic", "test_ic"])
     if verbose:
         print(f"\n{'='*70}")
-        print(f"  {'Mean train IC (in-sample)':35s} {ic_df['train_ic'].mean():+.4f}")
-        print(f"  {'Mean val IC (early stop)':35s} {ic_df['val_ic'].mean():+.4f}")
+        print(f"  {'Mean val IC':35s} {ic_df['val_ic'].mean():+.4f}")
         print(f"  {'Mean test IC (true OOS)':35s} {ic_df['test_ic'].mean():+.4f}")
         print(f"  {'IC stability (val/test corr)':35s} "
               f"{ic_df['val_ic'].corr(ic_df['test_ic']):+.3f}")
@@ -390,47 +384,23 @@ def run_walk_forward(
         imp_df = pd.DataFrame(importance_log).set_index("date")
         imp_df.to_parquet(OUTPUTS / "feature_importances.parquet")
         if verbose:
-            print(f"  Saved feature_importances.parquet ({len(imp_df)} steps × {len(imp_df.columns)-1} features)")
+            print(f"  Saved feature_importances.parquet "
+                  f"({len(imp_df)} steps × {len(imp_df.columns)-1} features)")
 
     return pd.concat(predictions).sort_index()
-
-
-# Number of independent training seeds averaged into oos_predictions.parquet.
-# XGBoost's row/column subsampling makes a single run noisy (~0.05 Sharpe of
-# downstream backtest jitter); averaging the per-row scores across N seeds
-# cancels that noise so experiments become comparable. Each seed re-runs the
-# whole pipeline (WF feature selection + dual A/B fit) → genuinely independent.
-N_SEEDS = 5
-
-
-def _average_oos(oos_runs: list[pd.DataFrame]) -> pd.DataFrame:
-    """Average the `score` column across seed runs. The row set, step, split
-    and label are seed-independent (masks don't depend on the seed), so after
-    each run's stable sort_index the rows align positionally."""
-    base = oos_runs[0].copy()
-    for k, o in enumerate(oos_runs[1:], 1):
-        if (len(o) != len(base)
-                or not (o["step"].values == base["step"].values).all()
-                or not (o["split"].values == base["split"].values).all()):
-            raise RuntimeError(f"seed run {k} has a structure mismatch — cannot average")
-    score_stack = np.array([o["score"].values for o in oos_runs], dtype=float)
-    base["score"] = np.nanmean(score_stack, axis=0)
-    return base
 
 
 def main():
     feat_path = DATA / "features.parquet"
     if not feat_path.exists():
-        sys.exit("ERROR: data/features.parquet not found — run feature_engineering.py first")
+        sys.exit("ERROR: data/features.parquet not found — "
+                 "run feature_engineering.py first")
 
     print("Loading features...")
     panel = pd.read_parquet(feat_path)
     panel = panel.reset_index()
     panel["date"] = pd.to_datetime(panel["date"])
     panel = panel.set_index(["date", "etf_id"])
-    # etf_id (ETF identity) is a permanent model feature — ordinal-encoded as a
-    # numeric column so it joins the walk-forward feature-selection candidate
-    # pool (get_all_feature_cols picks it up; the string "etf_id" stays excluded).
     panel["etf_id_code"] = pd.Categorical(
         panel.index.get_level_values("etf_id")).codes.astype(np.int32)
 
@@ -447,34 +417,29 @@ def main():
     print(
         f"\nWalk-Forward: MIN_TRAIN={MIN_TRAIN_ROWS}d  TEST={TEST_WINDOW}d  "
         f"STEP={STEP}d  BLOCK={BLOCK_ROWS}d\n"
-        f"WF feature selection: ON — features re-filtered every step on train "
-        f"data only (no look-ahead)\n"
+        f"Feature selection: {len(FEAT_SEL_EMBARGOS)} folds (embargo "
+        f"{FEAT_SEL_EMBARGOS[0]}→{FEAT_SEL_EMBARGOS[-1]}d), "
+        f"mean/std^{FEAT_SEL_POWER}, top {FEAT_SEL_CAP}\n"
+        f"Model ensemble: {N_MODELS} models (embargo "
+        f"{MODEL_EMBARGO_START}→{MODEL_EMBARGO_START - (N_MODELS-1)*MODEL_EMBARGO_STEP}d "
+        f"by {MODEL_EMBARGO_STEP}d, each with different seed)\n"
     )
 
-    print(f"Seed-averaged training: {N_SEEDS} independent seeds\n")
-    oos_runs = []
-    for s in range(N_SEEDS):
-        print(f"\n{'#'*70}\n#  SEED {s + 1}/{N_SEEDS}\n{'#'*70}")
-        oos_s = run_walk_forward(
-            panel, device, dual_model=True, wf_feature_selection=True,
-            seed=s, save_models=(s == N_SEEDS - 1),
-        )
-        oos_s.to_parquet(DATA / f"oos_seed{s}.parquet")  # per-seed, for noise diagnostic
-        oos_runs.append(oos_s)
-
-    oos = _average_oos(oos_runs) if N_SEEDS > 1 else oos_runs[0]
+    oos = run_walk_forward(
+        panel, device, wf_feature_selection=True, save_models=True,
+    )
 
     out = DATA / "oos_predictions.parquet"
     oos.to_parquet(out)
 
     test_oos = oos[oos["split"] == "test"].dropna(subset=["score", "label"])
-    mean_test_ic = test_oos.groupby(test_oos.index.get_level_values("date")).apply(
-        lambda x: x["score"].corr(x["label"])
-    ).mean()
+    mean_test_ic = test_oos.groupby(
+        test_oos.index.get_level_values("date")
+    ).apply(lambda x: x["score"].corr(x["label"])).mean()
     val_oos = oos[oos["split"] == "val"].dropna(subset=["score", "label"])
-    mean_val_ic = val_oos.groupby(val_oos.index.get_level_values("date")).apply(
-        lambda x: x["score"].corr(x["label"])
-    ).mean()
+    mean_val_ic = val_oos.groupby(
+        val_oos.index.get_level_values("date")
+    ).apply(lambda x: x["score"].corr(x["label"])).mean()
 
     print(f"\nSaved → {out.name}")
     print(f"  val rows:       {(oos['split']=='val').sum()}")
@@ -486,9 +451,6 @@ def main():
         f"{test_oos.index.get_level_values('date').min().date()} → "
         f"{test_oos.index.get_level_values('date').max().date()}"
     )
-    # feature_importances.parquet is the data source for the feature-importance
-    # evolution chart — that chart is now drawn by backtest.py so it stays in
-    # sync with the backtest equity curve it overlays.
 
 
 if __name__ == "__main__":
