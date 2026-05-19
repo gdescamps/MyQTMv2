@@ -298,3 +298,266 @@ est ce que tu peux trier la liste des etf dans la legende du graphique en foncti
 -------------------------------------------
 
 est ce que tu confirme qu'il n'y a qu'une seule reallocation par mois ?
+
+-------------------------------------------
+
+Regarde où ce fichier est généré, probablement dans le script backtest.
+myfiles/backtest_robustness.csv
+On redirige le dans ./outputs
+et commit le mv de git a dvc add dans ./outputs
+
+
+-------------------------------------------
+
+deplacer 
+SHIFT_TEST.md
+PHASE123.md
+NEXT.md
+dans 
+./myfiles
+commit 
+
+-------------------------------------------
+
+Lire la baseline robustesse backtest actuelle
+qui est realisée avec 
+train.py 
+MIN_TRAIN_ROWS = 5031  # first test at 2020 (smart money sectors from 2015)
+
+Relance le pipeline complet train et backtest. 
+en changeant 
+MIN_TRAIN_ROWS = [5050, 5020]
+
+Et fait une analyse de la robustesse du backtest avec les trois valeurs de MIN_TRAIN_ROWS
+[5031, 5050, 5020]
+
+-------------------------------------------
+
+Il est la taille du step, un walk forward.
+La taille d'un bloc est aussi 21 jours.
+
+-------------------------------------------
+
+Ne plus faire un apprentissage dual model, bloc, paire, bloc impair.
+Supprimer cette logique.
+Augmenter la taille du bloc de test, le passer à 42 jours.
+Donc changer la variable step du walk forward à 42 jours
+Gardez les blocs d'apprentissage et de validation à 21 jours.
+Avec un embargo de 10d entre les blocs.
+On a toujours le label de prédiction à 10d fwd, cohérent avec l'embargo.
+sur un step de walk forward. le bloc de test de 42 jours ne bouge pas 
+Par contre, faire varier le dernier embargo avant le bloc de test.
+de 30 jour a 10 jours 
+
+Pour filtrer les features.
+
+Part d'un embargo final de 30 jours, entraine, early stop, retient l'importance des features.
+Réduire l'embargo final de 5 jours donc 25 jours, entraine, early stop retient l'importance des features
+etc jusqu'a l'embargo de 10 jours
+On trie les features par l'importance entre les fold  par mean / std ^ 1.5
+et garde les 110 top features 
+
+Avec cette liste de top features filtrée pour ce step.
+Entraîner 10 modèles avec des sites différents mais avec des shifts différents aussi.
+
+Toujours en partant de l'embargo 30 jours changer les seed
+Entraîner le modèle Early Stop garder le modèle.
+Réduire l'embargo de deux jours, Changer le seed
+Entraîner le deuxième modèle. Avec Early Stop 
+
+Jusqu'à l'embargo de 10 jours et obtenir 10 modèles entraînés avec un seed différent et un décalage de l'embargo différent.
+
+Par le Walk Forward de 42 jours.
+
+Recommencer le filtrage des features et entraîner à nouveau les 10 nouveaux modèles.
+
+Toujours avec une Rolling Windows de 5 ans sur la fenêtre d'apprentissage.
+
+Bien vérifier qu'on refait le filtrage des features à chaque walk forward.
+
+On rappelle qu'on ne veut pas de filtrage de features global sur le futur avant de faire le walk forward sur les modèles.
+
+Faire le backtest une fois qu'on a entraîné tous les modèles.
+
+Avec le step forward de 42 jours.
+
+
+Si les résultats ne sont pas convaincants.
+
+
+Gardez la même stratégie.
+
+Mais réduire la taille du bloc de test à 21 jours et donc le step forward à 21 jours aussi.
+
+Tout refaire, ce qui devrait prendre plus de temps.
+
+--------------------------------------------------------
+
+Lors du backtest, 
+j'ai observé que l'allocation ne baisse plus pendant les front montant du VIX,
+notamment sur le pic du VIX du Covid, 
+n'est plus le même comportement que la baseline, 
+Normalement sur le front montant du pic de VIX du Covid.
+c'était que le capital alloué doit descende à 40%, 
+puis soit restauré progressivement, mais assez rapidement.
+Ce n'est plus le cas maintenant.
+Est-ce que tu peux analyser pourquoi on a ce changement ?
+
+--------------------------------------------------------
+
+Dans le graphique du backtest pour le VIX
+utiliser une EMA plutot que MA
+En plus de la EMA50 en rouge , affichez la EMA 200 en bleu sur le VIX.
+epaissir un peu plus le trait des EMA  
+
+changer les periodes des EMA  : 50 en rouge et 200 en bleu
+
+--------------------------------------------------------
+
+Refondre la gestion du changement de régime entre phase 1, 2 et 3.
+
+La phase 1 est détectée sur des fronts brutaux montants du VIX.
+
+creer le ratio EMA100 / EMA300
+
+Un franchissement de MA100 au-dessus d'une MA300 Correspond à une phase 2. 
+Donc il faudrait trouver un moyen de privilégier la rotation fréquente d'actifs pendant cette phase. Où les ETF auront des rendements très divergents.
+
+
+Le franchissement de la MA100 en dessous de la MA300 correspond à la phase 3.
+Correspond à une corrélation ou un retour au calme des leaders, où les leaders du marché comme le SP500 progressent régulièrement avec un bon sharp ratio. Donc privilégiez les leaders du sharp ratio expansif à ce moment-là.
+
+Trouver un moyen de configurer le modèle pour la phase 2, 
+en privilégiant des réallocations plus rapides, 
+sans forcément privilégier le sharp ratio expanding. 
+par contre lorsqu'on passe sur la phase 3 le reconfigurer pour privilégier les nouveaux leaders avec le sharpe ratio expanding
+
+
+Est-ce que tu peux avant Softmax ?
+En gardant le poids des scores, les rendre positifs.
+Les pondérer par les scores respectif de chaque asset (sharpe expanding)^(MA300/MA100)
+TOP_N 
+puis softmax 
+
+
+--------------------------------------------------------
+
+Repasser le MSCI World en épaisseur fine au niveau du graphique du backtest.
+
+Repassez la courbe du backtest du portefeuille net orange en épaisseur fine au niveau du graphique du backtest.
+
+Lors d'un front montant brutal et intense du VIX, utilisé pour changer la location du cash, créer une droite verticale couvrant les deux graphiques de rendement des ETF et du portefeuille et le graphique de l'allocation.
+
+Afficher cette droite verticale en trait noir, fin.
+
+--------------------------------------------------------
+
+Afficher seulement le top 10 des fronts sur le VIX.
+Les afficher en caractère plus gras. 
+Proportionnellement à l'intensité du front montant.
+
+Afficher le top 10 des premiers fronts sur le VIX dans le l'ordre temporel
+Sans compter les répliques qui suivent dans les 20 jours suivants.
+Par exemple, lors du Covid, il ne doit y avoir qu'un front et pas les fronts qui surviennent les jours successifs.
+
+--------------------------------------------------------
+
+Toujours afficher la détection des fronts du VIX, le top 10.
+Désactiver complètement la gestion de l'allocation par le VIX nommé VIX Adaptative.
+En exécutant les backtests suivants, on n'exécute que le backtest principal, pas la robustesse.
+Les features importants.
+
+--------------------------------------------------------
+
+
+REBAL_DAYS = 5
+TOP_N = 5
+desactiver la pondération par le Sharpe ratio 
+
+me reexpliquer le ce qui est fait entre l'inference et l'allocation en terme de normalisation
+
+
+1. Inférence : le modèle XGBoost prédit un score par ETF par jour (prédiction de ret_10d_fwd z-scoré)
+2. Z-score cross-sectionnel (ligne ~998) : les scores bruts sont re-normalisés par jour : score_z = (score - mean_etfs) / std_etfs
+2. Chaque jour, les scores sont centrés/réduits → comparables entre ETFs
+3. TOP_N filter (ligne ~1004) : on garde seulement les N meilleurs scores positifs par jour, au plus 1 ETF par bloccorrélé (IVV/SUSA/ACWI = même bloc). Les autres sont mis à NaN.
+4. Softmax (dans _alloc, ligne ~151) : parmi les ETFs score > 0 restants :
+w = softmax(score / temperature = 1 )
+4. Convertit les scores en poids (0→1, somme = 1)
+5. Pondération Sharpe (ligne ~166) : combined = w_softmax × sharpe_expanding^power puis renormalisé. Avec SHARPE_POWER=0, ce facteur = 1 → les poids softmax passent directement.
+6. Allocation : les poids finaux déterminent la répartition du capital entre les ETFs sélectionnés. Le reste va en cash.
+
+ne plus gerer le rebalancement de maniere statique avec 
+REBAL_DAYS = 5
+changer  
+TOP_N = 5
+calculer tous les jours le TOP_N = 5
+mais allouer seulement le TOP_N = 3
+et declencher le rebalancement seulement si un asset en cours d'allocation n'est plus dans le TOP_N = 6
+faire des statistiques sur le nombre de réallocations.
+
+
+lorsque le VIX EMA100 passe sous 18 et EMA100 < EMA300
+allouer uniquement le top 3 sharpe ratio expanding pondéré par leur sharpe ratio
+
+
+Quelque chose ne va pas en 2024 lorsque la VIX EMA 300 passe sous 17.5 
+l'allocation devrait etre nasdaq semiconducteur et sp500
+pas EM ex chine emarging market MSCI World
+
+
+changer  
+TOP_N = 3
+calculer tous les jours le TOP_N = 3
+mais allouer seulement le TOP_N = 3
+et declencher le rebalancement seulement si un asset en cours d'allocation n'est plus dans le TOP_N = 3
+faire des statistiques sur le nombre de réallocations.
+
+
+
+lorsque le VIX EMA100 passe sous 50
+allouer uniquement le top 3 sharpe ratio expanding pondéré par leur sharpe ratio
+
+
+j'ai modifié le comportement de  calm_market
+les statistique sur la droite ne s'affiche plus correctement 
+
+
+--------------------------------- 
+
+
+lorsque calm_market est activé 
+ne changer l'allocation que lorsqu'un asset du top 3 change
+comme 
+lorsque le model est activé 
+
+--------------------------------- 
+
+Sur les fronts montants du VIX.
+Désallouez le capital pendant trois jours.
+
+Je supprime les droites verticales représentant les fronts montants du VIX.
+
+--------------------------------- 
+
+
+Pendant les zones de capital off à cause des fronts VIC: 
+	colore le VIX avec en rouge.
+
+Pendant les zones où on utilise le modèle 
+    color le VIX en orange
+
+lorsque calm_market == true
+	color le VIX en vert.
+
+Je veux voir les zones d'allocation 
+lorsqu'elles sont calmes avec seulement le top 3 sharp ratio
+alors  je veux voir le VIX coloré en vert 
+
+contrairement à l'utilisation du modèle où la zone d'allocation va être très fréquemment changée. 
+je veux voir le VIX en orange. 
+
+Je veux voir des traits des zones rouges sur le VIX lorsque le capital est off pendant 3 jours.
+
+relance
+
