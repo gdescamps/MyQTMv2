@@ -407,7 +407,7 @@ def compute_red_orange(port_returns: pd.Series, step_fee_records: list,
 # of the universe gets a distinct colour (no grey fallback).
 ETF_COLOR_MAP = {
     "IVV": "#1565c0", "QQQ": "#2ca02c", "RING": "#f4b400",        # principals
-    "ACWI": "#17becf", "EEM": "#9467bd", "IEMG": "#8c564b", "EMXC": "#e377c2",
+    "ACWI": "#000000", "EEM": "#9467bd", "IEMG": "#8c564b", "EMXC": "#e377c2",
     "ILF": "#bcbd22", "EWY": "#7b4173", "EWT": "#393b79", "EWZ": "#a55194",
     "EWW": "#ce6dbd", "EWC": "#e7969c", "EWJ": "#6b6ecf", "TUR": "#ad494a",
     "FXI": "#de9ed6", "ISF.L": "#637939", "IEUR": "#3182bd", "EZU": "#b5cf6b",
@@ -445,7 +445,7 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
     # Abbreviated display names (full name minus iShares/Sector/ETF/Acc/USD)
     SHORT_NAMES = {e.bourso: _short_name(e.name) for e in _UNIVERSE}
     # Tickers to show in bold on equity chart (besides portfolio)
-    BOLD_TICKERS = {"IVV", "GLD", "IEO", "QQQ", "RING"}
+    BOLD_TICKERS = {"IVV", "GLD", "IEO", "QQQ", "RING", "ACWI"}
 
     # --- Chart: Equity + Allocation + Temp/Scores ---
     fig1 = plt.figure(figsize=(24, 14))
@@ -536,9 +536,14 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         bm = _load_benchmark(ticker, eq_curve.index)
         if bm is not None:
             is_bold = ticker in BOLD_TICKERS
-            lw = 3.5 if ticker == "QQQ" else (2.8 if is_bold else 1.0)
-            alpha = 0.9 if is_bold else 0.5
-            zorder = 9 if ticker == "QQQ" else (5 if is_bold else 2)
+            if ticker == "ACWI":
+                lw, alpha, zorder = 3.0, 0.9, 8
+            elif ticker == "QQQ":
+                lw, alpha, zorder = 3.5, 0.9, 9
+            elif is_bold:
+                lw, alpha, zorder = 2.8, 0.9, 5
+            else:
+                lw, alpha, zorder = 1.0, 0.5, 2
             short = SHORT_NAMES.get(ticker, ticker)
             ax1.plot(bm.index, bm.values, lw=lw, color=color, alpha=alpha, zorder=zorder)
             bm_ret = bm.pct_change().dropna()
@@ -571,9 +576,15 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         vix_raw = vix_raw.reindex(eq_curve.index, method="ffill").dropna()
         ax1b = ax1.twinx()
         ax1b.fill_between(vix_raw.index, vix_raw.values, alpha=0.10, color="#d62728")
-        ax1b.set_yticks([])
-        ax1b.set_ylabel("")
+        vix_ema100 = vix_raw.ewm(span=100).mean()
+        vix_ema300 = vix_raw.ewm(span=300).mean()
+        ax1b.plot(vix_ema100.index, vix_ema100.values, color="#d62728", alpha=0.7,
+                  linewidth=2.0, linestyle=(0, (8, 4)))
+        ax1b.plot(vix_ema300.index, vix_ema300.values, color="#1565c0", alpha=0.7,
+                  linewidth=2.0, linestyle=(0, (8, 4)))
         ax1b.set_ylim(0, 80)
+        ax1b.set_ylabel("VIX", color="#d62728", fontsize=8)
+        ax1b.tick_params(axis="y", labelcolor="#d62728", labelsize=7)
 
     # Panel 2: Allocation — ETFs sorted by total allocation volume (descending)
     if len(weights_df) > 0:
@@ -1408,9 +1419,15 @@ def run_robustness():
         vix_raw = vix_raw.reindex(orig_red.index, method="ffill").dropna()
         ax1b = ax1.twinx()
         ax1b.fill_between(vix_raw.index, vix_raw.values, alpha=0.10, color="#d62728")
-        ax1b.set_yticks([])
-        ax1b.set_ylabel("")
+        vix_ema100 = vix_raw.ewm(span=100).mean()
+        vix_ema300 = vix_raw.ewm(span=300).mean()
+        ax1b.plot(vix_ema100.index, vix_ema100.values, color="#d62728", alpha=0.7,
+                  linewidth=2.0, linestyle=(0, (8, 4)))
+        ax1b.plot(vix_ema300.index, vix_ema300.values, color="#1565c0", alpha=0.7,
+                  linewidth=2.0, linestyle=(0, (8, 4)))
         ax1b.set_ylim(0, 80)
+        ax1b.set_ylabel("VIX", color="#d62728", fontsize=8)
+        ax1b.tick_params(axis="y", labelcolor="#d62728", labelsize=7)
 
     # --- Right column: gross/net return stats across the runs ---
     def _eur(x):
