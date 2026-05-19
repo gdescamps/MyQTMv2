@@ -228,7 +228,11 @@ def run_backtest(
     port_returns = np.zeros(n_days)
     actual_weights = np.zeros((n_days, n_etfs))
     n_rebalances = 0  # count actual rebalances
-    prev_topn_set = set()  # track current TOP_N composition
+    # Initialize prev_topn_set from prev_weights (carry between steps)
+    if prev_weights is not None:
+        prev_topn_set = set(j for j in range(n_etfs) if prev_weights[j] > 0.001)
+    else:
+        prev_topn_set = set()
 
     def _compute_target_lots(target_w, total_val):
         """Compute target positions in LOT_SIZE lots given weights and total value."""
@@ -891,7 +895,8 @@ def run_equity():
     hy_z60_s = macro.get("hy_spread_z60", pd.Series(dtype=float))
 
     # VIX EMA for calm-market detection
-    VIX_CALM_THRESHOLD = 18.0
+    VIX_CALM_THRESHOLD = 22.0
+    VIX_CALM_COND_EMA100_SUP_EMA300 = False
     vix_ema100 = vix_s.ewm(span=100).mean() if not vix_s.empty else pd.Series(dtype=float)
     vix_ema300 = vix_s.ewm(span=300).mean() if not vix_s.empty else pd.Series(dtype=float)
 
@@ -1025,16 +1030,15 @@ def run_equity():
         # --- Calm market override: VIX EMA300 < threshold → Sharpe leaders ---
         calm_market = False
         if not vix_ema100.empty and not vix_ema300.empty:
-            ema100_aligned = vix_ema100.reindex(val_scores.index, method="ffill")
-            ema300_aligned = vix_ema300.reindex(val_scores.index, method="ffill")
-            if len(ema100_aligned) > 0 and len(ema300_aligned) > 0:
-                ema100_at_step = ema100_aligned.iloc[-1]
-                ema300_at_step = ema300_aligned.iloc[-1]
-                calm_market = (not np.isnan(ema100_at_step)
-                               and not np.isnan(ema300_at_step)
-                               and ema100_at_step < VIX_CALM_THRESHOLD
-                               and ema100_at_step < ema300_at_step)
-
+                ema100_aligned = vix_ema100.reindex(val_scores.index, method="ffill")
+                ema300_aligned = vix_ema300.reindex(val_scores.index, method="ffill")
+                if len(ema100_aligned) > 0 and len(ema300_aligned) > 0:
+                    ema100_at_step = ema100_aligned.iloc[-1]
+                    ema300_at_step = ema300_aligned.iloc[-1]
+                    if not np.isnan(ema100_at_step) and not np.isnan(ema300_at_step):
+                        calm_market = ( ema100_at_step < VIX_CALM_THRESHOLD
+                                        and (not VIX_CALM_COND_EMA100_SUP_EMA300 or (ema100_at_step < ema300_at_step)) )
+        
         if calm_market:
             # Ignore model scores — allocate top 3 by rolling 252d Sharpe
             test_scores = _pivot_step(test_data)
@@ -1075,6 +1079,22 @@ def run_equity():
                 pos_idx = np.where((~np.isnan(row)) & (row > 0))[0]
                 drop = np.setdiff1d(pos_idx, keep_alloc)
                 test_scores.iloc[idx, drop] = np.nan
+
+        # VIX spike → go to cash for 3 days
+        VIX_SPIKE_CASH_DAYS = 3
+        if not vix_s.empty:
+            vix_test = vix_s.reindex(test_scores.index, method="ffill")
+            vix_5d_test = vix_test.diff(5)
+            spike_dates = vix_5d_test[vix_5d_test > VIX_SPIKE_MIN].index
+            cash_dates = set()
+            for sd in spike_dates:
+                for offset in range(VIX_SPIKE_CASH_DAYS):
+                    idx_pos = test_scores.index.get_loc(sd) + offset if sd in test_scores.index else -1
+                    if 0 <= idx_pos < len(test_scores):
+                        cash_dates.add(test_scores.index[idx_pos])
+            for cd in cash_dates:
+                test_scores.loc[cd] = np.nan
+                step_monitor_mask[test_scores.index.get_loc(cd)] = False
 
         # Daily returns for test period
         test_dr = daily_ret_panel.reindex(index=test_scores.index, columns=test_scores.columns).fillna(0)
