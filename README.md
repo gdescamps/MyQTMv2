@@ -1,32 +1,36 @@
 # MyQTMv2 — Quantitative ETF Momentum Strategy
 
-Systematic ETF allocation strategy based on XGBoost cross-sectional IC maximization with VIX-adaptive risk management.
+Systematic ETF allocation strategy combining XGBoost cross-sectional IC maximization with a rule-based regime overlay (calm-market top-3 Sharpe + VIX spike cash-out).
 
-## Performance (backtest OOS 2019-09 → 2026-05)
+## Performance (backtest OOS 2019-09 → 2026-05, 6.83 years)
 
 | Metric | Value |
 |--------|-------|
-| Total return | +771% |
-| Ann. return | 37.3% |
-| Sharpe | 1.56 |
-| Max Drawdown | -23.2% |
-| Ann. volatility | 21.8% |
-| Robustness (median, 50 runs drop 5-10 ETFs) | Sharpe 1.42 |
+| Total return (brut) | +1399.9% (×14.87) |
+| Ann. return (brut) | **+48.66%** |
+| Sharpe | **2.15** |
+| Sortino | 2.99 |
+| Max Drawdown | **-12.9%** |
+| Calmar | 3.76 |
+| Robustness (median, 50 runs, drop 5-10 ETF) | Sharpe **2.27**, DD -15.8% |
+
+Per-year (brut): 2020 +62.4%, 2021 +11.6%, 2022 +109.5%, 2023 +50.9%, 2024 +18.2%, 2025 +50.3%.
 
 ## Algorithm Overview
 
 ```
-┌─────────────┐    ┌──────────────────┐    ┌────────────────┐    ┌──────────────┐
-│  250 Features │───▶│  Walk-Forward     │───▶│  XGBoost IC     │───▶│  VIX-Adaptive │
-│  Engineering  │    │  Feature Select   │    │  Prediction     │    │  Allocation   │
-└─────────────┘    └──────────────────┘    └────────────────┘    └──────────────┘
+┌───────────────┐    ┌──────────────────┐    ┌─────────────────┐    ┌─────────────────────┐
+│ ~250 Features │───▶│ K-fold WF Feature │───▶│ XGBoost ensemble │───▶│  Per-day allocator: │
+│  Engineering  │    │ selection (×10)   │    │ (×20, embargo Δ) │    │ calm Sharpe / model │
+└───────────────┘    └──────────────────┘    └─────────────────┘    │ + 3d cash on spike  │
+                                                                     └─────────────────────┘
 ```
 
 ## 1. Universe (27 ETFs)
 
-Tradeable on Boursorama (compte titre), all with iShares shares outstanding (smart money) history since ≤2017.
+Tradeable on Boursorama (compte titre), all with iShares shares outstanding (smart-money) history since ≤2017. Sections: Geo equity (20), Thematic (4), Commodity (3).
 
-Sections: Geo equity (20), Thematic (4), Commodity (3).
+A second universe (`--long`, 18 ETFs since ~2005, no smart-money) exists for stress-testing — see §10.
 
 ## 2. Data Sources
 
@@ -34,183 +38,163 @@ Sections: Geo equity (20), Thematic (4), Commodity (3).
 |--------|------|
 | yfinance | OHLCV daily prices (via US/LSE proxy tickers for max history) |
 | FRED | VIX, HY spread, yield curve, DXY |
-| iShares XLS | Shares outstanding (smart money flows) |
+| iShares XLS | Shares outstanding (smart-money flows) |
 
 No FMP, no LLM, no paid API.
 
 ## 3. Feature Engineering (`feature_engineering.py`)
 
-**250 candidate features** computed per ETF per day:
+~250 candidate features computed per ETF per day. Categories: technical (momentum, vol, RSI, MA, ATR, Bollinger, drawdown, skew/kurtosis), macro (VIX/HY/yield curve/DXY plus z-scores/velocity/interactions), smart-money (shares outstanding z-scores + crossovers + momentum), cross-sectional (z-scores vs universe and within section, ranks, momentum × volume/SO/VIX, dispersion, breadth, rank persistence), and expanding stats since inception.
 
-### Per-ETF technical (computed individually)
-- **Momentum**: ret 1/5/10/20/40/60/120/250d, momentum ratios (5v20, 20v60, 60v120...)
-- **Volatility**: vol 5/10/20/60/120d, vol ratios
-- **RSI**: 5/7/14/21/60 periods, RSI crossovers
-- **Moving averages**: price vs MA10/20/50/100/200, MA slopes, MA crossovers
-- **ATR**: 7/14/21d, ATR ratios
-- **Volume**: dollar volume z-scores 5/10/20/60/120d, volume crossovers
-- **Bollinger**: bb_position 20/60/120d
-- **Drawdown**: from rolling max 20/60/120/250d
-- **High/Low position**: 20/60d range
-- **Skewness & Kurtosis**: 20/60d
-- **Smart money**: shares_outstanding z-scores 5/10/20/60/120d, SO crossovers, SO momentum
-- **Expanding stats**: ann return since start, max DD, vol, Sharpe, current DD
+**Label**: `ret_10d_fwd` (forward 10-day return, absolute) — z-scored cross-sectionally per date so that MSE minimization = cross-sectional IC maximization (each day weighs the same).
 
-### Macro features (same for all ETFs)
-- **VIX**: level, velocity 5/20d, z-scores, crossovers, acceleration, squared
-- **HY spread**: level, z-scores, velocity, crossovers
-- **Yield curve**: level, z-scores, velocity, crossovers
-- **DXY**: returns, z-scores, crossovers
-- **SPX proxy**: returns, vol, drawdown
-- **Interactions**: VIX x HY, yield_curve x VIX
+## 4. K-fold Walk-Forward Training (`train.py`)
 
-### Cross-sectional features (computed across all ETFs per date)
-- **Z-scores vs universe**: ret, vol, RSI, ATR, BB, drawdown
-- **Z-scores within section**: ret 5/20/60d
-- **Ranks**: ret, vol, SO (percentile)
-- **Momentum acceleration**: short minus long, z-scored
-- **Squared/cubic z-scores**: non-linear rank extremes
-- **Interactions**: momentum x volume, momentum x SO, momentum x drawdown, RSI x momentum
-- **Regime-conditional**: momentum x VIX, momentum x yield_curve, momentum x DXY
-- **Dispersion**: universe std, breadth (% positive), ETF vs universe mean
-- **Sector rotation**: section mean vs universe, ETF vs section
-- **Smart money divergence**: SO direction vs price direction
-- **Volatility-adjusted momentum**: Sharpe 20/60/120d, cross-sectional z-scores
-- **Momentum acceleration (2nd derivative)**: diff of ret over time
-- **Rank persistence**: lagged rank, rank change
+Replaces the prior dual-model A/B scheme. At each WF step we run two K-fold passes — one for feature selection, one for model training — both with **varying final embargo** between train data and the 21-day test window.
 
-### Label
-- `ret_10d_fwd`: forward 10-day return (absolute, no demeaning)
-
-## 4. Walk-Forward Feature Selection (`train.py`)
-
-At each training step, features are re-selected using only data available at that point (**no lookahead**).
+### Feature selection — 10 folds
 
 | Parameter | Value |
 |-----------|-------|
-| Method | 3-period interlaced stability |
-| Metric | mean_importance / std^1.7 |
-| Cap | 150 features per step |
-| Recompute | every 5 steps |
+| Number of folds | 10 |
+| Final embargo schedule | 30 → 12 days (step 2) |
+| Stability metric | mean(importance) / std(importance)^1.7 |
+| Cap | **top 110** features kept per step |
 
-Process:
-1. Split train window into 3 interlaced groups (blocks of 21 days)
-2. Train XGBoost (depth=7) on 2 groups, validate on 3rd — repeat x3
-3. For each feature: stability = mean(importance) / std(importance)^1.7
-4. Keep top 150 features by stability
+Each fold trains XGBoost (depth=7) on **even blocks** of the rolling 5y window up to `test_start − final_embargo`, validates on odd blocks. Features are ranked by stability across the 10 folds.
 
-## 5. XGBoost Training (`train.py`)
-
-Walk-forward expanding window with rolling cap.
+### Model ensemble — 20 models
 
 | Parameter | Value |
 |-----------|-------|
-| Rolling window | 1250 days (~5 years) |
+| Number of models | 20 |
+| Final embargo schedule | 30 → 11 days (step 1) |
+| Seeds | 0..19 (different per model) |
+| Aggregation | Mean of 20 predictions on test window |
+
+Each of the 20 models uses a different final embargo *and* a different seed. The mix of embargo durations covers different cuts of "how recent can train data be" — averaging absorbs both the noise of XGB row/col subsampling and the noise of where exactly the train/test boundary sits.
+
+### Common config
+
+| Parameter | Value |
+|-----------|-------|
+| Rolling train window | 1250 days (~5 years) |
 | Test window | 21 days (~1 month) |
 | Step | 21 days |
 | Block size | 21 days (interlaced train/val) |
 | Embargo | 10 days (>= label horizon) |
 | Objective | reg:squarederror (IC maximization via z-scored labels) |
-| max_depth | 6 |
+| max_depth | 6 (short) / 4 (long) |
 | min_child_weight | 40 |
 | learning_rate | 0.04 |
-| subsample | 0.90 |
-| colsample_bytree | 0.678 |
-| early_stopping | 30 rounds (RMSE on val) |
 
-At each step:
-1. Walk-forward feature selection on train data (every 5 steps)
-2. Split train into even/odd blocks (21d each, 10d embargo)
-3. Train XGBoost on even blocks, early-stop on odd blocks
-4. Predict on next 21 test days
-5. Output: cross-sectional score per ETF per day
+### Honest val IC reporting
 
-**IC maximization**: labels are z-scored cross-sectionally per date before training. Minimizing MSE(y_hat, zscore(y)) = maximizing equal-weighted cross-sectional IC.
+`val_ic` is computed only on **odd blocks AND non-embargoed positions** of the training window. Including even blocks would mix in-sample predictions (used to fit the trees) and inflate val_ic by ~+0.04 IC vs the true 21-day OOS test IC.
 
-## 6. Allocation (`backtest.py`)
+Smart-money model gap (val − test): from +0.07 (reported) → +0.02 (honest) — the apparent overfit was largely a K-fold reporting artefact.
 
-### Score to Weights
+## 5. Allocation Layer (`backtest.py`)
+
+A per-day rule-based overlay decides whether each day uses the XGB model or the calm-mode fallback.
+
+### Per-day regime selection (no step-boundary lag)
+
+For each day in the 21-day test window:
+
+```
+if VIX EMA100 < CALM_THRESHOLD (19):
+    use calm mode  → top-3 by rolling 252d Sharpe, weighted by Sharpe via softmax
+else:
+    use model     → softmax of XGB scores, top-3 by score
+if (VIX 5-day change) > +4 points:
+    cash out for 3 trading days
+```
+
+Previously the calm/model decision was evaluated once per WF step at `val_scores.index[-1]` (≈ test_start − 30d) and held for the whole step — that introduced up to 50 days of lag. The current per-day evaluation matches the chart's regime coloring exactly.
+
+### Score → weights pipeline
+
 1. Z-score test predictions cross-sectionally per day
-2. Filter: keep only score > 0 (positive expected return)
-3. Top-N: keep only best N scores (VIX-adaptive, see below)
-4. Softmax: weights = softmax(score / T=1.0)
-5. Sharpe-weight: weights x historical_sharpe^0.8
-6. Normalize to sum = 1 (x max_alloc if spike)
+2. Filter to positive scores (score > 0)
+3. Top-N filter: keep top 3 by score (TOP_N_ALLOC=3)
+4. Softmax with T=1.0 → weights
+5. **No Sharpe weighting** (SHARPE_POWER=0). Earlier versions multiplied weights by historical Sharpe^p; this step is now disabled — empirically neutral and adds a parameter to maintain.
+6. Normalize to sum = 1; 100% of capital deployed unless cash-out is active.
 
-### VIX-Adaptive Regime (inverse logic)
+### Hysteresis rebalancing
 
-| VIX Level | Top-N ETFs | Rebal frequency |
-|-----------|-----------|-----------------|
-| < 15 (calm) | 7 (diversify) | every 5 days |
-| 15-25 | interpolated | interpolated |
-| > 25 (crisis) | 3 (concentrate) | every 2 days |
+Rebalance only when a currently allocated ETF leaves the monitored top-N (TOP_N_MONITOR=3). `prev_topn_set` is carried between WF steps — drops the number of rebals per year from ~180 to ~70-80 while improving net returns.
 
-**Rationale**: In calm markets, signal is weaker so diversify. In crisis, few ETFs survive so concentrate on best-ranked.
+### Calm mode allocation
 
-### VIX Spike Detection (progressive capital cap)
+In calm mode, the model's XGB scores are **ignored**. Replaced by the top-3 ETFs by rolling 252d Sharpe at the step boundary. Weights are computed by softmax of those Sharpe values, so the higher-Sharpe ETF gets a larger weight (this is the only place a Sharpe-based weighting still applies).
 
-When VIX slope (5-day change) rises steeply, reduce capital exposure progressively:
+### VIX spike cash-out
 
-| VIX 5d change | Allocation cap | Rebal |
-|---------------|----------------|-------|
-| < +4 pts | 100% (fully invested) | normal |
-| +4 pts | 80% invested, 20% cash | daily |
-| +7 pts | 60% invested, 40% cash | daily |
-| +10 pts | 40% invested, 60% cash | daily |
+When the VIX 5-day change exceeds +4 points on day D, allocations are forced to NaN on days D, D+1, D+2 (3 trading days flat). Replaces the prior "progressive cap" logic — discrete, easier to reason about, and effective at trimming the worst single-week drawdowns.
 
-Linear interpolation between +4 and +10. Protects against sudden crashes while staying invested during gradual moves.
+## 6. Robustness (`backtest.py --robustness`)
 
-## 7. Robustness
+50 Monte Carlo runs, randomly dropping 5-10 ETFs from the universe at each step (applied in both calm and model modes — so calm mode picks its top-3 Sharpe from a degraded universe too):
 
-Tested with 50 Monte Carlo runs, randomly dropping 5-10 ETFs (18-37% of universe) at each rebalance:
+| Stat | Sharpe | DD |
+|------|--------|-----|
+| Original | 2.41 | -12.9% |
+| Median | **2.27** | -15.8% |
+| Min | 1.93 | — |
+| Max | 2.67 | — |
 
-| Stat | Sharpe | Max DD |
-|------|--------|--------|
-| Original | 1.56 | -23.2% |
-| Median | 1.42 | -23.3% |
-| Min | 1.21 | — |
-| Max | 1.60 | — |
-
-## 8. Files
+## 7. Files
 
 | File | Description |
 |------|-------------|
-| `etf.py` | Universe definition (27 ETFs) |
-| `feature_engineering.py` | 250 features + ISHARES_MAP |
-| `train.py` | Walk-forward XGBoost + WF feature selection |
-| `select_features.py` | Standalone feature selection (3-period stability) |
-| `backtest.py` | Portfolio simulation + VIX-adaptive allocation + Monte Carlo robustness (parallel) |
-| `search_features_xgb.py` | Grid search (power x cap x depth) |
-| `download_ishares_xls.py` | iShares XLS downloader (smart money) |
+| `etf.py` | UNIVERSE_SHORT (27 ETFs, smart-money) + UNIVERSE_LONG (18 ETFs since 2005) |
+| `feature_engineering.py` | ~250 features + ISHARES_MAP |
+| `train.py` | K-fold WF feature selection (×10) + XGBoost ensemble training (×20) |
+| `backtest.py` | Per-day allocator (calm/model/spike-cash) + Monte Carlo robustness |
+| `myfiles/backtest_long_calmonly.py` | Ablation: long mode but with model disabled (calm only) |
 
-## 9. Running
+## 8. Running
 
 ```bash
-# Setup
 source venv/bin/activate
 
-# Full pipeline
-python feature_engineering.py   # Build 250 features -> data/features.parquet
-python train.py                 # Walk-forward training -> data/oos_predictions.parquet
-python backtest.py              # Equity + robustness backtests in parallel
-                                #   -> outputs/backtest_equity.jpg       (global)
-                                #   -> outputs/backtest_equity_YYYY.jpg  (per year)
-                                #   -> outputs/backtest_pie.jpg          (winners/losers)
-                                #   -> outputs/backtest_pie_YYYY.jpg     (per year)
-                                #   -> outputs/backtest_robustness.jpg   (50 Monte Carlo runs)
+# Default pipeline (27-ETF smart-money universe)
+python feature_engineering.py   # data/features.parquet
+python train.py                 # data/oos_predictions.parquet (~5 min on GPU)
+python backtest.py              # outputs/backtest_equity.jpg + per-year + pies
+python backtest.py --robustness # outputs/backtest_robustness.jpg (~10 min)
 
-# Hyperparameter search
-python search_features_xgb.py  # Grid search power x cap x depth
-
-# Feature selection (standalone)
-python select_features.py       # 3-period stability -> outputs/selected_features.json
+# Long-history universe (no smart-money — see §10)
+python feature_engineering.py --long
+python train.py --long          # data/oos_predictions_long.parquet
+python backtest.py --long       # outputs/long/...
+python myfiles/backtest_long_calmonly.py   # outputs/long_calmonly/... (no XGB, calm only)
 ```
 
-## 10. Key Design Decisions
+## 9. Key Design Decisions
 
-1. **Walk-forward feature selection**: eliminates lookahead bias in feature choice. Features are re-selected every 5 steps using only past data.
-2. **IC maximization** (not classification): z-scored labels make every date equally important regardless of return variance.
-3. **Inverse VIX logic**: concentrate in crisis (few survivors), diversify in calm (weak signal).
-4. **Progressive spike cap**: not binary — smooth reduction of exposure as VIX accelerates.
-5. **No data leakage**: embargo (10d) >= label horizon (10d), feature selection uses only train data, no future information.
-6. **Regularization**: depth=6, mcw=40, early stopping — prevents overfitting on 27-ETF universe.
+1. **K-fold ensembling over varying embargo** — averaging models trained with different train/test cut points cancels both subsampling noise and boundary-sensitivity of the rolling window.
+2. **Honest val IC** — restricting val to odd & not_embargoed blocks reveals that the smart-money model overfits much less than naive val_ic suggests (gap +0.02 instead of +0.07).
+3. **Per-day calm detection** — matches the chart, removes the ~50-day strategy lag, materially boosts 2023 (+50.9% vs mediocre).
+4. **No Sharpe weighting at allocation** — empirically neutral, one fewer parameter to tune. Softmax on z-scored scores does the heavy lifting.
+5. **3-day cash-out on VIX spike** — discrete and effective; halved max DD vs the prior progressive-cap heuristic.
+6. **Calm-mode is a real fallback, not a tweak** — when VIX EMA100 is low, the strategy actively *ignores* the XGB and picks the rolling-Sharpe leaders.
+
+## 10. Long-history ablation — Smart-money is load-bearing
+
+The `--long` universe (18 ETFs with data ≥ 2005, no smart-money features) was built to stress-test the model on a 15-year span (2011-2026). Three configurations:
+
+| Variant | Test IC | CAGR brut | Sharpe | Max DD |
+|---------|---------|-----------|--------|--------|
+| Short (smart-money, 27 ETFs) | **+0.049** | +48.7%/an | **2.15** | -12.9% |
+| Long with XGB (no smart-money, 18 ETFs) | -0.021 | +15.3%/an | 0.85 | -49.9% |
+| Long calm-only (no XGB at all) | n/a | +21.7%/an | 1.23 | -24.4% |
+
+**The model has no alpha without smart-money.** On the long universe:
+- Mean test IC = **-0.02** (anti-predictive on average)
+- The val→test gap is +0.10 even after honest reporting → genuine temporal drift, not a measurement artefact
+- Strictly worse than disabling the model entirely (calm-only beats it by Sharpe +0.38, CAGR +6.4%/an)
+
+Conclusion: the load-bearing signal is **iShares shares-outstanding flows** (smart-money). Without them the XGB only sees auto-correlated technical features and fails to generalize beyond the immediate training period. Any future work extending the universe should prioritize ETFs with iShares XLS coverage — that's the difference between Sharpe 2.15 and Sharpe 0.85.
