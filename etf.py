@@ -15,8 +15,20 @@ Fields:
 
 Boursorama symbol: "1rT" + base ticker without exchange suffix
   e.g. CSP1.PA -> "1rTCSP1", SEMI.AS -> "1rTSEMI", EXX1.DE -> "1rTEXX1"
+
+Two universes are exposed:
+  - UNIVERSE_SHORT (27 ETFs): smart-money compatible (iShares XLS coverage),
+    history typically starts 2008-2017. Used by default.
+  - UNIVERSE_LONG (16 ETFs): maximalist subset with OHLCV history starting
+    on or before 2006-05, intended for long backtests from 2011 onward.
+    Smart-money features are disabled in this mode.
+
+The active universe is selected by the env var QTM_MODE ∈ {"short", "long"}.
+Scripts set this var when invoked with --long (see top of train.py / backtest.py
+/ feature_engineering.py).
 """
 
+import os
 from dataclasses import dataclass
 from typing import Optional
 
@@ -124,7 +136,7 @@ CRYPTO = [
 UNIVERSE_FULL: list[ETF] = GEO + SECTOR_US + THEMATIC + COMMODITY + BOND + CRYPTO
 # 27 ETFs — filtre smart money disponible depuis ≤2017 (proxy iShares/UCITS)
 # bourso/proxy = ticker OHLCV (yfinance) ; smart money via ISHARES_MAP
-UNIVERSE: list[ETF] = [
+UNIVERSE_SHORT: list[ETF] = [
     # --- Geo equity ---
     ETF("IVV",     "S&P 500",            "geo", "us",      pea=False, zero_fees=False, proxy="IVV",     is_proxy=False, perf_1y=None, perf_5y=None),
     ETF("QQQ",     "Nasdaq 100",         "geo", "nasdaq",  pea=False, zero_fees=False, proxy="QQQ",     is_proxy=False, perf_1y=None, perf_5y=None),
@@ -156,6 +168,57 @@ UNIVERSE: list[ETF] = [
     ETF("IEO",     "Oil & Gas E&P",        "commodity", "oil",         pea=False, zero_fees=False, proxy="IEO",     is_proxy=False, perf_1y=None, perf_5y=None),
     ETF("SXRS.DE", "Diversified Commodity","commodity", "commodity",   pea=False, zero_fees=False, proxy="SXRS.DE", is_proxy=False, perf_1y=None, perf_5y=None),
 ]
+
+# 18 ETFs with OHLCV history starting on or before 2006-05 (max-history subset).
+# No smart-money features (disabled in long mode). For long backtests from 2011.
+# Earliest start dates (from parquet inspection):
+#   QQQ/EWW/EWC/EWJ 2000-01, EWY 2000-05, IVV 2000-05, EWT 2000-06,
+#   EWZ 2000-07, EZU 2000-07, SOXX 2001-07, ILF/EPP 2001-10,
+#   EEM 2003-04, FXI 2004-10, GLD 2004-11, SUSA 2005-01, IEO 2006-05.
+# RING (gold miners) starts 2012-02 — included for the calm-mode allocator
+# (active from 2017 onward with 5y rolling Sharpe).
+UNIVERSE_LONG: list[ETF] = [
+    ETF("IVV",  "S&P 500",            "geo", "us",      pea=False, zero_fees=False, proxy="IVV",  is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("QQQ",  "Nasdaq 100",         "geo", "nasdaq",  pea=False, zero_fees=False, proxy="QQQ",  is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EEM",  "Emerging Markets",   "geo", "em",      pea=False, zero_fees=False, proxy="EEM",  is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("ILF",  "Latin America 40",   "geo", "latam",   pea=False, zero_fees=False, proxy="ILF",  is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EWY",  "South Korea",        "geo", "korea",   pea=False, zero_fees=False, proxy="EWY",  is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EWT",  "Taiwan",             "geo", "taiwan",  pea=False, zero_fees=False, proxy="EWT",  is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EWZ",  "Brazil",             "geo", "brazil",  pea=False, zero_fees=False, proxy="EWZ",  is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EWW",  "Mexico",             "geo", "mexico",  pea=False, zero_fees=False, proxy="EWW",  is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EWC",  "Canada",             "geo", "canada",  pea=False, zero_fees=False, proxy="EWC",  is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EWJ",  "Japan",              "geo", "japan",   pea=False, zero_fees=False, proxy="EWJ",  is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("FXI",  "China Large-Cap",    "geo", "china",   pea=False, zero_fees=False, proxy="FXI",  is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EZU",  "Eurozone",           "geo", "emu",     pea=False, zero_fees=False, proxy="EZU",  is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("EPP",  "Pacific ex-Japan",   "geo", "pacific", pea=False, zero_fees=False, proxy="EPP",  is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("SUSA", "USA SRI",            "geo", "usa_sri", pea=False, zero_fees=False, proxy="SUSA", is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("SOXX", "Semiconductors",      "thematic",  "semi",        pea=False, zero_fees=False, proxy="SOXX", is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("IEO",  "Oil & Gas E&P",       "commodity", "oil",         pea=False, zero_fees=False, proxy="IEO",  is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("GLD",  "Gold (Physical)",     "commodity", "gold",        pea=False, zero_fees=False, proxy="GLD",  is_proxy=False, perf_1y=None, perf_5y=None),
+    ETF("RING", "Gold Miners",         "commodity", "gold_miners", pea=False, zero_fees=False, proxy="RING", is_proxy=False, perf_1y=None, perf_5y=None),
+]
+
+# --- Active universe selection -----------------------------------------------
+MODE = os.environ.get("QTM_MODE", "short").lower()
+if MODE == "long":
+    UNIVERSE: list[ETF] = UNIVERSE_LONG
+else:
+    UNIVERSE: list[ETF] = UNIVERSE_SHORT
+
+
+def is_long_mode() -> bool:
+    return MODE == "long"
+
+
+def path_suffix() -> str:
+    """Filename suffix for mode-specific artefacts: '' or '_long'."""
+    return "_long" if MODE == "long" else ""
+
+
+def outputs_subdir() -> str:
+    """Subdir under outputs/ for mode-specific charts: '' or 'long'."""
+    return "long" if MODE == "long" else ""
+
 
 # Quick lookup dicts
 BY_BOURSO: dict[str, ETF] = {e.bourso: e for e in UNIVERSE}

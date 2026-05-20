@@ -11,13 +11,17 @@ Builds a panel DataFrame with MultiIndex (date, etf_id) containing:
 Output: data/features.parquet
 """
 
+import os
 import sys
 import numpy as np
 import pandas as pd
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from etf import UNIVERSE
+if "--long" in sys.argv:
+    os.environ["QTM_MODE"] = "long"
+    sys.argv = [a for a in sys.argv if a != "--long"]
+from etf import UNIVERSE, is_long_mode, path_suffix
 
 DATA = Path(__file__).parent / "data"
 
@@ -203,6 +207,8 @@ def compute_etf_features(ohlcv: pd.DataFrame, shares_df: pd.DataFrame | None) ->
         f[f"kurtosis_{d}"] = r1.rolling(d, min_periods=d // 2).kurt()
 
     # ---- Shares outstanding z-scores (smart money flows) ----
+    # In long mode shares_df is always None and we skip the columns entirely
+    # so the feature pool isn't polluted with all-NaN columns.
     if shares_df is not None and "shares_outstanding" in shares_df.columns:
         so = shares_df["shares_outstanding"].reindex(c.index, method="ffill")
         so_chg = so.diff(1)
@@ -217,7 +223,9 @@ def compute_etf_features(ohlcv: pd.DataFrame, shares_df: pd.DataFrame | None) ->
         # Smart money momentum (pct change of SO level)
         f["so_ret_20d"] = so.pct_change(20)
         f["so_ret_60d"] = so.pct_change(60)
-    else:
+    elif not is_long_mode():
+        # Short mode but no XLS data — keep the NaN columns so the schema is
+        # consistent across ETFs in the panel.
         for d in [5, 10, 20, 60, 120]:
             f[f"shares_outstanding_z{d}"] = np.nan
         f["so_cross_5v20"]   = np.nan
@@ -227,6 +235,7 @@ def compute_etf_features(ohlcv: pd.DataFrame, shares_df: pd.DataFrame | None) ->
         f["so_cross_60v120"] = np.nan
         f["so_ret_20d"]      = np.nan
         f["so_ret_60d"]      = np.nan
+    # else (long mode): smart-money columns are not created at all
 
     # ---- Expanding (since inception) statistics ----
     cum_ret = c / c.iloc[0]
@@ -360,14 +369,15 @@ def main():
 
         ohlcv.index = pd.to_datetime(ohlcv.index).tz_localize(None)
 
-        # iShares shares outstanding
-        ishares_ticker = ISHARES_MAP.get(etf_id)
+        # iShares shares outstanding — disabled in long mode (no smart-money)
         shares_df = None
-        if ishares_ticker:
-            ish_path = DATA / f"ishares_{ishares_ticker}_hist.parquet"
-            if ish_path.exists():
-                shares_df = pd.read_parquet(ish_path)
-                shares_df.index = pd.to_datetime(shares_df.index).tz_localize(None)
+        if not is_long_mode():
+            ishares_ticker = ISHARES_MAP.get(etf_id)
+            if ishares_ticker:
+                ish_path = DATA / f"ishares_{ishares_ticker}_hist.parquet"
+                if ish_path.exists():
+                    shares_df = pd.read_parquet(ish_path)
+                    shares_df.index = pd.to_datetime(shares_df.index).tz_localize(None)
 
         # Compute per-ETF features
         feat = compute_etf_features(ohlcv, shares_df)
@@ -692,7 +702,7 @@ def main():
     # Set MultiIndex
     panel = panel.set_index(["date", "etf_id"]).sort_index()
 
-    out = DATA / "features.parquet"
+    out = DATA / f"features{path_suffix()}.parquet"
     panel.to_parquet(out)
     valid = panel["label"].notna().sum()
     print(f"\nSaved {out.name}: {panel.shape[0]} rows × {panel.shape[1]} cols  ({valid} labeled)")

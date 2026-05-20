@@ -14,6 +14,7 @@ Output:
   outputs/backtest_equity.csv     (equity curve)
 """
 
+import os
 import sys
 import subprocess
 import threading
@@ -25,9 +26,15 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 
+sys.path.insert(0, str(Path(__file__).parent))
+if "--long" in sys.argv:
+    os.environ["QTM_MODE"] = "long"
+    sys.argv = [a for a in sys.argv if a != "--long"]
+from etf import path_suffix, outputs_subdir
+
 DATA    = Path(__file__).parent / "data"
-OUTPUTS = Path(__file__).parent / "outputs"
-OUTPUTS.mkdir(exist_ok=True)
+OUTPUTS = Path(__file__).parent / "outputs" / outputs_subdir()
+OUTPUTS.mkdir(parents=True, exist_ok=True)
 
 EQUITY_SECTIONS    = {"geo", "sector_us", "thematic"}
 DEFENSIVE_SECTIONS = {"bond", "commodity", "crypto"}
@@ -875,9 +882,9 @@ def _plot_feature_importance() -> None:
 
 def run_equity():
     """Equity backtest → global + per-year equity charts and winner/loser pies."""
-    oos_path = DATA / "oos_predictions.parquet"
+    oos_path = DATA / f"oos_predictions{path_suffix()}.parquet"
     if not oos_path.exists():
-        sys.exit("ERROR: data/oos_predictions.parquet not found — run train.py first")
+        sys.exit(f"ERROR: {oos_path} not found — run train.py first")
 
     print("Loading OOS predictions...")
     oos = pd.read_parquet(oos_path)
@@ -1456,9 +1463,9 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
 
 def run_robustness():
     """Robustness backtest → outputs/backtest_robustness.jpg + summary CSV."""
-    oos_path = DATA / "oos_predictions.parquet"
+    oos_path = DATA / f"oos_predictions{path_suffix()}.parquet"
     if not oos_path.exists():
-        sys.exit("ERROR: data/oos_predictions.parquet not found")
+        sys.exit(f"ERROR: {oos_path} not found")
 
     print("Loading OOS predictions...", flush=True)
     oos = pd.read_parquet(oos_path)

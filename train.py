@@ -23,17 +23,27 @@ Output: data/oos_predictions.parquet
 GPU: uses device='cuda' (NVIDIA GB10), falls back to CPU if unavailable.
 """
 
+import os
 import sys
 import numpy as np
 import pandas as pd
 import xgboost as xgb
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+if "--long" in sys.argv:
+    os.environ["QTM_MODE"] = "long"
+    sys.argv = [a for a in sys.argv if a != "--long"]
+from etf import is_long_mode, path_suffix, outputs_subdir
+
 DATA    = Path(__file__).parent / "data"
-OUTPUTS = Path(__file__).parent / "outputs"
+OUTPUTS = Path(__file__).parent / "outputs" / outputs_subdir()
+OUTPUTS.mkdir(parents=True, exist_ok=True)
 
 # Walk-forward parameters
-MIN_TRAIN_ROWS = 5031  # first test at ~2020 (smart money sectors from 2015)
+# Long mode: first test ~2011-01 with rolling 5y train window. Panel starts
+# ~2000-01, so 11y × 252 ≈ 2772 trading-day positions before the first test.
+MIN_TRAIN_ROWS = 2772 if is_long_mode() else 5031
 TEST_WINDOW    = 21    # ~1 month per test step
 STEP           = 21    # refit every ~1 month
 BLOCK_ROWS     = 21    # ~1 month alternating blocks for interlaced train/val
@@ -43,7 +53,8 @@ ROLLING_WINDOW = 1250  # ~5 years rolling train window
 # Feature selection: 10 folds, final embargo varies 30→12 by 2d
 FEAT_SEL_EMBARGOS = list(range(30, 10, -2))  # [30, 28, 26, ..., 12]
 FEAT_SEL_POWER    = 1.7
-FEAT_SEL_CAP      = 110
+# Long mode: tighter feature cap to fight overfit on technical-only signal.
+FEAT_SEL_CAP      = 40 if is_long_mode() else 110
 
 # Model ensemble: 20 models, final embargo varies 30→11 by 1d
 N_MODELS            = 20
@@ -53,7 +64,7 @@ MODEL_EMBARGO_STEP  = 1   # → [30, 29, 28, ..., 11]
 def _load_feature_cols() -> list[str]:
     """Load selected features from select_features.py output, or fallback to defaults."""
     import json
-    sel_path = Path(__file__).parent / "outputs" / "selected_features.json"
+    sel_path = OUTPUTS / "selected_features.json"
     if sel_path.exists():
         with open(sel_path) as f:
             return json.load(f)
@@ -84,7 +95,7 @@ LABEL_COL = "label"
 
 XGB_PARAMS = dict(
     tree_method          = "hist",
-    max_depth            = 6,
+    max_depth            = 4 if is_long_mode() else 6,
     min_child_weight     = 40,
     subsample            = 0.900,
     colsample_bytree     = 0.678,
@@ -393,10 +404,10 @@ def run_walk_forward(
 
 
 def main():
-    feat_path = DATA / "features.parquet"
+    feat_path = DATA / f"features{path_suffix()}.parquet"
     if not feat_path.exists():
-        sys.exit("ERROR: data/features.parquet not found — "
-                 "run feature_engineering.py first")
+        sys.exit(f"ERROR: {feat_path} not found — "
+                 f"run feature_engineering.py{' --long' if is_long_mode() else ''} first")
 
     print("Loading features...")
     panel = pd.read_parquet(feat_path)
@@ -431,7 +442,7 @@ def main():
         panel, device, wf_feature_selection=True, save_models=True,
     )
 
-    out = DATA / "oos_predictions.parquet"
+    out = DATA / f"oos_predictions{path_suffix()}.parquet"
     oos.to_parquet(out)
 
     test_oos = oos[oos["split"] == "test"].dropna(subset=["score", "label"])
