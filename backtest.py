@@ -1044,58 +1044,50 @@ def run_equity():
                 if etf in carry_weights:
                     prev_w[i] = carry_weights[etf]
 
-        # --- Calm market override: VIX EMA300 < threshold → Sharpe leaders ---
-        calm_market = False
+        # --- Build MODEL scores (always, used on non-calm days) ---
+        model_row_mean = test_scores.mean(axis=1)
+        model_row_std  = test_scores.std(axis=1).replace(0, 1.0)
+        model_scores   = test_scores.sub(model_row_mean, axis=0).div(model_row_std, axis=0)
+        block_ids = [CORR_BLOCKS.get(c, c) for c in model_scores.columns]
+        n_cols = len(model_scores.columns)
+        model_monitor_mask = np.zeros((len(model_scores), n_cols), dtype=bool)
+        for idx in range(len(model_scores)):
+            row = model_scores.iloc[idx].values
+            keep_monitor = _topn_keep(row, TOP_N_MONITOR, block_ids)
+            model_monitor_mask[idx, keep_monitor] = True
+            keep_alloc = _topn_keep(row, TOP_N_ALLOC, block_ids)
+            pos_idx = np.where((~np.isnan(row)) & (row > 0))[0]
+            drop = np.setdiff1d(pos_idx, keep_alloc)
+            model_scores.iloc[idx, drop] = np.nan
+
+        # --- Build SHARPE picks (always, used on calm days) ---
+        roll_mean = dr_hist.rolling(252, min_periods=200).mean().iloc[-1] * 252
+        roll_std  = dr_hist.rolling(252, min_periods=200).std().iloc[-1] * np.sqrt(252)
+        roll_sharpe = (roll_mean / roll_std.replace(0, np.nan)).clip(0.0).fillna(0.0)
+        sharpe_series = roll_sharpe.reindex(model_scores.columns).fillna(0.0)
+        top3_sharpe = sharpe_series.nlargest(TOP_N_ALLOC).index.tolist()
+        top3_sharpe_set = set(top3_sharpe)
+        sharpe_row = np.array([sharpe_series[c] if c in top3_sharpe_set else np.nan
+                               for c in model_scores.columns])
+        sharpe_monitor_row = np.array([c in top3_sharpe_set for c in model_scores.columns])
+
+        # --- Per-day calm mask: matches the chart, no step-boundary lag ---
+        calm_per_day = pd.Series(False, index=model_scores.index)
         if not vix_ema100.empty and not vix_ema300.empty:
-                ema100_aligned = vix_ema100.reindex(val_scores.index, method="ffill")
-                ema300_aligned = vix_ema300.reindex(val_scores.index, method="ffill")
-                if len(ema100_aligned) > 0 and len(ema300_aligned) > 0:
-                    ema100_at_step = ema100_aligned.iloc[-1]
-                    ema300_at_step = ema300_aligned.iloc[-1]
-                    if not np.isnan(ema100_at_step) and not np.isnan(ema300_at_step):
-                        calm_market = ( ema100_at_step < VIX_CALM_THRESHOLD
-                                        and (not VIX_CALM_COND_EMA100_SUP_EMA300 or (ema100_at_step < ema300_at_step)) )
-        
-        if calm_market:
-            # Ignore model scores — allocate top 3 by rolling 252d Sharpe
-            test_scores = _pivot_step(test_data)
-            roll_mean = dr_hist.rolling(252, min_periods=200).mean().iloc[-1] * 252
-            roll_std = dr_hist.rolling(252, min_periods=200).std().iloc[-1] * np.sqrt(252)
-            roll_sharpe = (roll_mean / roll_std.replace(0, np.nan)).clip(0.0).fillna(0.0)
-            # Align to test columns
-            sharpe_series = roll_sharpe.reindex(test_scores.columns).fillna(0.0)
-            top3_sharpe = sharpe_series.nlargest(TOP_N_ALLOC).index.tolist()
-            # Build scores = rolling Sharpe for top 3, NaN for rest
-            for col in test_scores.columns:
-                col_loc = test_scores.columns.get_loc(col)
-                if col in top3_sharpe:
-                    test_scores.iloc[:, col_loc] = sharpe_series[col]
-                else:
-                    test_scores.iloc[:, col_loc] = np.nan
-            # Monitor mask: top 3 = monitor (no hysteresis in calm mode)
-            n_cols = len(test_scores.columns)
-            step_monitor_mask = np.zeros((len(test_scores), n_cols), dtype=bool)
-            for col in top3_sharpe:
-                step_monitor_mask[:, test_scores.columns.get_loc(col)] = True
-        else:
-            # Z-score scores cross-sectionally before softmax
-            row_mean = test_scores.mean(axis=1)
-            row_std = test_scores.std(axis=1).replace(0, 1.0)
-            test_scores = test_scores.sub(row_mean, axis=0).div(row_std, axis=0)
+            ema100_t = vix_ema100.reindex(model_scores.index, method="ffill")
+            ema300_t = vix_ema300.reindex(model_scores.index, method="ffill")
+            cond = (ema100_t < VIX_CALM_THRESHOLD)
+            if VIX_CALM_COND_EMA100_SUP_EMA300:
+                cond = cond & (ema100_t < ema300_t)
+            calm_per_day = cond.fillna(False)
 
-            # Build monitor mask (top N_MONITOR) and allocation scores (top N_ALLOC)
-            block_ids = [CORR_BLOCKS.get(c, c) for c in test_scores.columns]
-            n_cols = len(test_scores.columns)
-            step_monitor_mask = np.zeros((len(test_scores), n_cols), dtype=bool)
-
-            for idx in range(len(test_scores)):
-                row = test_scores.iloc[idx].values
-                keep_monitor = _topn_keep(row, TOP_N_MONITOR, block_ids)
-                step_monitor_mask[idx, keep_monitor] = True
-                keep_alloc = _topn_keep(row, TOP_N_ALLOC, block_ids)
-                pos_idx = np.where((~np.isnan(row)) & (row > 0))[0]
-                drop = np.setdiff1d(pos_idx, keep_alloc)
-                test_scores.iloc[idx, drop] = np.nan
+        # --- Combine model + Sharpe per day ---
+        test_scores = model_scores.copy()
+        step_monitor_mask = model_monitor_mask.copy()
+        for i, calm in enumerate(calm_per_day.values):
+            if calm:
+                test_scores.iloc[i] = sharpe_row
+                step_monitor_mask[i] = sharpe_monitor_row
 
         # VIX spike → go to cash for 3 days
         VIX_SPIKE_CASH_DAYS = 3
@@ -1374,56 +1366,53 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
                 if etf in carry_weights:
                     prev_w[i] = carry_weights[etf]
 
-        # --- Calm market detection (mirrors main backtest) ---
-        calm_market = False
+        # --- Build MODEL scores (always, used on non-calm days) ---
+        model_row_mean = test_scores.mean(axis=1)
+        model_row_std  = test_scores.std(axis=1).replace(0, 1.0)
+        model_scores   = test_scores.sub(model_row_mean, axis=0).div(model_row_std, axis=0)
+        n_cols = len(model_scores.columns)
+        block_ids = [CORR_BLOCKS.get(c, c) for c in model_scores.columns]
+        model_monitor_mask = np.zeros((len(model_scores), n_cols), dtype=bool)
+        for idx in range(len(model_scores)):
+            row = model_scores.iloc[idx].values
+            keep_monitor = _topn_keep(row, TOP_N_MONITOR, block_ids)
+            model_monitor_mask[idx, keep_monitor] = True
+            keep_alloc = _topn_keep(row, TOP_N_ALLOC, block_ids)
+            pos_idx = np.where((~np.isnan(row)) & (row > 0))[0]
+            drop_idx = np.setdiff1d(pos_idx, keep_alloc)
+            model_scores.iloc[idx, drop_idx] = np.nan
+
+        # --- Build SHARPE picks (always, used on calm days) ---
+        roll_mean = dr_hist.rolling(252, min_periods=200).mean().iloc[-1] * 252
+        roll_std  = dr_hist.rolling(252, min_periods=200).std().iloc[-1] * np.sqrt(252)
+        roll_sharpe = (roll_mean / roll_std.replace(0, np.nan)).clip(0.0).fillna(0.0)
+        sharpe_series = roll_sharpe.reindex(model_scores.columns).fillna(0.0)
+        for etf in dropped_set:
+            if etf in sharpe_series.index:
+                sharpe_series[etf] = 0.0
+        top3_sharpe = sharpe_series.nlargest(TOP_N_ALLOC).index.tolist()
+        top3_sharpe_set = set(top3_sharpe)
+        sharpe_row = np.array([sharpe_series[c] if c in top3_sharpe_set else np.nan
+                               for c in model_scores.columns])
+        sharpe_monitor_row = np.array([c in top3_sharpe_set for c in model_scores.columns])
+
+        # --- Per-day calm mask (matches main backtest) ---
+        calm_per_day = pd.Series(False, index=model_scores.index)
         if not vix_ema100.empty and not vix_ema300.empty:
-            ema100_aligned = vix_ema100.reindex(val_scores.index, method="ffill")
-            ema300_aligned = vix_ema300.reindex(val_scores.index, method="ffill")
-            if len(ema100_aligned) > 0 and len(ema300_aligned) > 0:
-                ema100_at_step = ema100_aligned.iloc[-1]
-                ema300_at_step = ema300_aligned.iloc[-1]
-                if not np.isnan(ema100_at_step) and not np.isnan(ema300_at_step):
-                    calm_market = (ema100_at_step < VIX_CALM_THRESHOLD
-                                   and (not VIX_CALM_COND_EMA100_SUP_EMA300
-                                        or (ema100_at_step < ema300_at_step)))
+            ema100_t = vix_ema100.reindex(model_scores.index, method="ffill")
+            ema300_t = vix_ema300.reindex(model_scores.index, method="ffill")
+            cond = (ema100_t < VIX_CALM_THRESHOLD)
+            if VIX_CALM_COND_EMA100_SUP_EMA300:
+                cond = cond & (ema100_t < ema300_t)
+            calm_per_day = cond.fillna(False)
 
-        n_cols = len(test_scores.columns)
-        step_monitor_mask = np.zeros((len(test_scores), n_cols), dtype=bool)
-
-        if calm_market:
-            # Rolling 252d Sharpe leaders — dropped ETFs are excluded via NaN
-            roll_mean = dr_hist.rolling(252, min_periods=200).mean().iloc[-1] * 252
-            roll_std = dr_hist.rolling(252, min_periods=200).std().iloc[-1] * np.sqrt(252)
-            roll_sharpe = (roll_mean / roll_std.replace(0, np.nan)).clip(0.0).fillna(0.0)
-            sharpe_series = roll_sharpe.reindex(test_scores.columns).fillna(0.0)
-            # Exclude dropped ETFs from calm-mode universe
-            for etf in dropped_set:
-                if etf in sharpe_series.index:
-                    sharpe_series[etf] = 0.0
-            top3_sharpe = sharpe_series.nlargest(TOP_N_ALLOC).index.tolist()
-            for col in test_scores.columns:
-                col_loc = test_scores.columns.get_loc(col)
-                if col in top3_sharpe:
-                    test_scores.iloc[:, col_loc] = sharpe_series[col]
-                else:
-                    test_scores.iloc[:, col_loc] = np.nan
-            for col in top3_sharpe:
-                step_monitor_mask[:, test_scores.columns.get_loc(col)] = True
-        else:
-            # Z-score cross-sectionally
-            row_mean = test_scores.mean(axis=1)
-            row_std = test_scores.std(axis=1).replace(0, 1.0)
-            test_scores = test_scores.sub(row_mean, axis=0).div(row_std, axis=0)
-
-            block_ids = [CORR_BLOCKS.get(c, c) for c in test_scores.columns]
-            for idx in range(len(test_scores)):
-                row = test_scores.iloc[idx].values
-                keep_monitor = _topn_keep(row, TOP_N_MONITOR, block_ids)
-                step_monitor_mask[idx, keep_monitor] = True
-                keep_alloc = _topn_keep(row, TOP_N_ALLOC, block_ids)
-                pos_idx = np.where((~np.isnan(row)) & (row > 0))[0]
-                drop_idx = np.setdiff1d(pos_idx, keep_alloc)
-                test_scores.iloc[idx, drop_idx] = np.nan
+        # --- Combine per day ---
+        test_scores = model_scores.copy()
+        step_monitor_mask = model_monitor_mask.copy()
+        for i, calm in enumerate(calm_per_day.values):
+            if calm:
+                test_scores.iloc[i] = sharpe_row
+                step_monitor_mask[i] = sharpe_monitor_row
 
         # VIX spike → 3 days cash-out
         VIX_SPIKE_CASH_DAYS = 3
