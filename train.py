@@ -294,11 +294,13 @@ def run_walk_forward(
         avg_iter = int(np.mean(best_iters))
 
         # ── 3. Val predictions (conservative cutoff: embargo = max) ──────
-        # All models predict on full training window up to embargo=30.
-        # Even blocks are in-sample, odd blocks are true OOS for all models.
+        # Only odd blocks (early-stop side, not used for fitting trees) AND only
+        # non-embargoed positions are kept — that's the cleanest semi-OOS subset
+        # of the training window. Including even blocks would mix in-sample
+        # predictions and inflate val_ic vs the true 21d test IC.
         common_usable_end = test_start_pos - MODEL_EMBARGO_START
         in_common = (row_pos >= train_start_pos) & (row_pos < common_usable_end)
-        common_val_mask = in_common & y_all.notna()
+        common_val_mask = in_common & y_all.notna() & (block_parity == 1) & not_embargoed
         common_val_idx  = panel.index[common_val_mask]
 
         val_ic = float("nan")
