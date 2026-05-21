@@ -6,7 +6,7 @@ For each (mean_std_power, top_features, max_depth):
   2. Train all 81 walk-forward steps (model A only, 5y rolling)
   3. Report mean test IC
 
-Output: myfiles/search_features_xgb_results.csv
+Output: knowledge/search_features_xgb_results.csv
 """
 
 import json
@@ -27,7 +27,7 @@ from select_features import get_all_feature_cols
 import train as train_mod
 
 DATA    = Path(__file__).parent / "data"
-OUTPUTS = Path(__file__).parent / "myfiles"
+OUTPUTS = Path(__file__).parent / "knowledge"
 OUTPUTS.mkdir(exist_ok=True)
 
 # Search grid
@@ -215,8 +215,8 @@ def main():
               f"{int(row['depth']):5d}  {row['test_ic']:+.4f}  {row['val_ic']:+.4f}  "
               f"{row['gap']:.3f}  {row['stability']:+.3f}")
     print(f"{'='*70}")
-    print(f"\nSaved → myfiles/search_features_xgb_results.csv ({len(df)} rows)")
-    print(f"Saved → myfiles/search_features_xgb_best.csv (top {N_BEST})")
+    print(f"\nSaved → knowledge/search_features_xgb_results.csv ({len(df)} rows)")
+    print(f"Saved → knowledge/search_features_xgb_best.csv (top {N_BEST})")
 
     # Retrain best model with save
     print(f"\n--- Retraining best model ---")

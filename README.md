@@ -153,7 +153,8 @@ When the VIX 5-day change exceeds +4 points on day D, allocations are forced to 
 | `feature_engineering.py` | ~250 features + ISHARES_MAP |
 | `train.py` | K-fold WF feature selection (×10) + XGBoost ensemble training (×20) |
 | `backtest.py` | Per-day allocator (calm/model/spike-cash) + Monte Carlo robustness |
-| `myfiles/backtest_long_calmonly.py` | Ablation: long mode but with model disabled (calm only) |
+| `knowledge/backtest_long_calmonly.py` | Ablation: long mode but with model disabled (calm only) |
+| `knowledge/FAILED_XP.md` | Log of experiments tested and rejected (avoids redoing them) |
 
 ## 8. Running
 
@@ -170,7 +171,7 @@ python backtest.py --robustness # outputs/backtest_robustness.jpg (~10 min)
 python feature_engineering.py --long
 python train.py --long          # data/oos_predictions_long.parquet
 python backtest.py --long       # outputs/long/...
-python myfiles/backtest_long_calmonly.py   # outputs/long_calmonly/... (no XGB, calm only)
+python knowledge/backtest_long_calmonly.py   # outputs/long_calmonly/... (no XGB, calm only)
 ```
 
 ## 9. Key Design Decisions
@@ -199,35 +200,6 @@ The `--long` universe (18 ETFs with data ≥ 2005, no smart-money features) was 
 
 Conclusion: the load-bearing signal is **iShares shares-outstanding flows** (smart-money). Without them the XGB only sees auto-correlated technical features and fails to generalize beyond the immediate training period. Any future work extending the universe should prioritize ETFs with iShares XLS coverage — that's the difference between Sharpe 2.15 and Sharpe 0.85.
 
-## 11. Rejected experiments (saturation evidence)
+## 11. Rejected experiments
 
-These were tried and discarded — left here so they don't get re-attempted.
-
-### LightGBM ensemble alongside XGBoost
-Adding 20 LGB models with the same hyper-params, same K-fold embargo/seed pairing as the existing 20 XGB models:
-| | XGB only | XGB + LGB | Δ |
-|---|---|---|---|
-| Test IC | +0.0500 | +0.0507 | +0.0007 |
-| Val − Test gap | +0.0291 | +0.0291 | 0 |
-| CAGR brut | +48.7%/an | +46.2%/an | **−2.4%** |
-| Sharpe | 2.15 | 2.08 | −0.07 |
-| Training time | 5m02s | 5m54s | +17% |
-
-The +0.078 IC gain reported in the earlier 2-model era no longer applies — with 20 XGB models already averaging out subsampling noise, the marginal diversification value of LGB is exhausted. The slight test-IC bump (+0.0007) doesn't translate to backtest equity. Would only be worth revisiting if LGB hyper-params were deliberately differentiated (different depth/lr/leaves) to add orthogonality.
-
-### Three new institutional-flow features (`inst_share_z*`, `rotation_idx_universe`, `flow_price_div_*d`)
-
-Designed to inject orthogonal smart-money signal beyond the existing `shares_outstanding_z*` block. Baseline test IC = +0.0490.
-
-| Variant | Test IC | Δ baseline | Best feature SHAP / kept in N steps |
-|---|---|---|---|
-| +F1 `inst_share_z20/z60` | +0.0496 | +0.0006 | 0.305 / 65 of 82 |
-| +F1+F2 `rotation_idx_universe` | +0.0442 | **−0.0048** | F2 raw: 0.013 / 6 of 82 (filtered) |
-| +F1+F2+F3 `flow_price_div_60d` | +0.0453 | −0.0037 | F3: **0.927** / 65 of 82 |
-| +F1+F3 (F2 dropped) | +0.0483 | −0.0007 | F3: 0.881 / 66 of 82 |
-
-The third feature `flow_price_div_60d` has one of the highest SHAP values in the whole model (0.927, kept in 79% of steps) **yet contributes nothing to test IC**. The current 20-XGB × 110-feature ensemble is at its Pareto frontier — adding a new informative feature *displaces* an equally informative one from the top-110 K-fold filter, netting to zero or worse. Same dynamic that killed the LGB experiment above.
-
-F2 specifically backfired (−0.0048) because `rotation_idx_universe` is **cross-sectionally constant** (same value for all ETFs on a given date). The XGB optimises cross-sectional IC per date, so a constant cannot rank ETFs; it only contributes via interactions, costs tree depth, and occupies a slot in the top-110 that would have gone to a real ranking feature.
-
-**Take-away**: the current architecture is signal-saturated. Adding features (or models) to the top-N pool no longer improves OOS performance. Future work that aims to genuinely move test IC must either (a) raise `FEAT_SEL_CAP` above 110, (b) prune a redundant block to free slots for new signal, or (c) change the architecture (different label, stacking, regime-conditional models). Otherwise it's wasted compute.
+See [`knowledge/FAILED_XP.md`](knowledge/FAILED_XP.md) for the log of experiments tested and abandoned (LightGBM ensemble, three institutional-flow features, residual-label learning). The current architecture appears saturated — adding capacity to the 20-XGB × 110-feature pool no longer moves test IC.

@@ -561,3 +561,89 @@ Je veux voir des traits des zones rouges sur le VIX lorsque le capital est off p
 
 relance
 
+
+--------------------------------- 
+
+mettre a jour le test de robustesse avec le retrait de 5 a 10 etf au hazard meme en mode calme top 3 sharpe ratio 
+
+--------------------------------- 
+
+La liste actuelle des ETF supportent tous la smart money.
+
+Je veux faire une sous-liste la plus conséquente possible, mais qui existe depuis 2005 environ
+La seule différence c'est que je veux faire un backtest plus long à partir des années 2005 mais sans la feature Smart Money.
+Créer une sous-liste la plus complète possible qui existe depuis 2005 environ sans Smart Money.
+On garde la liste actuelle compatible avec Smart Money mais moins long terme
+
+Dès que la liste est en place, lancez le backtest depuis 2011.
+Avec une Rolling Windows d'entraînement de 5 ans.
+Et les mêmes paramètres d'apprentissage. le K fold filtrage feature walk forward, et le training K fold plus reserré
+
+Garde les mêmes hyperparamètres et relance, le brançage complet, le baltesse complet.
+
+--------------------------------- 
+
+Passer à 40 features et une profondeur de 4.
+
+Est-ce que tu penses qu'il y a un changement à faire pour que le modèle sans smart money 
+se comporte plus comme un sélecteur de top sharpe ratio amélioré
+
+ sans cassé le model 
+
+
+--------------------------------
+
+
+ mettre a jour le README.md 
+
+ avec cette nouvelle version 
+
+ de l'algo 
+
+ La nouvelle version du VIX en coupant le capital pendant 3 jours.
+ En sortie du modèle, on ne pondère plus les allocations par le sharpe ratio
+ D'écrire la nouvelle gestion des k-fold pour infiltrer les features et entraîner le modèle.
+
+ La détection du mode calme par rapport à la moyenne mobile du X.
+ Le mode calme alloue seulement le top 3 des shapes sharpe, pondéré par leur sharpe ratio.
+
+ Le benchmark long sans Smart Money montre que le modèle n'a pas d'alpha sans Smart Money.
+
+ Il faut la surponner pour fournir dans les ctf iShares pour fournir de l'alpha.
+
+--------------------------------
+
+Refaire l'ajout d'un 2ieme model LGB
+Toujours en utilisant les 110 features, filtrés en KFold via XGBoost.
+
+Essayez de retrouver les hyperparamètres trouvés sur le LG Boost. Précédent.
+Réutiliser ces hyperparamètres. 
+
+On va faire une comparaison du test IC avant, après.
+Affiché dans un graphe l'évolution temporelle du gap entre val et test ici.
+Avec XGBoost seul.
+Et avec les deux modèles.
+
+On avait testé l'IC positive sur le bloc K-1,
+ce n'etait pas concluant ? 
+
+
+--------------------------------
+
+Dans les données, est-ce qu'on a une mesure directe du volume des institutionnels ?
+On pourrait afficher en parallèle de ce graphe.
+
+--------------------------------
+
+Est-ce qu'il y a un moyen d'équilibrer le modèle pour qu'il y ait un fallback
+du modèle vers une allocation des bests sharpe ratio
+Lorsque le l'amelioration du sharpe ratio se concentre uniquement sur les mêmes ETF.
+J'ai déjà posé la question, je la repose.
+
+Je voyais plus un moyen d'apprendre au modèle,
+à trouver le régime 
+plutôt qu'ajouter une heuristique.
+
+
+
+

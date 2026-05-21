@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from etf import UNIVERSE
 
 DATA    = Path(__file__).parent / "data"
-MYFILES = Path(__file__).parent / "myfiles"
+MYFILES = Path(__file__).parent / "knowledge"
 
 def load_returns() -> pd.DataFrame:
     rets = {}
@@ -128,7 +128,7 @@ def main():
 
     MYFILES.mkdir(exist_ok=True)
     corr.to_csv(MYFILES / "universe_corr.csv")
-    print(f"\nMatrice de corrélation → myfiles/universe_corr.csv")
+    print(f"\nMatrice de corrélation → knowledge/universe_corr.csv")
 
 
 if __name__ == "__main__":
