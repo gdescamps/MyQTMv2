@@ -24,9 +24,9 @@ NEW_OUT.mkdir(parents=True, exist_ok=True)
 backtest.OUTPUTS = NEW_OUT
 
 # Patch _pivot_step so test_scores always exposes the full UNIVERSE columns,
-# even for ETFs missing from the OOS predictions file (GLD/RING were added to
-# UNIVERSE_LONG after training so they have no model scores). In calm mode the
-# scores are overwritten with rolling 252d Sharpe anyway.
+# even for ETFs missing from the OOS predictions file. In calm mode the scores
+# are overwritten with rolling 252d Sharpe so the actual values don't matter,
+# only the column set.
 import numpy as np  # noqa: E402
 _orig_pivot = backtest._pivot_step
 _full_etfs = [e.bourso for e in UNIVERSE]

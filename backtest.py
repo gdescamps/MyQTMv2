@@ -9,9 +9,9 @@ Allocation model:
   Rebalance every N days with AV arbitrage delays (J+0 sell, J+1 buy with cash, J+2 buy with settled).
 
 Output:
-  data/backtest_results.parquet   (daily portfolio returns, test periods only)
-  outputs/best_params.csv         (per-step params)
-  outputs/backtest_equity.csv     (equity curve)
+  data/{mode}/backtest_results.parquet   (daily portfolio returns, test periods only)
+  outputs/{mode}/best_params.csv         (per-step params)
+  outputs/{mode}/backtest_equity.csv     (equity curve)
 """
 
 import os
@@ -30,10 +30,11 @@ sys.path.insert(0, str(Path(__file__).parent))
 if "--long" in sys.argv:
     os.environ["QTM_MODE"] = "long"
     sys.argv = [a for a in sys.argv if a != "--long"]
-from etf import path_suffix, outputs_subdir
+from etf import data_subdir, outputs_subdir
 
-DATA    = Path(__file__).parent / "data"
-OUTPUTS = Path(__file__).parent / "outputs" / outputs_subdir()
+DATA     = Path(__file__).parent / "data"
+DATA_OUT = DATA / data_subdir()
+OUTPUTS  = Path(__file__).parent / "outputs" / outputs_subdir()
 OUTPUTS.mkdir(parents=True, exist_ok=True)
 
 EQUITY_SECTIONS    = {"geo", "sector_us", "thematic"}
@@ -360,12 +361,23 @@ def sharpe(returns: pd.Series, min_obs: int = 30) -> float:
 
 
 def _pivot_step(step_data: pd.DataFrame) -> pd.DataFrame:
-    """Pivot (date, etf_id) long → wide scores."""
+    """Pivot (date, etf_id) long → wide scores, padded to the full UNIVERSE.
+
+    ETFs whose data starts mid-backtest (e.g. RING in 2012-02) are absent from
+    OOS predictions during early steps. Padding with NaN keeps the column set
+    constant across steps so that per-ETF arrays (sharpe weights, monitor
+    masks) line up by position.
+    """
+    from etf import UNIVERSE as _UNIVERSE
     if "score_A" in step_data.columns and step_data["score_A"].notna().any():
         scores = step_data["score_A"].unstack("etf_id").sort_index()
     else:
         scores = step_data["score"].unstack("etf_id").sort_index()
-    return scores
+    full_etfs = [e.bourso for e in _UNIVERSE]
+    missing = [c for c in full_etfs if c not in scores.columns]
+    for c in missing:
+        scores[c] = np.nan
+    return scores[full_etfs]
 
 
 def _section_arrays(etf_list: list, sections: dict) -> tuple[np.ndarray, np.ndarray]:
@@ -877,12 +889,12 @@ def _plot_feature_importance() -> None:
     fig.savefig(out, dpi=100, bbox_inches="tight", format="jpeg",
                 pil_kwargs={"quality": 70, "optimize": True})
     plt.close(fig)
-    print(f"Saved → outputs/feature_importance_evolution.jpg")
+    print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/feature_importance_evolution.jpg")
 
 
 def run_equity():
     """Equity backtest → global + per-year equity charts and winner/loser pies."""
-    oos_path = DATA / f"oos_predictions{path_suffix()}.parquet"
+    oos_path = DATA_OUT / "oos_predictions.parquet"
     if not oos_path.exists():
         sys.exit(f"ERROR: {oos_path} not found — run train.py first")
 
@@ -1192,7 +1204,7 @@ def run_equity():
     print(f"  Net ann.:     {net_ann:.1%}")
 
     # Save results
-    port_returns.to_frame().to_parquet(DATA / "backtest_results.parquet")
+    port_returns.to_frame().to_parquet(DATA_OUT / "backtest_results.parquet")
 
     params_df = pd.DataFrame(all_params_rows)
     params_df.to_csv(OUTPUTS / "best_params.csv", index=False)
@@ -1218,17 +1230,17 @@ def run_equity():
     _save_equity_png(port_returns, eq_red, all_weights, params_df, OUTPUTS,
                      scores_A=all_scores, fin=fin, eq_orange=eq_orange)
 
-    print(f"\nSaved → data/backtest_results.parquet")
-    print(f"Saved → outputs/best_params.csv")
-    print(f"Saved → outputs/backtest_steps.csv")
-    print(f"Saved → outputs/backtest_equity.csv")
-    print(f"Saved → outputs/backtest_equity.jpg")
+    print(f"\nSaved → {DATA_OUT.relative_to(Path(__file__).parent)}/backtest_results.parquet")
+    print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/best_params.csv")
+    print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_steps.csv")
+    print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_equity.csv")
+    print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_equity.jpg")
 
     # --- Winners / losers pie (global, all years chained) ---
     global_label = f"{port_returns.index[0].year}-{port_returns.index[-1].year}"
     _save_winners_losers_pie(global_label, all_weights, daily_ret_panel,
                              OUTPUTS, "backtest_pie.jpg")
-    print(f"Saved → outputs/backtest_pie.jpg")
+    print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_pie.jpg")
 
     # --- Per-year equity charts (each year restarts fresh at 150k€) ---
     for yr in range(int(port_returns.index[0].year), int(port_returns.index[-1].year) + 1):
@@ -1262,10 +1274,10 @@ def run_equity():
         _save_equity_png(yr_returns, yr_red, yr_weights, params_df, OUTPUTS,
                          scores_A=yr_scores, fin=fin_yr,
                          fname=f"backtest_equity_{yr}.jpg", eq_orange=yr_orange)
-        print(f"Saved → outputs/backtest_equity_{yr}.jpg")
+        print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_equity_{yr}.jpg")
         _save_winners_losers_pie(str(yr), yr_weights, daily_ret_panel,
                                  OUTPUTS, f"backtest_pie_{yr}.jpg")
-        print(f"Saved → outputs/backtest_pie_{yr}.jpg")
+        print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_pie_{yr}.jpg")
 
     # --- Feature-importance evolution, with this backtest's curve overlaid ---
     _plot_feature_importance()
@@ -1451,8 +1463,8 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
 
 
 def run_robustness():
-    """Robustness backtest → outputs/backtest_robustness.jpg + summary CSV."""
-    oos_path = DATA / f"oos_predictions{path_suffix()}.parquet"
+    """Robustness backtest → outputs/{mode}/backtest_robustness.jpg + summary CSV."""
+    oos_path = DATA_OUT / "oos_predictions.parquet"
     if not oos_path.exists():
         sys.exit(f"ERROR: {oos_path} not found")
 
@@ -1715,8 +1727,8 @@ def run_robustness():
     print(f"  Min:       brut {ann_g[1]:+.1f}%/an  net {ann_n[1]:+.1f}%/an  Sharpe {shp[1]:.2f}")
     print(f"  Max:       brut {ann_g[2]:+.1f}%/an  net {ann_n[2]:+.1f}%/an  Sharpe {shp[2]:.2f}")
     print(f"{'='*70}")
-    print(f"\nSaved → outputs/backtest_robustness.jpg")
-    print(f"Saved → outputs/backtest_robustness.csv")
+    print(f"\nSaved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_robustness.jpg")
+    print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_robustness.csv")
 
 
 # ===========================================================================

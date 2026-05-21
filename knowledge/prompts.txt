@@ -778,3 +778,54 @@ Replace `<USER>` with the actual username found in Step 1. Use the full absolute
 - Do not touch `~/.claude/settings.json`
 - Ask before any destructive or ambiguous action
 
+---------------------------------------------------
+
+Question, est-ce que dans 
+etf.py
+UNIVERSE_LONG: list[ETF]
+Est-ce que tu confirmes qu'il n'y a pas de smart money data du tout dans ces ETF ?
+
+
+---------------------------------------------------
+
+On distingue deux listes d'ETF, long et short.
+
+long part du début des années 2000 et représente 17 ETF En tenant tous les  donner Smart money de iShare
+
+short pard d'environ 2015, Représente 27 ETF contenant tous la donnée Smart Money de iShare
+
+Différencier strictement les données et les outputs des expériences longues et shortes.
+
+Stocker les données et les outputs dans de l'expérience long.
+data/long
+outputs/long
+
+Stocker les données et les outputs dans de l'expérience short.
+data/short
+outputs/short
+
+Supprimer des features engineering, explicitement le retrait des données smart money dans les features pour l'expérience longue.
+
+Les deux expériences, long et short doivent désormais utiliser la smart money.
+
+En gardant les mêmes hyperparamètres.
+
+Modifier le code pour bien différencier les deux expériences short et long 
+Utiliser la même méthodologie pour le train et backtest sur short et long
+filtrage K fold des features 
+et entraînement K fold du modèle XGB
+Au niveau du backtest, gérer l'annulation de la location sur les pics du VIX.
+En fonction de la MA100 du VIX, utilisez le modèle ou le fallback calm top 3 des best sharpe ratio.
+
+Je vais refaire le train et  backtest complet short and long Dans les répertoires parallèles.
+
+Short doit reproduire exactement les mêmes résultats qu'actuellement.
+On doit voir que la fin longue sur les années 2020 doit produire des résultats similaires à short.
+
+decliner
+dans .vscode/launch.json
+des configs 
+train long vs short
+backtest long vs short
+
+est ce que tu peux lancer le train et backtest de la version long 

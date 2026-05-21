@@ -26,11 +26,18 @@ Per-year (brut): 2020 +62.4%, 2021 +11.6%, 2022 +109.5%, 2023 +50.9%, 2024 +18.2
                                                                      └─────────────────────┘
 ```
 
-## 1. Universe (27 ETFs)
+## 1. Universes
 
-Tradeable on Boursorama (compte titre), all with iShares shares outstanding (smart-money) history since ≤2017. Sections: Geo equity (20), Thematic (4), Commodity (3).
+Two parallel universes, both with iShares shares-outstanding (smart-money) coverage. They share the same pipeline, training methodology, and hyperparameters — only the constituent ETFs differ.
 
-A second universe (`--long`, 18 ETFs since ~2005, no smart-money) exists for stress-testing — see §10.
+| Universe | ETFs | Earliest data | First test step | Mode-specific dirs |
+|----------|------|---------------|------------------|---------------------|
+| **Short** (default) | 27 | ~2007 | 2019-09 | `data/short/`, `outputs/short/` |
+| **Long** (`--long`) | 17 | ~2000 | 2011-01 | `data/long/`, `outputs/long/` |
+
+The long universe is a max-history subset of ETFs whose OHLCV proxies and iShares smart-money series both start on or before ~2006 — 17 of the short-universe ETFs qualify (the 18th, GLD/SPDR Gold, has no iShares coverage so it is omitted; gold exposure is retained via RING, iShares Gold Miners).
+
+Raw OHLCV / iShares / FRED data lives at `data/` root (shared). Mode-specific products — `features.parquet`, `oos_predictions.parquet`, `backtest_results.parquet`, and all `outputs/` artefacts — live under their respective `data/{short,long}/` and `outputs/{short,long}/` subdirectories.
 
 ## 2. Data Sources
 
@@ -84,9 +91,11 @@ Each of the 20 models uses a different final embargo *and* a different seed. The
 | Block size | 21 days (interlaced train/val) |
 | Embargo | 10 days (>= label horizon) |
 | Objective | reg:squarederror (IC maximization via z-scored labels) |
-| max_depth | 6 (short) / 4 (long) |
+| max_depth | 6 |
 | min_child_weight | 40 |
 | learning_rate | 0.04 |
+
+Hyperparameters are identical for short and long. The only mode-conditional setting is `MIN_TRAIN_ROWS` (2772 for long vs 5031 for short), which simply tracks how much history each universe makes available before the first walk-forward step.
 
 ### Honest val IC reporting
 
@@ -149,11 +158,11 @@ When the VIX 5-day change exceeds +4 points on day D, allocations are forced to 
 
 | File | Description |
 |------|-------------|
-| `etf.py` | UNIVERSE_SHORT (27 ETFs, smart-money) + UNIVERSE_LONG (18 ETFs since 2005) |
-| `feature_engineering.py` | ~250 features + ISHARES_MAP |
+| `etf.py` | UNIVERSE_SHORT (27 ETFs) + UNIVERSE_LONG (17 ETFs since ~2000), both smart-money |
+| `feature_engineering.py` | ~250 features + ISHARES_MAP, identical pipeline for both modes |
 | `train.py` | K-fold WF feature selection (×10) + XGBoost ensemble training (×20) |
 | `backtest.py` | Per-day allocator (calm/model/spike-cash) + Monte Carlo robustness |
-| `knowledge/backtest_long_calmonly.py` | Ablation: long mode but with model disabled (calm only) |
+| `knowledge/backtest_long_calmonly.py` | Ablation: long mode with model disabled (calm only) |
 | `knowledge/FAILED_XP.md` | Log of experiments tested and rejected (avoids redoing them) |
 
 ## 8. Running
@@ -161,16 +170,16 @@ When the VIX 5-day change exceeds +4 points on day D, allocations are forced to 
 ```bash
 source venv/bin/activate
 
-# Default pipeline (27-ETF smart-money universe)
-python feature_engineering.py   # data/features.parquet
-python train.py                 # data/oos_predictions.parquet (~5 min on GPU)
-python backtest.py              # outputs/backtest_equity.jpg + per-year + pies
-python backtest.py --robustness # outputs/backtest_robustness.jpg (~10 min)
+# Short universe (27 ETFs since ~2007) — default
+python feature_engineering.py            # data/short/features.parquet
+python train.py                          # data/short/oos_predictions.parquet (~5 min GPU)
+python backtest.py                       # outputs/short/backtest_equity.jpg + per-year + pies
+python backtest.py --robustness          # outputs/short/backtest_robustness.jpg (~10 min)
 
-# Long-history universe (no smart-money — see §10)
-python feature_engineering.py --long
-python train.py --long          # data/oos_predictions_long.parquet
-python backtest.py --long       # outputs/long/...
+# Long universe (17 ETFs since ~2000) — identical pipeline, max-history subset
+python feature_engineering.py --long     # data/long/features.parquet
+python train.py --long                   # data/long/oos_predictions.parquet
+python backtest.py --long                # outputs/long/...
 python knowledge/backtest_long_calmonly.py   # outputs/long_calmonly/... (no XGB, calm only)
 ```
 
@@ -183,22 +192,19 @@ python knowledge/backtest_long_calmonly.py   # outputs/long_calmonly/... (no XGB
 5. **3-day cash-out on VIX spike** — discrete and effective; halved max DD vs the prior progressive-cap heuristic.
 6. **Calm-mode is a real fallback, not a tweak** — when VIX EMA100 is low, the strategy actively *ignores* the XGB and picks the rolling-Sharpe leaders.
 
-## 10. Long-history ablation — Smart-money is load-bearing
+## 10. Historical ablation — Smart-money is load-bearing
 
-The `--long` universe (18 ETFs with data ≥ 2005, no smart-money features) was built to stress-test the model on a 15-year span (2011-2026). Three configurations:
+This section documents the original ablation that motivated the current setup: on an earlier `--long` configuration where smart-money was **deliberately disabled** (18 ETFs, no shares-outstanding features), the model lost all alpha.
 
-| Variant | Test IC | CAGR brut | Sharpe | Max DD |
-|---------|---------|-----------|--------|--------|
+| Variant (historical) | Test IC | CAGR brut | Sharpe | Max DD |
+|----------------------|---------|-----------|--------|--------|
 | Short (smart-money, 27 ETFs) | **+0.049** | +48.7%/an | **2.15** | -12.9% |
-| Long with XGB (no smart-money, 18 ETFs) | -0.021 | +15.3%/an | 0.85 | -49.9% |
-| Long calm-only (no XGB at all) | n/a | +21.7%/an | 1.23 | -24.4% |
+| Long *without* smart-money (18 ETFs) | -0.021 | +15.3%/an | 0.85 | -49.9% |
+| Long calm-only (no XGB at all)       | n/a     | +21.7%/an | 1.23 | -24.4% |
 
-**The model has no alpha without smart-money.** On the long universe:
-- Mean test IC = **-0.02** (anti-predictive on average)
-- The val→test gap is +0.10 even after honest reporting → genuine temporal drift, not a measurement artefact
-- Strictly worse than disabling the model entirely (calm-only beats it by Sharpe +0.38, CAGR +6.4%/an)
+Without smart-money the XGB only sees auto-correlated technical features and fails to generalize: mean test IC was **-0.02** (anti-predictive on average) and strictly worse than disabling the model entirely.
 
-Conclusion: the load-bearing signal is **iShares shares-outstanding flows** (smart-money). Without them the XGB only sees auto-correlated technical features and fails to generalize beyond the immediate training period. Any future work extending the universe should prioritize ETFs with iShares XLS coverage — that's the difference between Sharpe 2.15 and Sharpe 0.85.
+**Current state:** smart-money is now enabled on the long universe too (17 ETFs that all have iShares coverage — see §1). Re-running `train.py --long && backtest.py --long` produces fresh long-history numbers; see `outputs/long/` for the new artefacts.
 
 ## 11. Rejected experiments
 

@@ -16,16 +16,21 @@ Fields:
 Boursorama symbol: "1rT" + base ticker without exchange suffix
   e.g. CSP1.PA -> "1rTCSP1", SEMI.AS -> "1rTSEMI", EXX1.DE -> "1rTEXX1"
 
-Two universes are exposed:
-  - UNIVERSE_SHORT (27 ETFs): smart-money compatible (iShares XLS coverage),
-    history typically starts 2008-2017. Used by default.
-  - UNIVERSE_LONG (16 ETFs): maximalist subset with OHLCV history starting
+Two universes are exposed, both with iShares smart-money coverage:
+  - UNIVERSE_SHORT (27 ETFs): history typically starts 2008-2017. Used by default.
+  - UNIVERSE_LONG  (17 ETFs): max-history subset with OHLCV history starting
     on or before 2006-05, intended for long backtests from 2011 onward.
-    Smart-money features are disabled in this mode.
 
+Both modes share the same training methodology and hyperparameters; they only
+differ in universe (which determines the earliest viable backtest start date).
 The active universe is selected by the env var QTM_MODE ∈ {"short", "long"}.
 Scripts set this var when invoked with --long (see top of train.py / backtest.py
 / feature_engineering.py).
+
+Mode-specific artefacts are stored under:
+  data/{short,long}/features.parquet, data/{short,long}/oos_predictions.parquet
+  outputs/{short,long}/...
+Raw OHLCV / iShares / FRED data is shared and stays at data/ root.
 """
 
 import os
@@ -169,14 +174,17 @@ UNIVERSE_SHORT: list[ETF] = [
     ETF("SXRS.DE", "Diversified Commodity","commodity", "commodity",   pea=False, zero_fees=False, proxy="SXRS.DE", is_proxy=False, perf_1y=None, perf_5y=None),
 ]
 
-# 18 ETFs with OHLCV history starting on or before 2006-05 (max-history subset).
-# No smart-money features (disabled in long mode). For long backtests from 2011.
+# 17 ETFs with OHLCV history starting on or before 2006-05 (max-history subset),
+# all covered by iShares smart-money (XLS shares-outstanding history).
+# For long backtests from 2011.
 # Earliest start dates (from parquet inspection):
 #   QQQ/EWW/EWC/EWJ 2000-01, EWY 2000-05, IVV 2000-05, EWT 2000-06,
 #   EWZ 2000-07, EZU 2000-07, SOXX 2001-07, ILF/EPP 2001-10,
-#   EEM 2003-04, FXI 2004-10, GLD 2004-11, SUSA 2005-01, IEO 2006-05.
+#   EEM 2003-04, FXI 2004-10, SUSA 2005-01, IEO 2006-05.
 # RING (gold miners) starts 2012-02 — included for the calm-mode allocator
 # (active from 2017 onward with 5y rolling Sharpe).
+# GLD dropped: SPDR Gold Trust has no iShares smart-money coverage; gold
+# exposure is retained via RING (iShares Gold Miners).
 UNIVERSE_LONG: list[ETF] = [
     ETF("IVV",  "S&P 500",            "geo", "us",      pea=False, zero_fees=False, proxy="IVV",  is_proxy=False, perf_1y=None, perf_5y=None),
     ETF("QQQ",  "Nasdaq 100",         "geo", "nasdaq",  pea=False, zero_fees=False, proxy="QQQ",  is_proxy=False, perf_1y=None, perf_5y=None),
@@ -194,7 +202,6 @@ UNIVERSE_LONG: list[ETF] = [
     ETF("SUSA", "USA SRI",            "geo", "usa_sri", pea=False, zero_fees=False, proxy="SUSA", is_proxy=False, perf_1y=None, perf_5y=None),
     ETF("SOXX", "Semiconductors",      "thematic",  "semi",        pea=False, zero_fees=False, proxy="SOXX", is_proxy=False, perf_1y=None, perf_5y=None),
     ETF("IEO",  "Oil & Gas E&P",       "commodity", "oil",         pea=False, zero_fees=False, proxy="IEO",  is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("GLD",  "Gold (Physical)",     "commodity", "gold",        pea=False, zero_fees=False, proxy="GLD",  is_proxy=False, perf_1y=None, perf_5y=None),
     ETF("RING", "Gold Miners",         "commodity", "gold_miners", pea=False, zero_fees=False, proxy="RING", is_proxy=False, perf_1y=None, perf_5y=None),
 ]
 
@@ -210,14 +217,21 @@ def is_long_mode() -> bool:
     return MODE == "long"
 
 
-def path_suffix() -> str:
-    """Filename suffix for mode-specific artefacts: '' or '_long'."""
-    return "_long" if MODE == "long" else ""
+def mode_subdir() -> str:
+    """Mode-specific subdirectory name: 'short' or 'long'.
+
+    Used to namespace data/{mode_subdir()}/ and outputs/{mode_subdir()}/.
+    """
+    return "long" if MODE == "long" else "short"
+
+
+# Backwards-compatible aliases (callers use these names historically).
+def data_subdir() -> str:
+    return mode_subdir()
 
 
 def outputs_subdir() -> str:
-    """Subdir under outputs/ for mode-specific charts: '' or 'long'."""
-    return "long" if MODE == "long" else ""
+    return mode_subdir()
 
 
 # Quick lookup dicts

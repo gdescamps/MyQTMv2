@@ -2,7 +2,24 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "train",
+            "name": "feature_engineering short",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/feature_engineering.py",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "feature_engineering long",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/feature_engineering.py",
+            "args": ["--long"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "train short",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/train.py",
@@ -10,10 +27,46 @@
             "justMyCode": true
         },
         {
-            "name": "backtest",
+            "name": "train long",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/train.py",
+            "args": ["--long"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "backtest short",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/backtest.py",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "backtest long",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/backtest.py",
+            "args": ["--long"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "backtest short --robustness",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/backtest.py",
+            "args": ["--robustness"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "backtest long --robustness",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/backtest.py",
+            "args": ["--long", "--robustness"],
             "console": "integratedTerminal",
             "justMyCode": true
         }

@@ -34,15 +34,19 @@ sys.path.insert(0, str(Path(__file__).parent))
 if "--long" in sys.argv:
     os.environ["QTM_MODE"] = "long"
     sys.argv = [a for a in sys.argv if a != "--long"]
-from etf import is_long_mode, path_suffix, outputs_subdir
+from etf import is_long_mode, data_subdir, outputs_subdir
 
-DATA    = Path(__file__).parent / "data"
-OUTPUTS = Path(__file__).parent / "outputs" / outputs_subdir()
+DATA     = Path(__file__).parent / "data"
+DATA_OUT = DATA / data_subdir()
+OUTPUTS  = Path(__file__).parent / "outputs" / outputs_subdir()
+DATA_OUT.mkdir(parents=True, exist_ok=True)
 OUTPUTS.mkdir(parents=True, exist_ok=True)
 
 # Walk-forward parameters
 # Long mode: first test ~2011-01 with rolling 5y train window. Panel starts
 # ~2000-01, so 11y × 252 ≈ 2772 trading-day positions before the first test.
+# This is the only mode-conditional parameter (it tracks the available history,
+# not a hyperparameter choice).
 MIN_TRAIN_ROWS = 2772 if is_long_mode() else 5031
 TEST_WINDOW    = 21    # ~1 month per test step
 STEP           = 21    # refit every ~1 month
@@ -53,8 +57,7 @@ ROLLING_WINDOW = 1250  # ~5 years rolling train window
 # Feature selection: 10 folds, final embargo varies 30→12 by 2d
 FEAT_SEL_EMBARGOS = list(range(30, 10, -2))  # [30, 28, 26, ..., 12]
 FEAT_SEL_POWER    = 1.7
-# Long mode: tighter feature cap to fight overfit on technical-only signal.
-FEAT_SEL_CAP      = 40 if is_long_mode() else 110
+FEAT_SEL_CAP      = 110
 
 # Model ensemble: 20 models, final embargo varies 30→11 by 1d
 N_MODELS            = 20
@@ -95,7 +98,7 @@ LABEL_COL = "label"
 
 XGB_PARAMS = dict(
     tree_method          = "hist",
-    max_depth            = 4 if is_long_mode() else 6,
+    max_depth            = 6,
     min_child_weight     = 40,
     subsample            = 0.900,
     colsample_bytree     = 0.678,
@@ -404,7 +407,7 @@ def run_walk_forward(
 
 
 def main():
-    feat_path = DATA / f"features{path_suffix()}.parquet"
+    feat_path = DATA_OUT / "features.parquet"
     if not feat_path.exists():
         sys.exit(f"ERROR: {feat_path} not found — "
                  f"run feature_engineering.py{' --long' if is_long_mode() else ''} first")
@@ -442,7 +445,7 @@ def main():
         panel, device, wf_feature_selection=True, save_models=True,
     )
 
-    out = DATA / f"oos_predictions{path_suffix()}.parquet"
+    out = DATA_OUT / "oos_predictions.parquet"
     oos.to_parquet(out)
 
     test_oos = oos[oos["split"] == "test"].dropna(subset=["score", "label"])

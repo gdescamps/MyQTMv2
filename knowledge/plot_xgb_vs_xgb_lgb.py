@@ -14,9 +14,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 ROOT = Path(__file__).resolve().parent.parent
+# Both pointers reference legacy files from the LGB experiment (no longer
+# produced by train.py). Kept for historical reproducibility; will error out
+# unless those parquet files are restored manually.
 CONFIGS = [
     ("XGB only",         ROOT / "data" / "oos_predictions_xgb_only.parquet", "#1f77b4"),
-    ("XGB + LGB",        ROOT / "data" / "oos_predictions.parquet",          "#ff7f0e"),
+    ("XGB + LGB",        ROOT / "data" / "short" / "oos_predictions.parquet", "#ff7f0e"),
 ]
 
 
