@@ -1,5 +1,18 @@
 {
   "permissions": {
     "defaultMode": "bypassPermissions"
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/greg/scripts/sync-claude-convs.sh"
+          }
+        ]
+      }
+    ]
   }
 }

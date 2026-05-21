@@ -644,6 +644,137 @@ Je voyais plus un moyen d'apprendre au modèle,
 à trouver le régime 
 plutôt qu'ajouter une heuristique.
 
+----------------------------------
 
 
+Set up automatic syncing of Claude Code conversations into this git repository.
+
+## How it works
+
+- A single generic script at `~/scripts/sync-claude-convs.sh` handles all projects
+- It auto-detects the current git repo via `git rev-parse --show-toplevel`
+- Each project gets its own `.claude/settings.json` with a `Stop` hook calling that script
+- Conversations land in `<repo-root>/knowledge/claude-conversations/` of the active project
+
+---
+
+## Step 1 — Identify the current project
+
+Run the following and show me the results:
+```bash
+git rev-parse --show-toplevel
+whoami
+echo $HOME
+```
+
+Use the repo root from now on as `$REPO`.
+
+---
+
+## Step 2 — Create the generic sync script
+
+Create `$HOME/scripts/sync-claude-convs.sh` (create the directory if needed).  
+**If the file already exists, skip creation and show me its current content.**
+
+```bash
+#!/bin/bash
+# sync-claude-convs.sh — generic multi-project Claude conversation sync
+# Called by the Stop hook in each project's .claude/settings.json
+# The hook runs from the project root, so PWD = repo root
+
+set -euo pipefail
+
+CLAUDE_PROJECTS_DIR="$HOME/.claude/projects"
+CONV_SUBDIR="knowledge/claude-conversations"
+
+REPO=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)
+if [ -z "$REPO" ]; then
+  echo "[sync-claude] WARN: no git repo found in $PWD, aborting." >&2
+  exit 0
+fi
+
+DEST="$REPO/$CONV_SUBDIR"
+mkdir -p "$DEST"
+
+# Strategy 1: find Claude project dir whose metadata.json references this repo path
+PROJECT_DIR=""
+for d in "$CLAUDE_PROJECTS_DIR"/*/; do
+  if [ -f "$d/metadata.json" ] && grep -q "$REPO" "$d/metadata.json" 2>/dev/null; then
+    PROJECT_DIR="$d"
+    break
+  fi
+done
+
+# Strategy 2: fallback — copy JSONL files modified in the last 24h
+if [ -z "$PROJECT_DIR" ]; then
+  echo "[sync-claude] INFO: no metadata match, falling back to recent files." >&2
+  find "$CLAUDE_PROJECTS_DIR" -name "*.jsonl" -mmin -1440 -exec cp -u {} "$DEST/" \;
+else
+  echo "[sync-claude] INFO: matched Claude project: $PROJECT_DIR" >&2
+  find "$PROJECT_DIR" -name "*.jsonl" -exec cp -u {} "$DEST/" \;
+fi
+
+cd "$REPO"
+git add "$CONV_SUBDIR/"
+if ! git diff --cached --quiet; then
+  git commit -m "claude: sync $(date '+%Y-%m-%d %H:%M') [$(basename "$REPO")]"
+  echo "[sync-claude] OK: committed in $(basename "$REPO")" >&2
+else
+  echo "[sync-claude] OK: nothing to commit." >&2
+fi
+```
+
+Then: `chmod +x $HOME/scripts/sync-claude-convs.sh`
+
+---
+
+## Step 3 — Create the project-level Claude hook
+
+Create or edit `$REPO/.claude/settings.json`.  
+**If the file already exists, merge carefully — do not overwrite existing keys.**
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/<USER>/scripts/sync-claude-convs.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Replace `<USER>` with the actual username found in Step 1. Use the full absolute path — no `~`.
+
+---
+
+## Step 4 — Initialize the conversation directory
+
+- Create `$REPO/knowledge/claude-conversations/` if it doesn't exist
+- Add a `.gitkeep` if empty
+- Run the sync script once manually to make the initial commit
+- Show me `git log --oneline -5` to confirm
+
+---
+
+## Step 5 — Verify
+
+- Show me the final content of `$REPO/.claude/settings.json`
+- Confirm `~/.claude/settings.json` was **not modified**
+- Remind me: to activate this sync in a new project, I just need to copy `.claude/settings.json` to its root — the script is already in place and needs no changes
+
+---
+
+## Constraints
+
+- Use absolute paths everywhere — no `~` shortcuts in the script or settings
+- Do not touch `~/.claude/settings.json`
+- Ask before any destructive or ambiguous action
 
