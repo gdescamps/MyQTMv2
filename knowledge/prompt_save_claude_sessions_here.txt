@@ -4,51 +4,66 @@ Set up automatic syncing of Claude Code conversations into this git repository.
 
 - A single generic script at `~/scripts/sync-claude-convs.sh` handles all projects
 - It auto-detects the current git repo via `git rev-parse --show-toplevel`
+- Conversations are committed to a dedicated daily branch `claude_session_DDMMYYYY` using `git worktree` — the current working branch is never touched
+- A lockfile serializes concurrent Stop hooks (multiple parallel sessions in the same project)
 - Each project gets its own `.claude/settings.json` with a `Stop` hook calling that script
-- Conversations land in `<repo-root>/knowledge/claude-conversations/` of the active project
 
 ---
 
 ## Step 1 — Identify the current project
 
-Run the following and show me the results:
+Run and show me the output:
 ```bash
-git rev-parse --show-toplevel
-whoami
-echo $HOME
+git rev-parse --show-toplevel && whoami && echo $HOME
 ```
 
-Use the repo root from now on as `$REPO`.
+Use the repo root as `$REPO` for all subsequent steps.
 
 ---
 
 ## Step 2 — Create the generic sync script
 
-Create `$HOME/scripts/sync-claude-convs.sh` (create the directory if needed).  
-**If the file already exists, skip creation and show me its current content.**
+Create `$HOME/scripts/sync-claude-convs.sh` (create `~/scripts/` if needed).  
+**If the file already exists, show me its current content and skip creation.**
 
 ```bash
 #!/bin/bash
 # sync-claude-convs.sh — generic multi-project Claude conversation sync
-# Commits to a dedicated branch: claude_session_DDMMYYYY
-# Uses git worktree — does NOT disturb the current working branch
+# - Commits to a dedicated daily branch: claude_session_DDMMYYYY
+# - Uses git worktree to avoid disturbing the current working branch
+# - Lockfile prevents race conditions with parallel Claude sessions
 
 set -euo pipefail
 
 CLAUDE_PROJECTS_DIR="$HOME/.claude/projects"
 CONV_SUBDIR="knowledge/claude-conversations"
 
+# --- Detect current repo ---
 REPO=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)
 if [ -z "$REPO" ]; then
   echo "[sync-claude] WARN: no git repo found in $PWD, aborting." >&2
   exit 0
 fi
 
+# --- Lockfile: serialize concurrent Stop hooks ---
+LOCKFILE="/tmp/claude-sync-$(basename "$REPO").lock"
+exec 9>"$LOCKFILE"
+if ! flock -w 10 9; then
+  echo "[sync-claude] WARN: could not acquire lock after 10s, aborting." >&2
+  exit 0
+fi
+
 BRANCH="claude_session_$(date '+%d%m%Y')"
-WORKTREE="/tmp/claude-sync-$(basename "$REPO")-$"
+WORKTREE="/tmp/claude-sync-$(basename "$REPO")-$$"
 DEST_TMP=$(mktemp -d)
 
-# Strategy 1: find Claude project dir matching this repo
+cleanup() {
+  rm -rf "$DEST_TMP"
+  git -C "$REPO" worktree remove "$WORKTREE" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+# --- Find ALL conversations for this project ---
 PROJECT_DIR=""
 for d in "$CLAUDE_PROJECTS_DIR"/*/; do
   if [ -f "$d/metadata.json" ] && grep -q "$REPO" "$d/metadata.json" 2>/dev/null; then
@@ -57,18 +72,17 @@ for d in "$CLAUDE_PROJECTS_DIR"/*/; do
   fi
 done
 
-# Strategy 2: fallback — recent JSONL files (last 24h)
 if [ -z "$PROJECT_DIR" ]; then
-  echo "[sync-claude] INFO: no metadata match, falling back to recent files." >&2
+  echo "[sync-claude] INFO: no metadata match, falling back to recent files (24h)." >&2
   find "$CLAUDE_PROJECTS_DIR" -name "*.jsonl" -mmin -1440 -exec cp -u {} "$DEST_TMP/" \;
 else
   echo "[sync-claude] INFO: matched Claude project: $PROJECT_DIR" >&2
   find "$PROJECT_DIR" -name "*.jsonl" -exec cp -u {} "$DEST_TMP/" \;
 fi
 
+# --- Setup worktree on the claude branch ---
 cd "$REPO"
 
-# Create branch from current HEAD if it doesn't exist yet (once per day)
 if ! git rev-parse --verify "$BRANCH" >/dev/null 2>&1; then
   git branch "$BRANCH"
   echo "[sync-claude] INFO: created branch $BRANCH" >&2
@@ -77,26 +91,25 @@ fi
 git worktree add "$WORKTREE" "$BRANCH"
 mkdir -p "$WORKTREE/$CONV_SUBDIR"
 cp -u "$DEST_TMP/"*.jsonl "$WORKTREE/$CONV_SUBDIR/" 2>/dev/null || true
-rm -rf "$DEST_TMP"
 
+# --- Commit inside the worktree ---
 cd "$WORKTREE"
 git add "$CONV_SUBDIR/"
+
 if ! git diff --cached --quiet; then
-  git commit -m "claude: sync $(date '+%Y-%m-%d %H:%M') [$(basename "$REPO")]"
-  echo "[sync-claude] OK: committed to $BRANCH" >&2
+  COUNT=$(git diff --cached --name-only | wc -l)
+  git commit -m "claude: sync $(date '+%Y-%m-%d %H:%M') — ${COUNT} file(s) [$(basename "$REPO")]"
+  echo "[sync-claude] OK: committed to $BRANCH (${COUNT} file(s))" >&2
 else
   echo "[sync-claude] OK: nothing to commit." >&2
 fi
-
-git -C "$REPO" worktree remove "$WORKTREE"
-echo "[sync-claude] INFO: worktree removed, back on original branch." >&2
 ```
 
 Then: `chmod +x $HOME/scripts/sync-claude-convs.sh`
 
 ---
 
-## Step 3 — Create the project-level Claude hook
+## Step 3 — Configure the project-level Claude hook
 
 Create or edit `$REPO/.claude/settings.json`.  
 **If the file already exists, merge carefully — do not overwrite existing keys.**
@@ -119,16 +132,15 @@ Create or edit `$REPO/.claude/settings.json`.
 }
 ```
 
-Replace `<USER>` with the actual username found in Step 1. Use the full absolute path — no `~`.
+Replace `<USER>` with the actual username from Step 1. Use the full absolute path — no `~`.
 
 ---
 
-## Step 4 — Initialize the conversation directory
+## Step 4 — Initialize
 
-- Create `$REPO/knowledge/claude-conversations/` if it doesn't exist
-- Add a `.gitkeep` if empty
-- Run the sync script once manually to make the initial commit
-- Show me `git log --oneline -5` to confirm
+- Create `$REPO/knowledge/claude-conversations/` if it doesn't exist, with a `.gitkeep`
+- Run the sync script once manually to make the initial commit on the `claude_session_DDMMYYYY` branch
+- Show me `git log --oneline claude_session_$(date '+%d%m%Y')` to confirm
 
 ---
 
@@ -136,7 +148,8 @@ Replace `<USER>` with the actual username found in Step 1. Use the full absolute
 
 - Show me the final content of `$REPO/.claude/settings.json`
 - Confirm `~/.claude/settings.json` was **not modified**
-- Remind me: to activate this sync in a new project, I just need to copy `.claude/settings.json` to its root — the script is already in place and needs no changes
+- Show me `git branch` to confirm the claude branch was created
+- Remind me: to activate sync in a new project, just copy `.claude/settings.json` to its root — the script needs no changes
 
 ---
 
