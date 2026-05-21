@@ -829,3 +829,41 @@ train long vs short
 backtest long vs short
 
 est ce que tu peux lancer le train et backtest de la version long 
+
+-------------------------------
+
+Analyser pourquoi la version longue échoue à partir de 2020 sur le pic VIX du covid.
+
+Quelles sont les différences d'allocation entre la version longue et short qui explique que les deux modèles ne produisent pas du tout le même alpha ?
+En backtest.
+
+Tu peux également afficher le test ici en fonction du temps, en parallèle sur la version longue et short.
+
+Pour voir si les performances de test IC divergent à ce moment là.
+
+Comme la seule différence est la liste des ETF Entre long et short à ce moment là.
+
+Est-ce que l'explication c'est la différence de la liste des ETF ?
+
+e qui devrait se voir au niveau des allocations entre les deux short et long  ?
+
+
+-------------------------------
+
+A : Est-ce un manque de performance des 17 ETF de la list long sur la Smart Money ?
+B   Ou c'est le fait qu'il manque 10 ETF ? Par rapport à la liste short
+Du coup la smart money ne fonctionne pas, Est-ce que ce manque d'ETF ne permet pas d'identifier une communication de la smart money d'un ETF à l'autre ? 
+
+A ou B ?
+
+
+-------------------------------
+
+
+Le manque d'ETF se voit de toute façon dans le test IC.
+Est-ce qu'on peut envisager en quelque sorte de fusionner short et long
+
+D'activer les ETF au fur et à mesure de la disponibilité de la smart money
+Et d'utiliser le modèle lorsque le test IC devient positif.
+
+

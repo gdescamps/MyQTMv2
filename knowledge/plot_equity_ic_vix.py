@@ -15,23 +15,17 @@ import matplotlib.dates as mdates
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-import os
-if "--long" in sys.argv:
-    os.environ["QTM_MODE"] = "long"
-    sys.argv = [a for a in sys.argv if a != "--long"]
-from etf import data_subdir, outputs_subdir
 from backtest import VIX_SPIKE_MIN, VIX_CALM_THRESHOLD, VIX_CALM_COND_EMA100_SUP_EMA300
 from feature_engineering import ISHARES_MAP
 
-DATA     = ROOT / "data"
-DATA_OUT = DATA / data_subdir()
-OUT      = ROOT / "outputs" / outputs_subdir()
+DATA = ROOT / "data"
+OUT  = ROOT / "outputs"
 
 # --- 1) Equity (brut, red) ---
 eq = pd.read_csv(OUT / "backtest_equity.csv", parse_dates=["date"]).set_index("date")["equity"]
 
 # --- 2) Per-step Test IC ---
-oos = pd.read_parquet(DATA_OUT / "oos_predictions.parquet").reset_index()
+oos = pd.read_parquet(DATA / "oos_predictions.parquet").reset_index()
 oos["date"] = pd.to_datetime(oos["date"])
 test = oos[oos["split"] == "test"].dropna(subset=["score", "label"])
 

@@ -13,7 +13,6 @@ Output:
 """
 
 import json
-import os
 import sys
 import numpy as np
 import pandas as pd
@@ -21,15 +20,10 @@ import xgboost as xgb
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-if "--long" in sys.argv:
-    os.environ["QTM_MODE"] = "long"
-    sys.argv = [a for a in sys.argv if a != "--long"]
-from etf import data_subdir, outputs_subdir
 from train import XGB_PARAMS, _try_gpu, LABEL_COL, _zscore_per_date, BLOCK_ROWS, EMBARGO_ROWS
 
-DATA     = Path(__file__).parent / "data"
-DATA_OUT = DATA / data_subdir()
-OUTPUTS  = Path(__file__).parent / "outputs" / outputs_subdir()
+DATA    = Path(__file__).parent / "data"
+OUTPUTS = Path(__file__).parent / "outputs"
 OUTPUTS.mkdir(parents=True, exist_ok=True)
 
 # Interlaced 3-period split using train.py block size
@@ -55,7 +49,7 @@ def get_all_feature_cols(panel: pd.DataFrame) -> list[str]:
 
 
 def main():
-    feat_path = DATA_OUT / "features.parquet"
+    feat_path = DATA / "features.parquet"
     if not feat_path.exists():
         sys.exit(f"ERROR: {feat_path} not found")
 

@@ -23,7 +23,6 @@ Output: data/oos_predictions.parquet
 GPU: uses device='cuda' (NVIDIA GB10), falls back to CPU if unavailable.
 """
 
-import os
 import sys
 import numpy as np
 import pandas as pd
@@ -31,23 +30,19 @@ import xgboost as xgb
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-if "--long" in sys.argv:
-    os.environ["QTM_MODE"] = "long"
-    sys.argv = [a for a in sys.argv if a != "--long"]
-from etf import is_long_mode, data_subdir, outputs_subdir
 
-DATA     = Path(__file__).parent / "data"
-DATA_OUT = DATA / data_subdir()
-OUTPUTS  = Path(__file__).parent / "outputs" / outputs_subdir()
-DATA_OUT.mkdir(parents=True, exist_ok=True)
+DATA    = Path(__file__).parent / "data"
+OUTPUTS = Path(__file__).parent / "outputs"
+DATA.mkdir(parents=True, exist_ok=True)
 OUTPUTS.mkdir(parents=True, exist_ok=True)
 
 # Walk-forward parameters
-# Long mode: first test ~2011-01 with rolling 5y train window. Panel starts
-# ~2000-01, so 11y × 252 ≈ 2772 trading-day positions before the first test.
-# This is the only mode-conditional parameter (it tracks the available history,
-# not a hyperparameter choice).
-MIN_TRAIN_ROWS = 2772 if is_long_mode() else 5031
+# First test ~2011-01 with rolling 5y train window. Panel starts ~2000-01,
+# so 11y × 252 ≈ 2772 trading-day positions before the first test. Early
+# steps have few ETFs in the cross-section (only those with smart-money
+# already online); the IC gate in backtest.py keeps allocation in calm mode
+# until the model's rolling test_ic shows sustained positive alpha (~2018).
+MIN_TRAIN_ROWS = 2772
 TEST_WINDOW    = 21    # ~1 month per test step
 STEP           = 21    # refit every ~1 month
 BLOCK_ROWS     = 21    # ~1 month alternating blocks for interlaced train/val
@@ -333,6 +328,7 @@ def run_walk_forward(
             val_df["split"]     = "val"
             val_df["best_iter"] = avg_iter
             val_df["val_ic"]    = val_ic
+            val_df["test_ic"]   = np.nan
             predictions.append(val_df)
 
         # ── 4. Test predictions (average of N models) ────────────────────
@@ -351,6 +347,7 @@ def run_walk_forward(
             test_df["split"]     = "test"
             test_df["best_iter"] = avg_iter
             test_df["val_ic"]    = val_ic
+            test_df["test_ic"]   = test_ic
             predictions.append(test_df)
 
         ic_log.append((step_n, val_ic, test_ic))
@@ -407,10 +404,9 @@ def run_walk_forward(
 
 
 def main():
-    feat_path = DATA_OUT / "features.parquet"
+    feat_path = DATA / "features.parquet"
     if not feat_path.exists():
-        sys.exit(f"ERROR: {feat_path} not found — "
-                 f"run feature_engineering.py{' --long' if is_long_mode() else ''} first")
+        sys.exit(f"ERROR: {feat_path} not found — run feature_engineering.py first")
 
     print("Loading features...")
     panel = pd.read_parquet(feat_path)
@@ -445,7 +441,7 @@ def main():
         panel, device, wf_feature_selection=True, save_models=True,
     )
 
-    out = DATA_OUT / "oos_predictions.parquet"
+    out = DATA / "oos_predictions.parquet"
     oos.to_parquet(out)
 
     test_oos = oos[oos["split"] == "test"].dropna(subset=["score", "label"])

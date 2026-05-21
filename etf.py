@@ -16,24 +16,18 @@ Fields:
 Boursorama symbol: "1rT" + base ticker without exchange suffix
   e.g. CSP1.PA -> "1rTCSP1", SEMI.AS -> "1rTSEMI", EXX1.DE -> "1rTEXX1"
 
-Two universes are exposed, both with iShares smart-money coverage:
-  - UNIVERSE_SHORT (27 ETFs): history typically starts 2008-2017. Used by default.
-  - UNIVERSE_LONG  (17 ETFs): max-history subset with OHLCV history starting
-    on or before 2006-05, intended for long backtests from 2011 onward.
+UNIVERSE (27 ETFs, all with iShares smart-money coverage). Each ETF is
+"activated" naturally once its iShares shares-outstanding series starts
+producing valid values — feature_engineering.py drops pre-activation rows
+so that the cross-section grows over time as ETFs come online.
 
-Both modes share the same training methodology and hyperparameters; they only
-differ in universe (which determines the earliest viable backtest start date).
-The active universe is selected by the env var QTM_MODE ∈ {"short", "long"}.
-Scripts set this var when invoked with --long (see top of train.py / backtest.py
-/ feature_engineering.py).
-
-Mode-specific artefacts are stored under:
-  data/{short,long}/features.parquet, data/{short,long}/oos_predictions.parquet
-  outputs/{short,long}/...
-Raw OHLCV / iShares / FRED data is shared and stays at data/ root.
+The walk-forward starts in ~2011 with whichever subset of the 27 has
+smart-money available by then; new ETFs enter the cross-section over time.
+A test-IC gate in backtest.py keeps allocation in calm mode (top-3 Sharpe)
+until the model's rolling test-IC EMA12 exceeds a positive threshold —
+typically reached around 2018-2019 when most ETFs are active.
 """
 
-import os
 from dataclasses import dataclass
 from typing import Optional
 
@@ -139,9 +133,11 @@ CRYPTO = [
 # Full universe
 # ---------------------------------------------------------------------------
 UNIVERSE_FULL: list[ETF] = GEO + SECTOR_US + THEMATIC + COMMODITY + BOND + CRYPTO
-# 27 ETFs — filtre smart money disponible depuis ≤2017 (proxy iShares/UCITS)
-# bourso/proxy = ticker OHLCV (yfinance) ; smart money via ISHARES_MAP
-UNIVERSE_SHORT: list[ETF] = [
+# 27 ETFs — all with iShares smart-money coverage (mapped in ISHARES_MAP).
+# bourso/proxy = OHLCV ticker (yfinance) ; smart money via ISHARES_MAP.
+# Each ETF activates naturally once its smart-money series produces valid
+# values (see feature_engineering.py).
+UNIVERSE: list[ETF] = [
     # --- Geo equity ---
     ETF("IVV",     "S&P 500",            "geo", "us",      pea=False, zero_fees=False, proxy="IVV",     is_proxy=False, perf_1y=None, perf_5y=None),
     ETF("QQQ",     "Nasdaq 100",         "geo", "nasdaq",  pea=False, zero_fees=False, proxy="QQQ",     is_proxy=False, perf_1y=None, perf_5y=None),
@@ -174,64 +170,6 @@ UNIVERSE_SHORT: list[ETF] = [
     ETF("SXRS.DE", "Diversified Commodity","commodity", "commodity",   pea=False, zero_fees=False, proxy="SXRS.DE", is_proxy=False, perf_1y=None, perf_5y=None),
 ]
 
-# 17 ETFs with OHLCV history starting on or before 2006-05 (max-history subset),
-# all covered by iShares smart-money (XLS shares-outstanding history).
-# For long backtests from 2011.
-# Earliest start dates (from parquet inspection):
-#   QQQ/EWW/EWC/EWJ 2000-01, EWY 2000-05, IVV 2000-05, EWT 2000-06,
-#   EWZ 2000-07, EZU 2000-07, SOXX 2001-07, ILF/EPP 2001-10,
-#   EEM 2003-04, FXI 2004-10, SUSA 2005-01, IEO 2006-05.
-# RING (gold miners) starts 2012-02 — included for the calm-mode allocator
-# (active from 2017 onward with 5y rolling Sharpe).
-# GLD dropped: SPDR Gold Trust has no iShares smart-money coverage; gold
-# exposure is retained via RING (iShares Gold Miners).
-UNIVERSE_LONG: list[ETF] = [
-    ETF("IVV",  "S&P 500",            "geo", "us",      pea=False, zero_fees=False, proxy="IVV",  is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("QQQ",  "Nasdaq 100",         "geo", "nasdaq",  pea=False, zero_fees=False, proxy="QQQ",  is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("EEM",  "Emerging Markets",   "geo", "em",      pea=False, zero_fees=False, proxy="EEM",  is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("ILF",  "Latin America 40",   "geo", "latam",   pea=False, zero_fees=False, proxy="ILF",  is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("EWY",  "South Korea",        "geo", "korea",   pea=False, zero_fees=False, proxy="EWY",  is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("EWT",  "Taiwan",             "geo", "taiwan",  pea=False, zero_fees=False, proxy="EWT",  is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("EWZ",  "Brazil",             "geo", "brazil",  pea=False, zero_fees=False, proxy="EWZ",  is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("EWW",  "Mexico",             "geo", "mexico",  pea=False, zero_fees=False, proxy="EWW",  is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("EWC",  "Canada",             "geo", "canada",  pea=False, zero_fees=False, proxy="EWC",  is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("EWJ",  "Japan",              "geo", "japan",   pea=False, zero_fees=False, proxy="EWJ",  is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("FXI",  "China Large-Cap",    "geo", "china",   pea=False, zero_fees=False, proxy="FXI",  is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("EZU",  "Eurozone",           "geo", "emu",     pea=False, zero_fees=False, proxy="EZU",  is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("EPP",  "Pacific ex-Japan",   "geo", "pacific", pea=False, zero_fees=False, proxy="EPP",  is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("SUSA", "USA SRI",            "geo", "usa_sri", pea=False, zero_fees=False, proxy="SUSA", is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("SOXX", "Semiconductors",      "thematic",  "semi",        pea=False, zero_fees=False, proxy="SOXX", is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("IEO",  "Oil & Gas E&P",       "commodity", "oil",         pea=False, zero_fees=False, proxy="IEO",  is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("RING", "Gold Miners",         "commodity", "gold_miners", pea=False, zero_fees=False, proxy="RING", is_proxy=False, perf_1y=None, perf_5y=None),
-]
-
-# --- Active universe selection -----------------------------------------------
-MODE = os.environ.get("QTM_MODE", "short").lower()
-if MODE == "long":
-    UNIVERSE: list[ETF] = UNIVERSE_LONG
-else:
-    UNIVERSE: list[ETF] = UNIVERSE_SHORT
-
-
-def is_long_mode() -> bool:
-    return MODE == "long"
-
-
-def mode_subdir() -> str:
-    """Mode-specific subdirectory name: 'short' or 'long'.
-
-    Used to namespace data/{mode_subdir()}/ and outputs/{mode_subdir()}/.
-    """
-    return "long" if MODE == "long" else "short"
-
-
-# Backwards-compatible aliases (callers use these names historically).
-def data_subdir() -> str:
-    return mode_subdir()
-
-
-def outputs_subdir() -> str:
-    return mode_subdir()
 
 
 # Quick lookup dicts

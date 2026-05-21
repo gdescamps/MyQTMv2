@@ -11,21 +11,16 @@ Builds a panel DataFrame with MultiIndex (date, etf_id) containing:
 Output: data/features.parquet
 """
 
-import os
 import sys
 import numpy as np
 import pandas as pd
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-if "--long" in sys.argv:
-    os.environ["QTM_MODE"] = "long"
-    sys.argv = [a for a in sys.argv if a != "--long"]
-from etf import UNIVERSE, data_subdir
+from etf import UNIVERSE
 
-DATA     = Path(__file__).parent / "data"
-DATA_OUT = DATA / data_subdir()
-DATA_OUT.mkdir(parents=True, exist_ok=True)
+DATA = Path(__file__).parent / "data"
+DATA.mkdir(parents=True, exist_ok=True)
 
 # Map each ETF bourso ticker → iShares XLS ticker (for shares_outstanding)
 # 27-ETF universe — smart money via iShares US or UCITS XLS
@@ -698,10 +693,26 @@ def main():
     # Label: absolute forward 10d return (brut)
     panel["label"] = panel["ret_10d_fwd"]
 
+    # Soft smart-money activation: keep all OHLCV rows but report when each ETF
+    # gains its first valid shares_outstanding_z20 value. XGBoost handles
+    # missing smart-money columns via `missing=NaN` — an ETF with no SM yet
+    # still participates in the cross-section through its technical/macro
+    # features. The IC gate in backtest.py prevents the model from being
+    # deployed before enough ETFs are smart-money-active.
+    if "shares_outstanding_z20" in panel.columns:
+        first_sm_date = (
+            panel.dropna(subset=["shares_outstanding_z20"])
+                 .groupby("etf_id")["date"].min()
+        )
+        print("\nSmart-money activation schedule (first 5 / last 5):")
+        ordered = first_sm_date.sort_values()
+        for etf, d in pd.concat([ordered.head(5), ordered.tail(5)]).items():
+            print(f"  {etf:<10s} {d.date()}")
+
     # Set MultiIndex
     panel = panel.set_index(["date", "etf_id"]).sort_index()
 
-    out = DATA_OUT / "features.parquet"
+    out = DATA / "features.parquet"
     panel.to_parquet(out)
     valid = panel["label"].notna().sum()
     print(f"\nSaved {out.name}: {panel.shape[0]} rows × {panel.shape[1]} cols  ({valid} labeled)")

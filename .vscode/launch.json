@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "feature_engineering short",
+            "name": "feature_engineering",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/feature_engineering.py",
@@ -10,16 +10,7 @@
             "justMyCode": true
         },
         {
-            "name": "feature_engineering long",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/feature_engineering.py",
-            "args": ["--long"],
-            "console": "integratedTerminal",
-            "justMyCode": true
-        },
-        {
-            "name": "train short",
+            "name": "train",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/train.py",
@@ -27,16 +18,7 @@
             "justMyCode": true
         },
         {
-            "name": "train long",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/train.py",
-            "args": ["--long"],
-            "console": "integratedTerminal",
-            "justMyCode": true
-        },
-        {
-            "name": "backtest short",
+            "name": "backtest",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/backtest.py",
@@ -44,16 +26,7 @@
             "justMyCode": true
         },
         {
-            "name": "backtest long",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/backtest.py",
-            "args": ["--long"],
-            "console": "integratedTerminal",
-            "justMyCode": true
-        },
-        {
-            "name": "backtest short --robustness",
+            "name": "backtest --robustness",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/backtest.py",
@@ -62,11 +35,18 @@
             "justMyCode": true
         },
         {
-            "name": "backtest long --robustness",
+            "name": "backtest calm-only",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/backtest.py",
-            "args": ["--long", "--robustness"],
+            "program": "${workspaceFolder}/knowledge/backtest_calmonly.py",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "backtest no-calm (model always)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/knowledge/backtest_no_calm.py",
             "console": "integratedTerminal",
             "justMyCode": true
         }

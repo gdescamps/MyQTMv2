@@ -14,7 +14,6 @@ Output:
   outputs/{mode}/backtest_equity.csv     (equity curve)
 """
 
-import os
 import sys
 import subprocess
 import threading
@@ -27,14 +26,9 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 
 sys.path.insert(0, str(Path(__file__).parent))
-if "--long" in sys.argv:
-    os.environ["QTM_MODE"] = "long"
-    sys.argv = [a for a in sys.argv if a != "--long"]
-from etf import data_subdir, outputs_subdir
 
-DATA     = Path(__file__).parent / "data"
-DATA_OUT = DATA / data_subdir()
-OUTPUTS  = Path(__file__).parent / "outputs" / outputs_subdir()
+DATA    = Path(__file__).parent / "data"
+OUTPUTS = Path(__file__).parent / "outputs"
 OUTPUTS.mkdir(parents=True, exist_ok=True)
 
 EQUITY_SECTIONS    = {"geo", "sector_us", "thematic"}
@@ -66,6 +60,18 @@ CAP_AT_SPIKE_MAX = 0.4     # allocation cap when slope >= VIX_SPIKE_MAX
 RECOVERY_RATE = 0.20       # restore +20% allocation per step until next steep ascending slope
 VIX_CALM_THRESHOLD = 19.0  # VIX EMA100 below this → calm market
 VIX_CALM_COND_EMA100_SUP_EMA300 = False  # if True, also require EMA100 < EMA300
+
+# --- Test-IC gate ------------------------------------------------------------
+# Only deploy the model when the EMA12 of past test-IC values (causal: from
+# previous WF steps) exceeds IC_GATE_THRESHOLD. While the gate is closed the
+# entire step uses calm mode (top-3 rolling 252d Sharpe). With MIN_TRAIN_ROWS
+# at 2772, the first test step is ~2011 with a small cross-section; the gate
+# naturally keeps the model dormant until ~2018 when most ETFs are active and
+# the test_ic EMA12 stabilises above the threshold.
+IC_GATE_THRESHOLD = 0.030  # require EMA(past test_ic) > 0.030 to deploy model
+IC_GATE_SPAN      = 24     # EMA span (~2y) — long-term test_ic, ignores short bumps
+IC_GATE_MIN_STEPS = 84     # need ≥84 past steps (~7y) — gates the model off before 2018
+
 FLAT_TAX_RATE = 0.30       # PFU 30% on realized gains (paid Jan 1st)
 INIT_CAPITAL  = 150_000.0  # portfolio starting capital
 
@@ -894,7 +900,7 @@ def _plot_feature_importance() -> None:
 
 def run_equity():
     """Equity backtest → global + per-year equity charts and winner/loser pies."""
-    oos_path = DATA_OUT / "oos_predictions.parquet"
+    oos_path = DATA / "oos_predictions.parquet"
     if not oos_path.exists():
         sys.exit(f"ERROR: {oos_path} not found — run train.py first")
 
@@ -954,6 +960,33 @@ def run_equity():
     print(f"Walk-forward steps: {len(steps)}  "
           f"val rows: {(oos['split']=='val').sum()}  "
           f"test rows: {(oos['split']=='test').sum()}\n")
+
+    # --- Pre-compute per-step test_ic and its causal EMA12 (IC gate input) ---
+    # Recompute test_ic from predictions (rather than relying on the column
+    # saved by train.py — handles legacy files lacking that column).
+    test_oos = oos[oos["split"] == "test"].dropna(subset=["score", "label"]).reset_index()
+    test_ic_per_step = (
+        test_oos.groupby("step")
+        .apply(lambda g: g.groupby("date")
+               .apply(lambda x: x["score"].corr(x["label"]) if len(x) > 1 else np.nan,
+                      include_groups=False).mean(),
+               include_groups=False)
+        .reindex(all_steps)
+    )
+    # Causal EMA: at step S, only know test_ic for steps < S.
+    test_ic_ema_lagged = (
+        test_ic_per_step.shift(1).ewm(span=IC_GATE_SPAN, min_periods=1).mean()
+    )
+    n_open = sum(
+        1 for s in steps
+        if s >= IC_GATE_MIN_STEPS
+        and pd.notna(test_ic_ema_lagged.get(s))
+        and test_ic_ema_lagged.get(s) > IC_GATE_THRESHOLD
+    )
+    print(f"IC gate: threshold {IC_GATE_THRESHOLD:+.3f}  span {IC_GATE_SPAN}  "
+          f"min steps {IC_GATE_MIN_STEPS}")
+    print(f"  → model deploys on {n_open}/{len(steps)} steps "
+          f"({n_open/max(len(steps),1):.0%}); other steps stay in calm mode.\n")
 
     all_test_returns = []
     all_test_weights = []
@@ -1093,6 +1126,14 @@ def run_equity():
                 cond = cond & (ema100_t < ema300_t)
             calm_per_day = cond.fillna(False)
 
+        # --- IC gate: if the EMA12 of past test_ic is below threshold, force
+        #     the entire step into calm mode (no model trades) ---
+        gate_ema = test_ic_ema_lagged.get(step, np.nan)
+        gate_open = (step >= IC_GATE_MIN_STEPS) and pd.notna(gate_ema) \
+            and gate_ema > IC_GATE_THRESHOLD
+        if not gate_open:
+            calm_per_day[:] = True
+
         # --- Combine model + Sharpe per day ---
         test_scores = model_scores.copy()
         step_monitor_mask = model_monitor_mask.copy()
@@ -1154,7 +1195,11 @@ def run_equity():
         tmp_eq = (1 + tmp_returns).cumprod()
         tmp_sharpe = sharpe(tmp_returns)
         tmp_dd = (tmp_eq / tmp_eq.cummax() - 1).min()
-        print(f"       cumul: {tmp_eq.iloc[-1]-1:+.1%}  sharpe={tmp_sharpe:.2f}  dd={tmp_dd:.1%}", flush=True)
+        gate_str = (f"gate={'MODEL' if gate_open else 'CALM '} "
+                    f"(ema={gate_ema:+.3f})" if pd.notna(gate_ema)
+                    else f"gate=CALM  (ema=  n/a)")
+        print(f"       cumul: {tmp_eq.iloc[-1]-1:+.1%}  sharpe={tmp_sharpe:.2f}  dd={tmp_dd:.1%}  "
+              f"{gate_str}", flush=True)
         params_df = pd.DataFrame(all_params_rows)
         tmp_scores = pd.concat(all_test_scores).sort_index() if all_test_scores else pd.DataFrame()
         _save_equity_png(tmp_returns, tmp_eq, tmp_weights, params_df, OUTPUTS,
@@ -1204,7 +1249,7 @@ def run_equity():
     print(f"  Net ann.:     {net_ann:.1%}")
 
     # Save results
-    port_returns.to_frame().to_parquet(DATA_OUT / "backtest_results.parquet")
+    port_returns.to_frame().to_parquet(DATA / "backtest_results.parquet")
 
     params_df = pd.DataFrame(all_params_rows)
     params_df.to_csv(OUTPUTS / "best_params.csv", index=False)
@@ -1230,7 +1275,7 @@ def run_equity():
     _save_equity_png(port_returns, eq_red, all_weights, params_df, OUTPUTS,
                      scores_A=all_scores, fin=fin, eq_orange=eq_orange)
 
-    print(f"\nSaved → {DATA_OUT.relative_to(Path(__file__).parent)}/backtest_results.parquet")
+    print(f"\nSaved → {DATA.relative_to(Path(__file__).parent)}/backtest_results.parquet")
     print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/best_params.csv")
     print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_steps.csv")
     print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_equity.csv")
@@ -1464,7 +1509,7 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
 
 def run_robustness():
     """Robustness backtest → outputs/{mode}/backtest_robustness.jpg + summary CSV."""
-    oos_path = DATA_OUT / "oos_predictions.parquet"
+    oos_path = DATA / "oos_predictions.parquet"
     if not oos_path.exists():
         sys.exit(f"ERROR: {oos_path} not found")
 
