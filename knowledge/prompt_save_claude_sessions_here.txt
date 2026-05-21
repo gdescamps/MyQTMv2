@@ -30,8 +30,8 @@ Create `$HOME/scripts/sync-claude-convs.sh` (create the directory if needed).
 ```bash
 #!/bin/bash
 # sync-claude-convs.sh — generic multi-project Claude conversation sync
-# Called by the Stop hook in each project's .claude/settings.json
-# The hook runs from the project root, so PWD = repo root
+# Commits to a dedicated branch: claude_session_DDMMYYYY
+# Uses git worktree — does NOT disturb the current working branch
 
 set -euo pipefail
 
@@ -44,10 +44,11 @@ if [ -z "$REPO" ]; then
   exit 0
 fi
 
-DEST="$REPO/$CONV_SUBDIR"
-mkdir -p "$DEST"
+BRANCH="claude_session_$(date '+%d%m%Y')"
+WORKTREE="/tmp/claude-sync-$(basename "$REPO")-$"
+DEST_TMP=$(mktemp -d)
 
-# Strategy 1: find Claude project dir whose metadata.json references this repo path
+# Strategy 1: find Claude project dir matching this repo
 PROJECT_DIR=""
 for d in "$CLAUDE_PROJECTS_DIR"/*/; do
   if [ -f "$d/metadata.json" ] && grep -q "$REPO" "$d/metadata.json" 2>/dev/null; then
@@ -56,23 +57,39 @@ for d in "$CLAUDE_PROJECTS_DIR"/*/; do
   fi
 done
 
-# Strategy 2: fallback — copy JSONL files modified in the last 24h
+# Strategy 2: fallback — recent JSONL files (last 24h)
 if [ -z "$PROJECT_DIR" ]; then
   echo "[sync-claude] INFO: no metadata match, falling back to recent files." >&2
-  find "$CLAUDE_PROJECTS_DIR" -name "*.jsonl" -mmin -1440 -exec cp -u {} "$DEST/" \;
+  find "$CLAUDE_PROJECTS_DIR" -name "*.jsonl" -mmin -1440 -exec cp -u {} "$DEST_TMP/" \;
 else
   echo "[sync-claude] INFO: matched Claude project: $PROJECT_DIR" >&2
-  find "$PROJECT_DIR" -name "*.jsonl" -exec cp -u {} "$DEST/" \;
+  find "$PROJECT_DIR" -name "*.jsonl" -exec cp -u {} "$DEST_TMP/" \;
 fi
 
 cd "$REPO"
+
+# Create branch from current HEAD if it doesn't exist yet (once per day)
+if ! git rev-parse --verify "$BRANCH" >/dev/null 2>&1; then
+  git branch "$BRANCH"
+  echo "[sync-claude] INFO: created branch $BRANCH" >&2
+fi
+
+git worktree add "$WORKTREE" "$BRANCH"
+mkdir -p "$WORKTREE/$CONV_SUBDIR"
+cp -u "$DEST_TMP/"*.jsonl "$WORKTREE/$CONV_SUBDIR/" 2>/dev/null || true
+rm -rf "$DEST_TMP"
+
+cd "$WORKTREE"
 git add "$CONV_SUBDIR/"
 if ! git diff --cached --quiet; then
   git commit -m "claude: sync $(date '+%Y-%m-%d %H:%M') [$(basename "$REPO")]"
-  echo "[sync-claude] OK: committed in $(basename "$REPO")" >&2
+  echo "[sync-claude] OK: committed to $BRANCH" >&2
 else
   echo "[sync-claude] OK: nothing to commit." >&2
 fi
+
+git -C "$REPO" worktree remove "$WORKTREE"
+echo "[sync-claude] INFO: worktree removed, back on original branch." >&2
 ```
 
 Then: `chmod +x $HOME/scripts/sync-claude-convs.sh`
