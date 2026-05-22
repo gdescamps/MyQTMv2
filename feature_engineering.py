@@ -256,6 +256,10 @@ def compute_etf_features(ohlcv: pd.DataFrame, shares_df: pd.DataFrame | None) ->
     f["ret_20d_fwd"] = c.pct_change(20).shift(-20)
     f["ret_90d_fwd"] = c.pct_change(90).shift(-90)
 
+    # Forward Sharpe label for Follow Leads — risk-adjusted forward return
+    vol_10d_fwd = r1.rolling(10, min_periods=5).std().shift(-10) * np.sqrt(252)
+    f["sharpe_10d_fwd"] = f["ret_10d_fwd"] / vol_10d_fwd.replace(0, np.nan)
+
     return f
 
 

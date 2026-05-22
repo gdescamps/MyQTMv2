@@ -32,13 +32,20 @@ OUTPUTS_FL.mkdir(parents=True, exist_ok=True)
 
 # Smart-money columns to strip from the panel (everything XGBoost would otherwise
 # learn from iShares shares-outstanding flows).
+# Prefix filter catches primary SO columns; substring filter catches derived
+# interaction features like mom_x_vol_x_so_20d, sharpe_x_so_20d, so_vs_univ,
+# so_price_divergence that were leaking SM signal into FL.
 SMART_MONEY_PREFIXES = (
     "shares_outstanding_z", "so_cross_", "so_ret_", "so_x_", "so_breadth",
+    "so_vs_", "so_price_",
 )
+SMART_MONEY_SUBSTRINGS = ("_x_so_", "_so_20d", "_so_60d")
 
 
 def _is_smart_money(col: str) -> bool:
-    return any(col.startswith(p) for p in SMART_MONEY_PREFIXES)
+    if any(col.startswith(p) for p in SMART_MONEY_PREFIXES):
+        return True
+    return any(sub in col for sub in SMART_MONEY_SUBSTRINGS)
 
 
 def main():
@@ -57,6 +64,12 @@ def main():
     sm_cols = [c for c in panel.columns if _is_smart_money(c)]
     panel = panel.drop(columns=sm_cols)
     print(f"Dropped {len(sm_cols)} smart-money columns (kept {panel.shape[1]} cols)")
+
+    # Override label: predict forward Sharpe (ret_10d_fwd / vol_10d_fwd) instead of
+    # raw return — aligns with the FL objective of beating the top-3 Sharpe heuristic.
+    if "sharpe_10d_fwd" in panel.columns:
+        panel["label"] = panel["sharpe_10d_fwd"]
+        print("Label overridden → sharpe_10d_fwd (risk-adjusted forward return)")
     print(f"Panel: {panel.index.get_level_values('date').nunique()} dates × "
           f"{panel.index.get_level_values('etf_id').nunique()} ETFs = {len(panel)} rows")
 

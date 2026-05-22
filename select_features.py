@@ -37,7 +37,7 @@ TOP_FEATURES = 150
 def get_all_feature_cols(panel: pd.DataFrame) -> list[str]:
     """Get all numeric columns that could be features (exclude labels, metadata)."""
     exclude = {"label", "ret_5d_fwd", "ret_10d_fwd", "ret_15d_fwd", "ret_20d_fwd", "ret_90d_fwd",
-               "section", "etf_id", "mom_accel_5v20", "mom_accel_20v60"}
+               "sharpe_10d_fwd", "section", "etf_id", "mom_accel_5v20", "mom_accel_20v60"}
     cols = []
     for c in panel.columns:
         if c in exclude:
