@@ -835,9 +835,11 @@ def _plot_feature_importance() -> None:
     Drawing it here (rather than in train.py) keeps the overlaid backtest
     curve in sync with the current backtest whenever the backtest changes.
     """
-    path = OUTPUTS / "feature_importances.parquet"
+    path = (OUTPUTS / ".." / "smart_money" / "feature_importances.parquet").resolve()
     if not path.exists():
-        print("  (feature_importances.parquet absent — run train.py to generate it)")
+        path = OUTPUTS / "feature_importances.parquet"
+    if not path.exists():
+        print("  (feature_importances.parquet absent — run train_smart_money.py to generate it)")
         return
 
     df = pd.read_parquet(path)
