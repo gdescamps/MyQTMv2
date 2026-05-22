@@ -104,3 +104,40 @@ Future work that aims to genuinely move test IC must either:
 
 Adding features or models to the saturated pool is guaranteed null — verified
 across three independent experiments above.
+
+---
+
+## 4. FL Hyperparameter Search — N_MODELS=1 proxy (2026-05-22)
+
+**Goal**: Find FL-specific XGB params (depth, min_child_weight, reg_lambda,
+feat_sel_power, feat_sel_cap) to improve FL test IC beyond +0.054 reference.
+
+**Reference**: FL with SM default params + `sharpe_10d_fwd` label (N_MODELS=20)
+- Val IC: +0.080, Test IC: +0.054, Gap: 0.026
+
+**Method**: Grid 108 combos (3d × 3mcw × 3lam × 2fsp × 2cap), N_MODELS=1
+for speed (~1h), retrain best combo with N_MODELS=20.
+
+Search top 5 (N_MODELS=1):
+
+| # | dep | mcw | lam | fsp | cap | test IC | gap |
+|---|-----|-----|-----|-----|-----|---------|-----|
+| 1 | 6 | 40 | 3.0 | 1.7 | 80 | +0.041 | 0.000 |
+| 2 | 5 | 40 | 3.0 | 1.7 | 80 | +0.036 | 0.003 |
+| 3 | 6 | 40 | 1.0 | 1.5 | 110 | +0.035 | 0.002 |
+| 4 | 6 | 40 | 3.0 | 1.5 | 110 | +0.034 | 0.007 |
+| 5 | 5 | 40 | 1.0 | 1.5 | 80 | +0.034 | 0.005 |
+
+Retrain best (dep=6, mcw=40, lam=3.0, fsp=1.7, cap=80) with N_MODELS=20:
+- Val IC: +0.056, **Test IC: +0.024**, Gap: 0.032
+
+**Result**: FAILED. Test IC dropped from +0.054 to +0.024.
+
+**Why**:
+1. N_MODELS=1 ranking doesn't transfer to N_MODELS=20 — optimal params differ.
+2. cap=80 (best in search) killed ensemble diversity with 20 models.
+3. `wf_feature_selection=False` in search vs `True` in retrain — mismatch.
+4. mcw=40 dominated: default was already optimal, no room for improvement.
+
+**Lesson**: N_MODELS=1 is unreliable proxy for N_MODELS=20. Future FL search
+must use N_MODELS≥5 or full pipeline (slower but trustworthy).

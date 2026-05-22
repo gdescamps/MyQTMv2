@@ -1003,6 +1003,25 @@ diriger train_follow_leads.py vers
 commit 
 
 relancer 
+l'entrainement de follow leads, smart money 
+relancer backtest
 
-l'entrainement de follow  lead, smart money 
+---------------------------------------
 
+
+travailler sur les features du modele follow leads 
+refaire la recherche d'hyperparamètres 
+Pour augmenter l'IC des block test
+Attention, ne jamais changer le label forward de 10d
+Précédemment il y avait une fuite de données
+Qui donnait un avantage à ce modèle.
+
+Alessi de l'expérimentation m'a donné une amélioration avant après sur le test IC.
+Et les justifications pourquoi on a obtenu ce progrès sur le test IC.
+
+
+Change l'objectif du modèle.
+
+On essaie maintenant de prédire le sharpe ratio expending dans 10 jours, Au lieu du rendement a 10d
+Parce que follow leads, c'est juste qu'on essaie de faire mieux que d'allouer le top 3 des meilleurs smart ratios.
+En période de fallback quand ce n'est pas le moment d'utiliser le monnaie, Smart Money, quand il n'y a pas de stress.
