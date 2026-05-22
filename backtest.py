@@ -45,6 +45,13 @@ REBAL_DAYS = 5       # jours entre rebalances
 TOP_N_ALLOC   = 3     # allocate to top 3
 TOP_N_MONITOR = 3     # monitor top 3 — rebalance only when allocated asset leaves top 3
 TOP_N_SCORES  = 3     # (legacy, used as fallback)
+# --- Follow Leads confidence-based allocator switching ---
+# Full capital always invested regardless of confidence.
+# High val_ic (≥ FL_IC_SWITCH_THRESHOLD) → top-N by FL model score.
+# Low  val_ic (<  FL_IC_SWITCH_THRESHOLD) → top-N by rolling 252d Sharpe (heuristic).
+# Gate always uses causal val_ic (no leakage).
+FL_IC_SWITCH_THRESHOLD = 0.20  # val_ic threshold: above → FL model, below → heuristic
+FL_SHARPE_POWER = 2            # within top-N: weight by expanding Sharpe^FL_SHARPE_POWER (0=FL scores)
 VIX_ADAPTIVE = False  # adjust TOP_N and REBAL based on VIX level
 VIX_LOW = 15         # below this: calm market
 VIX_HIGH = 25        # above this: crisis
@@ -74,6 +81,13 @@ IC_GATE_MIN_STEPS = 84     # need ≥84 past steps (~7y) — gates the model off
 
 FLAT_TAX_RATE = 0.30       # PFU 30% on realized gains (paid Jan 1st)
 INIT_CAPITAL  = 150_000.0  # portfolio starting capital
+
+# --- Calm allocator: "heuristic" = naive top-3 by rolling 252d Sharpe,
+#     "follow_leads" = use the Follow Leads XGB predictions (top-3 by score).
+#     Set via env var so knowledge/backtest_calm_compare.py can flip it without
+#     editing this file.
+import os as _os  # local alias to avoid polluting module namespace
+CALM_ALLOCATOR = _os.environ.get("CALM_ALLOCATOR", "follow_leads")
 
 # --- Robustness backtest (run in parallel by main) ---
 N_RUNS = 50                # number of perturbed backtests
@@ -473,7 +487,9 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
                      scores_A: pd.DataFrame | None = None,
                      fin: dict | None = None,
                      fname: str = "backtest_equity.jpg",
-                     eq_orange: pd.Series | None = None) -> None:
+                     eq_orange: pd.Series | None = None,
+                     model_active_dates: pd.DatetimeIndex | None = None,
+                     fl_active_dates: pd.DatetimeIndex | None = None) -> None:
     """Save chart: equity, allocation, temp_A + scores_A."""
     from etf import BY_BOURSO
     # Compound annual growth rate (CAGR) — same definition as the summary box
@@ -629,17 +645,32 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
             for _off in range(3):
                 if _pos + _off < len(vix_raw):
                     _spike_mask.iloc[_pos + _off] = True
-        # 2) Calm: same logic as backtest (EMA100 < threshold, optionally & EMA100 < EMA300)
-        _calm_cond = vix_ema100_chart < VIX_CALM_THRESHOLD
-        if VIX_CALM_COND_EMA100_SUP_EMA300:
-            _calm_cond = _calm_cond & (vix_ema100_chart < vix_ema300_chart)
-        _calm_mask = _calm_cond.reindex(vix_raw.index).fillna(False)
-        # 3) Model: everything else
+        # 2) Model deployed: only the dates the backtest loop actually ran the
+        #    model (IC gate open AND per-day model regime). Fallback to the
+        #    VIX-only heuristic if no mask was passed in.
+        if model_active_dates is not None and len(model_active_dates) > 0:
+            _model_mask = pd.Series(False, index=vix_raw.index)
+            _intersect = vix_raw.index.intersection(model_active_dates)
+            _model_mask.loc[_intersect] = True
+        else:
+            _calm_cond = vix_ema100_chart < VIX_CALM_THRESHOLD
+            if VIX_CALM_COND_EMA100_SUP_EMA300:
+                _calm_cond = _calm_cond & (vix_ema100_chart < vix_ema300_chart)
+            _model_mask = ~_calm_cond.reindex(vix_raw.index).fillna(False)
 
-        # Assign color per date: spike > calm > model (priority order)
-        _colors = pd.Series("#ff7f0e", index=vix_raw.index)  # default: orange (model)
-        _colors[_calm_mask] = "#2ca02c"                        # green (calm)
-        _colors[_spike_mask] = "#d62728"                       # red (spike)
+        # Color per date:
+        #   green  = heuristic top-3 Sharpe (pre-gate-open OR low FL confidence)
+        #   red    = Smart Money model deployed (VIX >= 19 + gate open)
+        #   orange = Follow Leads model (VIX < 19 + high FL confidence)
+        #   grey   = VIX spike cash-out
+        _colors = pd.Series("#2ca02c", index=vix_raw.index)    # default: green (heuristic)
+        _colors[_model_mask.values] = "#d62728"                # red (Smart Money)
+        if fl_active_dates is not None and len(fl_active_dates) > 0:
+            _fl_mask = pd.Series(False, index=vix_raw.index)
+            _fl_intersect = vix_raw.index.intersection(fl_active_dates)
+            _fl_mask.loc[_fl_intersect] = True
+            _colors[_fl_mask.values] = "#ff7f0e"               # orange (Follow Leads)
+        _colors[_spike_mask.values] = "#6e6e6e"                # grey (spike)
 
         # Draw VIX line colored by regime (segment by segment)
         prev_c = _colors.iloc[0]
@@ -910,6 +941,21 @@ def run_equity():
     oos["date"] = pd.to_datetime(oos["date"])
     oos = oos.set_index(["date", "etf_id"])
 
+    # Load Follow Leads predictions if the calm allocator is configured to use
+    # them. Cached as {step → DataFrame[date, etf_id, score]} for O(1) lookup.
+    fl_test_by_step = None
+    if CALM_ALLOCATOR == "follow_leads":
+        fl_path = DATA / "follow_leads" / "oos_predictions.parquet"
+        if not fl_path.exists():
+            sys.exit(f"ERROR: CALM_ALLOCATOR=follow_leads but {fl_path} missing — "
+                     "run train_follow_leads.py first")
+        fl_full = pd.read_parquet(fl_path).reset_index()
+        fl_full["date"] = pd.to_datetime(fl_full["date"])
+        fl_test_full = fl_full[fl_full["split"] == "test"].dropna(subset=["score"])
+        fl_test_by_step = {s: g for s, g in fl_test_full.groupby("step")}
+        print(f"Follow Leads predictions loaded: {len(fl_test_full)} test rows over "
+              f"{len(fl_test_by_step)} steps")
+
     if "split" not in oos.columns:
         sys.exit("ERROR: oos_predictions.parquet has no 'split' column — retrain with updated train.py")
 
@@ -986,12 +1032,15 @@ def run_equity():
     print(f"IC gate: threshold {IC_GATE_THRESHOLD:+.3f}  span {IC_GATE_SPAN}  "
           f"min steps {IC_GATE_MIN_STEPS}")
     print(f"  → model deploys on {n_open}/{len(steps)} steps "
-          f"({n_open/max(len(steps),1):.0%}); other steps stay in calm mode.\n")
+          f"({n_open/max(len(steps),1):.0%}); other steps stay in calm mode.")
+    print(f"Calm allocator: {CALM_ALLOCATOR}\n")
 
     all_test_returns = []
     all_test_weights = []
     all_params_rows  = []
     all_test_scores  = []   # scores_A per test step
+    model_active_days = []  # list of DatetimeIndex segments where SM model deployed
+    fl_active_days    = []  # list of DatetimeIndex segments where Follow Leads deployed
     carry_weights    = None   # chain positions between steps
     current_alloc_cap = 1.0   # persists between steps, reduced on spike, recovers gradually
     recovering        = False # once recovery starts, climb monthly until 100% (ignore new spikes)
@@ -1019,8 +1068,8 @@ def run_equity():
         dr_hist = daily_ret_panel[val_scores.columns].loc[:val_end_date]
         exp_mean = dr_hist.expanding(min_periods=60).mean().iloc[-1] * 252
         exp_std = dr_hist.expanding(min_periods=60).std().iloc[-1] * np.sqrt(252)
-        etf_sharpe = (exp_mean / exp_std.replace(0, np.nan)).clip(0.0).fillna(0.0).values
-        etf_sharpe = etf_sharpe ** SHARPE_POWER
+        etf_sharpe_raw = (exp_mean / exp_std.replace(0, np.nan)).clip(0.0).fillna(0.0)
+        etf_sharpe = etf_sharpe_raw.values ** SHARPE_POWER
 
         # --- VIX-adaptive TOP_N + REBAL_DAYS + spike detection ---
         if VIX_ADAPTIVE and not vix_s.empty:
@@ -1105,16 +1154,36 @@ def run_equity():
             drop = np.setdiff1d(pos_idx, keep_alloc)
             model_scores.iloc[idx, drop] = np.nan
 
-        # --- Build SHARPE picks (always, used on calm days) ---
+        # --- Build calm-mode picks (always computed; consumed on calm days) ---
+        # Rolling Sharpe (heuristic baseline) — always computed as fallback.
         roll_mean = dr_hist.rolling(252, min_periods=200).mean().iloc[-1] * 252
         roll_std  = dr_hist.rolling(252, min_periods=200).std().iloc[-1] * np.sqrt(252)
         roll_sharpe = (roll_mean / roll_std.replace(0, np.nan)).clip(0.0).fillna(0.0)
-        sharpe_series = roll_sharpe.reindex(model_scores.columns).fillna(0.0)
-        top3_sharpe = sharpe_series.nlargest(TOP_N_ALLOC).index.tolist()
-        top3_sharpe_set = set(top3_sharpe)
-        sharpe_row = np.array([sharpe_series[c] if c in top3_sharpe_set else np.nan
+        heuristic_sharpe = roll_sharpe.reindex(model_scores.columns).fillna(0.0)
+
+        use_fl_model = False
+        if CALM_ALLOCATOR == "follow_leads" and fl_test_by_step is not None:
+            fl_step = fl_test_by_step.get(step)
+            if fl_step is not None and not fl_step.empty:
+                fl_val_ic = fl_step["val_ic"].iloc[0]
+                use_fl_model = fl_val_ic >= FL_IC_SWITCH_THRESHOLD
+
+        if use_fl_model:
+            # High confidence → top-N by FL model score; full capital.
+            fl_mean = fl_step.groupby("etf_id")["score"].mean()
+            fl_series = fl_mean.reindex(model_scores.columns).fillna(0.0)
+            top_calm_etfs = fl_series.nlargest(TOP_N_ALLOC).index.tolist()
+            # Weight within top-N by expanding Sharpe^FL_SHARPE_POWER.
+            sharpe_series = (etf_sharpe_raw.reindex(model_scores.columns).fillna(0.0)
+                             ** FL_SHARPE_POWER)
+        else:
+            # Low confidence or no FL data → top-N by rolling 252d Sharpe; full capital.
+            sharpe_series = heuristic_sharpe
+            top_calm_etfs = sharpe_series.nlargest(TOP_N_ALLOC).index.tolist()
+        top_calm_set = set(top_calm_etfs)
+        sharpe_row = np.array([sharpe_series[c] if c in top_calm_set else np.nan
                                for c in model_scores.columns])
-        sharpe_monitor_row = np.array([c in top3_sharpe_set for c in model_scores.columns])
+        sharpe_monitor_row = np.array([c in top_calm_set for c in model_scores.columns])
 
         # --- Per-day calm mask: matches the chart, no step-boundary lag ---
         calm_per_day = pd.Series(False, index=model_scores.index)
@@ -1133,6 +1202,18 @@ def run_equity():
             and gate_ema > IC_GATE_THRESHOLD
         if not gate_open:
             calm_per_day[:] = True
+
+        # Record dates where the model was actually deployed (gate open AND
+        # per-day calm condition false). Drives the equity chart's VIX
+        # colouring downstream.
+        if gate_open:
+            model_days_step = calm_per_day.index[~calm_per_day.values]
+            if len(model_days_step) > 0:
+                model_active_days.append(model_days_step)
+        if use_fl_model:
+            fl_days_step = calm_per_day.index[calm_per_day.values]
+            if len(fl_days_step) > 0:
+                fl_active_days.append(fl_days_step)
 
         # --- Combine model + Sharpe per day ---
         test_scores = model_scores.copy()
@@ -1198,12 +1279,23 @@ def run_equity():
         gate_str = (f"gate={'MODEL' if gate_open else 'CALM '} "
                     f"(ema={gate_ema:+.3f})" if pd.notna(gate_ema)
                     else f"gate=CALM  (ema=  n/a)")
+        calm_src = "FL" if use_fl_model else "heur"
         print(f"       cumul: {tmp_eq.iloc[-1]-1:+.1%}  sharpe={tmp_sharpe:.2f}  dd={tmp_dd:.1%}  "
-              f"{gate_str}", flush=True)
+              f"{gate_str}  calm={calm_src}", flush=True)
         params_df = pd.DataFrame(all_params_rows)
         tmp_scores = pd.concat(all_test_scores).sort_index() if all_test_scores else pd.DataFrame()
+        live_model_idx = (
+            pd.concat([pd.Series(idx) for idx in model_active_days]).values
+            if model_active_days else np.array([], dtype="datetime64[ns]")
+        )
+        live_fl_idx = (
+            pd.concat([pd.Series(idx) for idx in fl_active_days]).values
+            if fl_active_days else np.array([], dtype="datetime64[ns]")
+        )
         _save_equity_png(tmp_returns, tmp_eq, tmp_weights, params_df, OUTPUTS,
-                         scores_A=tmp_scores)
+                         scores_A=tmp_scores,
+                         model_active_dates=pd.DatetimeIndex(live_model_idx),
+                         fl_active_dates=pd.DatetimeIndex(live_fl_idx))
 
     if not all_test_returns:
         sys.exit("No test returns produced — check OOS predictions")
@@ -1272,8 +1364,20 @@ def run_equity():
         "ann_gross": ann_ret,
         "ann_net": net_ann,
     }
+    full_model_idx = (
+        pd.concat([pd.Series(idx) for idx in model_active_days]).values
+        if model_active_days else np.array([], dtype="datetime64[ns]")
+    )
+    full_fl_idx = (
+        pd.concat([pd.Series(idx) for idx in fl_active_days]).values
+        if fl_active_days else np.array([], dtype="datetime64[ns]")
+    )
+    full_model_dates = pd.DatetimeIndex(full_model_idx)
+    full_fl_dates = pd.DatetimeIndex(full_fl_idx)
     _save_equity_png(port_returns, eq_red, all_weights, params_df, OUTPUTS,
-                     scores_A=all_scores, fin=fin, eq_orange=eq_orange)
+                     scores_A=all_scores, fin=fin, eq_orange=eq_orange,
+                     model_active_dates=full_model_dates,
+                     fl_active_dates=full_fl_dates)
 
     print(f"\nSaved → {DATA.relative_to(Path(__file__).parent)}/backtest_results.parquet")
     print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/best_params.csv")
@@ -1318,7 +1422,9 @@ def run_equity():
         }
         _save_equity_png(yr_returns, yr_red, yr_weights, params_df, OUTPUTS,
                          scores_A=yr_scores, fin=fin_yr,
-                         fname=f"backtest_equity_{yr}.jpg", eq_orange=yr_orange)
+                         fname=f"backtest_equity_{yr}.jpg", eq_orange=yr_orange,
+                         model_active_dates=full_model_dates,
+                         fl_active_dates=full_fl_dates)
         print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_equity_{yr}.jpg")
         _save_winners_losers_pie(str(yr), yr_weights, daily_ret_panel,
                                  OUTPUTS, f"backtest_pie_{yr}.jpg")
@@ -1638,17 +1744,32 @@ def run_robustness():
             for _off in range(3):
                 if _pos + _off < len(vix_raw):
                     _spike_mask.iloc[_pos + _off] = True
-        # 2) Calm: same logic as backtest (EMA100 < threshold, optionally & EMA100 < EMA300)
-        _calm_cond = vix_ema100_chart < VIX_CALM_THRESHOLD
-        if VIX_CALM_COND_EMA100_SUP_EMA300:
-            _calm_cond = _calm_cond & (vix_ema100_chart < vix_ema300_chart)
-        _calm_mask = _calm_cond.reindex(vix_raw.index).fillna(False)
-        # 3) Model: everything else
+        # 2) Model deployed: only the dates the backtest loop actually ran the
+        #    model (IC gate open AND per-day model regime). Fallback to the
+        #    VIX-only heuristic if no mask was passed in.
+        if model_active_dates is not None and len(model_active_dates) > 0:
+            _model_mask = pd.Series(False, index=vix_raw.index)
+            _intersect = vix_raw.index.intersection(model_active_dates)
+            _model_mask.loc[_intersect] = True
+        else:
+            _calm_cond = vix_ema100_chart < VIX_CALM_THRESHOLD
+            if VIX_CALM_COND_EMA100_SUP_EMA300:
+                _calm_cond = _calm_cond & (vix_ema100_chart < vix_ema300_chart)
+            _model_mask = ~_calm_cond.reindex(vix_raw.index).fillna(False)
 
-        # Assign color per date: spike > calm > model (priority order)
-        _colors = pd.Series("#ff7f0e", index=vix_raw.index)  # default: orange (model)
-        _colors[_calm_mask] = "#2ca02c"                        # green (calm)
-        _colors[_spike_mask] = "#d62728"                       # red (spike)
+        # Color per date:
+        #   green  = heuristic top-3 Sharpe (pre-gate-open OR low FL confidence)
+        #   red    = Smart Money model deployed (VIX >= 19 + gate open)
+        #   orange = Follow Leads model (VIX < 19 + high FL confidence)
+        #   grey   = VIX spike cash-out
+        _colors = pd.Series("#2ca02c", index=vix_raw.index)    # default: green (heuristic)
+        _colors[_model_mask.values] = "#d62728"                # red (Smart Money)
+        if fl_active_dates is not None and len(fl_active_dates) > 0:
+            _fl_mask = pd.Series(False, index=vix_raw.index)
+            _fl_intersect = vix_raw.index.intersection(fl_active_dates)
+            _fl_mask.loc[_fl_intersect] = True
+            _colors[_fl_mask.values] = "#ff7f0e"               # orange (Follow Leads)
+        _colors[_spike_mask.values] = "#6e6e6e"                # grey (spike)
 
         # Draw VIX line colored by regime (segment by segment)
         prev_c = _colors.iloc[0]
