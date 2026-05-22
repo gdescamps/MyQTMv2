@@ -45,13 +45,14 @@ REBAL_DAYS = 5       # jours entre rebalances
 TOP_N_ALLOC   = 3     # allocate to top 3
 TOP_N_MONITOR = 3     # monitor top 3 — rebalance only when allocated asset leaves top 3
 TOP_N_SCORES  = 3     # (legacy, used as fallback)
-# --- Follow Leads confidence-based allocator switching ---
-# Full capital always invested regardless of confidence.
-# High val_ic (≥ FL_IC_SWITCH_THRESHOLD) → top-N by FL model score.
-# Low  val_ic (<  FL_IC_SWITCH_THRESHOLD) → top-N by rolling 252d Sharpe (heuristic).
-# Gate always uses causal val_ic (no leakage).
-FL_IC_SWITCH_THRESHOLD = 0.20  # val_ic threshold: above → FL model, below → heuristic
-FL_SHARPE_POWER = 2            # within top-N: weight by expanding Sharpe^FL_SHARPE_POWER (0=FL scores)
+# --- Follow Leads IC gate (same mechanism as Smart Money gate) ---
+# Use causal EMA of past FL test_ic values (no leakage: EMA of steps < current).
+# FL model activates only when EMA > FL_IC_GATE_THRESHOLD AND step >= FL_IC_GATE_MIN_STEPS.
+# Full capital always invested (no cash scaling).
+FL_IC_GATE_THRESHOLD = 0.015  # require EMA(past FL test_ic) > 0.015 to use FL model
+FL_IC_GATE_SPAN      = 24     # EMA span (same as SM gate, ~2y)
+FL_IC_GATE_MIN_STEPS = 84     # min steps before gate can open (same as SM gate)
+FL_SHARPE_POWER = 2           # within top-N: weight by expanding Sharpe^FL_SHARPE_POWER (0=FL scores)
 VIX_ADAPTIVE = False  # adjust TOP_N and REBAL based on VIX level
 VIX_LOW = 15         # below this: calm market
 VIX_HIGH = 25        # above this: crisis
@@ -835,7 +836,7 @@ def _plot_feature_importance() -> None:
     Drawing it here (rather than in train.py) keeps the overlaid backtest
     curve in sync with the current backtest whenever the backtest changes.
     """
-    path = (OUTPUTS / ".." / "smart_money" / "feature_importances.parquet").resolve()
+    path = OUTPUTS / "smart_money" / "feature_importances.parquet"
     if not path.exists():
         path = OUTPUTS / "feature_importances.parquet"
     if not path.exists():
@@ -1037,6 +1038,31 @@ def run_equity():
           f"({n_open/max(len(steps),1):.0%}); other steps stay in calm mode.")
     print(f"Calm allocator: {CALM_ALLOCATOR}\n")
 
+    # FL IC gate: causal EMA of past FL test_ic, same mechanism as SM gate.
+    fl_test_ic_ema_lagged = pd.Series(dtype=float)
+    if fl_test_by_step is not None:
+        fl_ic_per_step = (
+            fl_test_full.groupby("step")
+            .apply(lambda g: g.groupby("date")
+                   .apply(lambda x: x["score"].corr(x["label"]) if len(x) > 1 else np.nan,
+                          include_groups=False)
+                   .mean(), include_groups=False)
+            .reindex(all_steps)
+        )
+        fl_test_ic_ema_lagged = (
+            fl_ic_per_step.shift(1).ewm(span=FL_IC_GATE_SPAN, min_periods=1).mean()
+        )
+        n_fl_open = sum(
+            1 for s in steps
+            if s >= FL_IC_GATE_MIN_STEPS
+            and pd.notna(fl_test_ic_ema_lagged.get(s))
+            and fl_test_ic_ema_lagged.get(s) > FL_IC_GATE_THRESHOLD
+        )
+        print(f"FL IC gate: threshold {FL_IC_GATE_THRESHOLD:+.3f}  span {FL_IC_GATE_SPAN}  "
+              f"min steps {FL_IC_GATE_MIN_STEPS}")
+        print(f"  → FL model used on {n_fl_open}/{len(steps)} calm steps "
+              f"({n_fl_open/max(len(steps),1):.0%})\n")
+
     all_test_returns = []
     all_test_weights = []
     all_params_rows  = []
@@ -1167,8 +1193,12 @@ def run_equity():
         if CALM_ALLOCATOR == "follow_leads" and fl_test_by_step is not None:
             fl_step = fl_test_by_step.get(step)
             if fl_step is not None and not fl_step.empty:
-                fl_val_ic = fl_step["val_ic"].iloc[0]
-                use_fl_model = fl_val_ic >= FL_IC_SWITCH_THRESHOLD
+                fl_gate_ema = fl_test_ic_ema_lagged.get(step, np.nan)
+                use_fl_model = (
+                    step >= FL_IC_GATE_MIN_STEPS
+                    and pd.notna(fl_gate_ema)
+                    and fl_gate_ema > FL_IC_GATE_THRESHOLD
+                )
 
         if use_fl_model:
             # High confidence → top-N by FL model score; full capital.
