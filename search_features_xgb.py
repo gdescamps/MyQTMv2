@@ -19,12 +19,12 @@ import xgboost as xgb
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from train import (
+from train_smart_money import (
     XGB_PARAMS, _try_gpu, LABEL_COL, _zscore_per_date,
     BLOCK_ROWS, EMBARGO_ROWS, run_walk_forward,
 )
 from select_features import get_all_feature_cols
-import train as train_mod
+import train_smart_money as train_mod
 
 DATA    = Path(__file__).parent / "data"
 OUTPUTS = Path(__file__).parent / "knowledge"

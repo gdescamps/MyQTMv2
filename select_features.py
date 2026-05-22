@@ -20,7 +20,7 @@ import xgboost as xgb
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from train import XGB_PARAMS, _try_gpu, LABEL_COL, _zscore_per_date, BLOCK_ROWS, EMBARGO_ROWS
+from train_smart_money import XGB_PARAMS, _try_gpu, LABEL_COL, _zscore_per_date, BLOCK_ROWS, EMBARGO_ROWS
 
 DATA    = Path(__file__).parent / "data"
 OUTPUTS = Path(__file__).parent / "outputs"
