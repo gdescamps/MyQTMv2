@@ -6,7 +6,7 @@ Builds a panel DataFrame with MultiIndex (date, etf_id) containing:
   - Macro/regime features from FRED (VIX, HY spread, yield curve, DXY)
   - Smart money: shares_outstanding_z20 from iShares XLS
   - Cross-sectional: ret_20d/ret_5d z-score within section block
-  - Label: forward ret_20d[etf_i] - mean(ret_20d[universe])  (no lookahead)
+  - Label: forward ret_10d (absolute, z-scored cross-sectionally in train.py)
 
 Output: data/features.parquet
 """
@@ -690,7 +690,7 @@ def main():
             # Rank persistence = current rank - lagged rank (positive = improving)
             panel[f"rank_change_{d}d"] = panel[rank_col] - panel[f"rank_lag_{d}d"]
 
-    # Label: absolute forward 10d return (brut)
+    # Label: absolute forward 10d return (brut) — used by the Smart Money model
     panel["label"] = panel["ret_10d_fwd"]
 
     # Soft smart-money activation: keep all OHLCV rows but report when each ETF
