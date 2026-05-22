@@ -83,7 +83,7 @@ def main():
     oos = train.run_walk_forward(
         panel, device,
         wf_feature_selection=True,
-        save_models=False,  # 20 × 189 = 3780 model files not needed for the calm allocator
+        save_models=True,   # save model files to outputs/follow_leads/models/ for live inference
     )
 
     out = DATA_OUT / "oos_predictions.parquet"
