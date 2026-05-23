@@ -54,19 +54,8 @@ FL_IC_GATE_SPAN      = 24     # EMA span (same as SM gate, ~2y)
 FL_IC_GATE_MIN_STEPS = 84     # min steps before gate can open (same as SM gate)
 FL_SHARPE_POWER = 2           # within top-N: weight by expanding Sharpe^FL_SHARPE_POWER (0=FL scores)
 CALM_SHARPE_FLOOR = 0.15
-VIX_ADAPTIVE = False  # adjust TOP_N and REBAL based on VIX level
-VIX_LOW = 15         # below this: calm market
-VIX_HIGH = 25        # above this: crisis
-TOP_N_LOW = 3        # top N when VIX < VIX_LOW (calm → concentrate on best scores)
-TOP_N_HIGH = 3       # top N when VIX > VIX_HIGH (crisis → concentrate)
-REBAL_DAYS_LOW = 21  # rebalance frequency when VIX < VIX_LOW (calm → slower)
-REBAL_DAYS_HIGH = 2  # rebalance frequency when VIX > VIX_HIGH (crisis → faster)
-VIX_SPIKE_MIN = 4.0        # VIX 5-day change above this → start reducing allocation
-VIX_SPIKE_MAX = 10.0       # VIX 5-day change above this → max reduction
-VIX_SPIKE_REBAL = 1        # rebalance every day during spike
-CAP_AT_SPIKE_MIN = 0.8     # allocation cap when slope = VIX_SPIKE_MIN
-CAP_AT_SPIKE_MAX = 0.4     # allocation cap when slope >= VIX_SPIKE_MAX
-RECOVERY_RATE = 0.20       # restore +20% allocation per step until next steep ascending slope
+VIX_SPIKE_MIN = 6.0
+VIX_SPIKE_EXEC_DELAY = 1
 VIX_CALM_THRESHOLD = 19.0  # VIX EMA100 below this → calm market
 VIX_CALM_COND_EMA100_SUP_EMA300 = False  # if True, also require EMA100 < EMA300
 
@@ -155,7 +144,6 @@ def run_backtest(
     prev_weights: np.ndarray | None = None,
     sharpe_weights: np.ndarray | None = None,
     rebal_days_override: int | None = None,
-    max_alloc: float = 1.0,
     tax_state: dict | None = None,
     monitor_mask: np.ndarray | None = None,
 ) -> tuple:
@@ -197,10 +185,6 @@ def run_backtest(
         return out
 
     weights = _alloc(scores, sw)
-    # Cap total allocation (VIX spike → partial cash)
-    if max_alloc < 1.0:
-        weights = weights * max_alloc
-    # Remaining = cash (implicit: 1 - sum(weights))
 
     # Lot-based portfolio simulation with realistic fees
     LOT_SIZE = 10_000.0       # 10k€ tranches
@@ -1071,8 +1055,6 @@ def run_equity():
     model_active_days = []  # list of DatetimeIndex segments where SM model deployed
     fl_active_days    = []  # list of DatetimeIndex segments where Follow Leads deployed
     carry_weights    = None   # chain positions between steps
-    current_alloc_cap = 1.0   # persists between steps, reduced on spike, recovers gradually
-    recovering        = False # once recovery starts, climb monthly until 100% (ignore new spikes)
     step_fee_records = []     # (date_index, fee) per step — fees scaled later
     cumul_rebals     = 0     # total rebalances
     chain_tax_state  = None  # tax state chained between steps
@@ -1100,61 +1082,8 @@ def run_equity():
         etf_sharpe_raw = (exp_mean / exp_std.replace(0, np.nan)).clip(0.0).fillna(0.0)
         etf_sharpe = etf_sharpe_raw.values ** SHARPE_POWER
 
-        # --- VIX-adaptive TOP_N + REBAL_DAYS + spike detection ---
-        if VIX_ADAPTIVE and not vix_s.empty:
-            vix_aligned = vix_s.reindex(val_scores.index, method="ffill")
-            vix_at_step = vix_aligned.iloc[-1]
-            # Detect VIX spike: 5-day change
-            vix_5d_change = vix_aligned.diff(5).iloc[-1] if len(vix_aligned) > 5 else 0.0
-
-            if not np.isnan(vix_at_step):
-                # Spike detection: progressive cap based on VIX slope
-                is_spike = (not np.isnan(vix_5d_change)) and vix_5d_change > VIX_SPIKE_MIN
-
-                # --- TOP_N + REBAL frequency ---
-                if is_spike:
-                    step_top_n = TOP_N_HIGH
-                    step_rebal = VIX_SPIKE_REBAL
-                elif vix_at_step < VIX_LOW:
-                    step_top_n = TOP_N_LOW
-                    step_rebal = REBAL_DAYS_LOW
-                elif vix_at_step > VIX_HIGH:
-                    step_top_n = TOP_N_HIGH
-                    step_rebal = REBAL_DAYS_HIGH
-                else:
-                    frac = (vix_at_step - VIX_LOW) / (VIX_HIGH - VIX_LOW)
-                    step_top_n = int(round(TOP_N_LOW + frac * (TOP_N_HIGH - TOP_N_LOW)))
-                    step_rebal = int(round(REBAL_DAYS_LOW + frac * (REBAL_DAYS_HIGH - REBAL_DAYS_LOW)))
-
-                # --- Allocation cap: slope-driven only (independent of VIX level).
-                #     Cut on steep ascending slope; once the slope stops being
-                #     steep ascending, recover monthly until 100% — and stay in
-                #     recovery mode even if new spikes occur (no re-pinning). ---
-                if is_spike and not recovering:
-                    frac_spike = min((vix_5d_change - VIX_SPIKE_MIN) / (VIX_SPIKE_MAX - VIX_SPIKE_MIN), 1.0)
-                    spike_cap = CAP_AT_SPIKE_MIN + frac_spike * (CAP_AT_SPIKE_MAX - CAP_AT_SPIKE_MIN)
-                    # Reduce cap immediately (take the lower of current and spike cap)
-                    current_alloc_cap = min(current_alloc_cap, spike_cap)
-                    # Once the cap hits the floor, start a guaranteed monthly
-                    # recovery — even if spikes keep coming (no more re-pinning)
-                    if current_alloc_cap <= CAP_AT_SPIKE_MAX + 1e-9:
-                        recovering = True
-                else:
-                    # Slope no longer steep ascending (or already recovering)
-                    # → guaranteed monthly recovery toward 100%
-                    if current_alloc_cap < 1.0:
-                        recovering = True
-                    current_alloc_cap = min(1.0, current_alloc_cap + RECOVERY_RATE)
-                    if current_alloc_cap >= 1.0:
-                        recovering = False
-            else:
-                step_top_n = TOP_N_SCORES
-                step_rebal = REBAL_DAYS
-        else:
-            step_top_n = TOP_N_SCORES
-            step_rebal = REBAL_DAYS
-
-        step_max_alloc = current_alloc_cap
+        step_top_n = TOP_N_SCORES
+        step_rebal = REBAL_DAYS
 
         # --- Evaluate on test (true OOS) ---
         test_scores = _pivot_step(test_data)
@@ -1272,30 +1201,32 @@ def run_equity():
                 test_scores.iloc[i] = sharpe_row
                 step_monitor_mask[i] = sharpe_monitor_row
 
-        # VIX spike → go to cash for 3 days
-        VIX_SPIKE_CASH_DAYS = 3
+        # VIX spike — close-only detection.
+        # Detect close J, execute J+1 (cash for 1 day).
+        VIX_SPIKE_CASH_DAYS = 1
+        cash_dates = set()
         if not vix_s.empty:
-            vix_test = vix_s.reindex(test_scores.index, method="ffill")
-            vix_5d_test = vix_test.diff(5)
-            spike_dates = vix_5d_test[vix_5d_test > VIX_SPIKE_MIN].index
-            cash_dates = set()
+            vix_close_test = vix_s.reindex(test_scores.index, method="ffill")
+            vix_5d_close = vix_close_test.diff(5)
+            spike_dates = vix_5d_close[vix_5d_close > VIX_SPIKE_MIN].index
             for sd in spike_dates:
-                for offset in range(VIX_SPIKE_CASH_DAYS):
-                    idx_pos = test_scores.index.get_loc(sd) + offset if sd in test_scores.index else -1
-                    if 0 <= idx_pos < len(test_scores):
-                        cash_dates.add(test_scores.index[idx_pos])
+                if sd not in test_scores.index:
+                    continue
+                sd_pos = test_scores.index.get_loc(sd)
+                for offset in range(VIX_SPIKE_EXEC_DELAY, VIX_SPIKE_EXEC_DELAY + VIX_SPIKE_CASH_DAYS):
+                    cash_pos = sd_pos + offset
+                    if 0 <= cash_pos < len(test_scores):
+                        cash_dates.add(test_scores.index[cash_pos])
             for cd in cash_dates:
                 test_scores.loc[cd] = np.nan
                 step_monitor_mask[test_scores.index.get_loc(cd)] = False
 
-        # Daily returns for test period
         test_dr = daily_ret_panel.reindex(index=test_scores.index, columns=test_scores.columns).fillna(0)
         test_returns, test_weights, step_fees, step_taxes, step_rebals, _, chain_tax_state = run_backtest(
                                                    test_scores, test_dr,
                                                    prev_weights=prev_w,
                                                    sharpe_weights=etf_sharpe,
                                                    rebal_days_override=step_rebal,
-                                                   max_alloc=step_max_alloc,
                                                    tax_state=chain_tax_state,
                                                    monitor_mask=step_monitor_mask)
 
@@ -1315,7 +1246,7 @@ def run_equity():
         step_fee_records.append((test_returns.index, step_fees))
         cumul_rebals += step_rebals
         all_params_rows.append({"step": step, "temperature": TEMPERATURE, "rebal_days": REBAL_DAYS,
-                                "alloc_cap": step_max_alloc})
+                                })
         # Save scores_A for chart (first day of test step per ETF)
         all_test_scores.append(test_scores.iloc[[0]])
 
@@ -1434,53 +1365,7 @@ def run_equity():
     print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_equity.csv")
     print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_equity.jpg")
 
-    # --- Winners / losers pie (global, all years chained) ---
-    global_label = f"{port_returns.index[0].year}-{port_returns.index[-1].year}"
-    _save_winners_losers_pie(global_label, all_weights, daily_ret_panel,
-                             OUTPUTS, "backtest_pie.jpg")
-    print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_pie.jpg")
-
-    # --- Per-year equity charts (each year restarts fresh at 150k€) ---
-    for yr in range(int(port_returns.index[0].year), int(port_returns.index[-1].year) + 1):
-        ymask = port_returns.index.year == yr
-        if ymask.sum() < 5:
-            continue
-        yr_returns = port_returns[ymask]
-        yr_red     = daily_factor[ymask].cumprod()         # IB fees included
-        yr_weights = all_weights[all_weights.index.year == yr]
-        yr_scores  = all_scores[all_scores.index.year == yr] if len(all_scores) else all_scores
-        yr_days    = max(len(yr_returns), 1)
-
-        yr_red_final = yr_red.iloc[-1] * init_capital       # fees only
-        yr_gain      = yr_red_final - init_capital          # already net of fees
-        yr_tax       = FLAT_TAX_RATE * yr_gain if yr_gain > 0 else 0.0
-        yr_net       = yr_red_final - yr_tax                # fees + flat tax
-        yr_fees      = sum(sf * yr_red.loc[idx.max()] for idx, sf in step_fee_records
-                           if idx.max() in yr_red.index)
-        # Orange curve: net capital with the flat tax on the gain-to-date
-        # marked-to-market (converges to yr_net on the last day).
-        yr_orange = yr_red - FLAT_TAX_RATE * (yr_red - 1.0).clip(lower=0)
-        fin_yr = {
-            "init": init_capital,
-            "gross": yr_red_final,
-            "net": yr_net,
-            "fees": yr_fees,
-            "taxes": yr_tax,
-            "ann_gross": yr_red.iloc[-1] ** (252.0 / yr_days) - 1,
-            "ann_net": (yr_net / init_capital) ** (252.0 / yr_days) - 1,
-        }
-        _save_equity_png(yr_returns, yr_red, yr_weights, params_df, OUTPUTS,
-                         scores_A=yr_scores, fin=fin_yr,
-                         fname=f"backtest_equity_{yr}.jpg", eq_orange=yr_orange,
-                         model_active_dates=full_model_dates,
-                         fl_active_dates=full_fl_dates)
-        print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_equity_{yr}.jpg")
-        _save_winners_losers_pie(str(yr), yr_weights, daily_ret_panel,
-                                 OUTPUTS, f"backtest_pie_{yr}.jpg")
-        print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_pie_{yr}.jpg")
-
-    # --- Feature-importance evolution, with this backtest's curve overlaid ---
-    _plot_feature_importance()
+    # (Per-year charts and pies removed — only global equity chart generated above.)
 
 
 # ===========================================================================
@@ -1519,11 +1404,12 @@ def _run_metrics(returns: pd.Series, step_fee_records: list) -> tuple:
 
 def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
                 vix_s=None, vix_ema100=None, vix_ema300=None,
-                fl_test_by_step=None):
+                fl_test_by_step=None,
+                test_ic_ema_lagged=None, fl_test_ic_ema_lagged=None):
     """Run a single backtest mirroring the main backtest logic (calm-market
-    top-3 Sharpe or Follow Leads, hysteresis monitor, VIX spike cash-out),
-    optionally dropping N random ETFs per step (applies in all modes:
-    SM model, FL model, and Sharpe heuristic fallback).
+    top-3 Sharpe or Follow Leads, IC gate, hysteresis monitor, VIX spike
+    cash-out), optionally dropping N random ETFs per step (applies in all
+    modes: SM model, FL model, and Sharpe heuristic fallback).
     Returns (daily_returns, step_fee_records)."""
     rng = np.random.default_rng(seed) if seed is not None else None
 
@@ -1533,6 +1419,10 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
         vix_ema300 = pd.Series(dtype=float)
     if vix_s is None:
         vix_s = pd.Series(dtype=float)
+    if test_ic_ema_lagged is None:
+        test_ic_ema_lagged = pd.Series(dtype=float)
+    if fl_test_ic_ema_lagged is None:
+        fl_test_ic_ema_lagged = pd.Series(dtype=float)
 
     all_test_returns = []
     step_fee_records = []
@@ -1648,6 +1538,31 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
                 cond = cond & (ema100_t < ema300_t)
             calm_per_day = cond.fillna(False)
 
+        # --- IC gate: force calm if SM model not yet reliable ---
+        gate_ema = test_ic_ema_lagged.get(step, np.nan) if not test_ic_ema_lagged.empty else np.nan
+        gate_open = (step >= IC_GATE_MIN_STEPS) and pd.notna(gate_ema) \
+            and gate_ema > IC_GATE_THRESHOLD
+        if not gate_open:
+            calm_per_day[:] = True
+
+        # --- FL IC gate: use FL model in calm only if its own gate is open ---
+        if use_fl:
+            fl_gate_ema = fl_test_ic_ema_lagged.get(step, np.nan) if not fl_test_ic_ema_lagged.empty else np.nan
+            fl_gate_ok = (step >= FL_IC_GATE_MIN_STEPS) and pd.notna(fl_gate_ema) \
+                and fl_gate_ema > FL_IC_GATE_THRESHOLD
+            if not fl_gate_ok:
+                use_fl = False
+                # Fall back to heuristic for this step
+                for etf in sharpe_series.index:
+                    if exp_sharpe_for_floor.get(etf, 0.0) < CALM_SHARPE_FLOOR:
+                        sharpe_series[etf] = 0.0
+                top_calm_etfs = [e for e in sharpe_series.nlargest(TOP_N_ALLOC).index
+                                 if sharpe_series[e] > 0]
+                top_calm_set = set(top_calm_etfs)
+                sharpe_row = np.array([sharpe_series[c] if c in top_calm_set else np.nan
+                                       for c in model_scores.columns])
+                sharpe_monitor_row = np.array([c in top_calm_set for c in model_scores.columns])
+
         # --- Combine per day ---
         test_scores = model_scores.copy()
         step_monitor_mask = model_monitor_mask.copy()
@@ -1655,25 +1570,6 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
             if calm:
                 test_scores.iloc[i] = sharpe_row
                 step_monitor_mask[i] = sharpe_monitor_row
-
-        # VIX spike → 3 days cash-out
-        VIX_SPIKE_CASH_DAYS = 3
-        if not vix_s.empty:
-            vix_test = vix_s.reindex(test_scores.index, method="ffill")
-            vix_5d_test = vix_test.diff(5)
-            spike_dates = vix_5d_test[vix_5d_test > VIX_SPIKE_MIN].index
-            cash_dates = set()
-            for sd in spike_dates:
-                idx_pos0 = test_scores.index.get_loc(sd) if sd in test_scores.index else -1
-                if idx_pos0 < 0:
-                    continue
-                for offset in range(VIX_SPIKE_CASH_DAYS):
-                    idx_pos = idx_pos0 + offset
-                    if 0 <= idx_pos < len(test_scores):
-                        cash_dates.add(test_scores.index[idx_pos])
-            for cd in cash_dates:
-                test_scores.loc[cd] = np.nan
-                step_monitor_mask[test_scores.index.get_loc(cd)] = False
 
         test_dr = daily_ret_panel.reindex(index=test_scores.index, columns=test_scores.columns).fillna(0)
         result = run_backtest(test_scores, test_dr,
@@ -1747,6 +1643,35 @@ def run_robustness():
             fl_test_by_step = {s: g for s, g in fl_test_full.groupby("step")}
             print(f"Follow Leads loaded for robustness: {len(fl_test_by_step)} steps")
 
+    # --- Pre-compute IC gates (same causal EMA as main backtest) ---
+    test_oos_rob = oos[oos["split"] == "test"].dropna(subset=["score", "label"]).reset_index()
+    test_ic_per_step = (
+        test_oos_rob.groupby("step")
+        .apply(lambda g: g.groupby("date")
+               .apply(lambda x: x["score"].corr(x["label"]) if len(x) > 1 else np.nan,
+                      include_groups=False).mean(),
+               include_groups=False)
+        .reindex(all_steps)
+    )
+    test_ic_ema_lagged = (
+        test_ic_per_step.shift(1).ewm(span=IC_GATE_SPAN, min_periods=1).mean()
+    )
+
+    fl_test_ic_ema_lagged = pd.Series(dtype=float)
+    if fl_test_by_step is not None:
+        fl_test_full_rob = pd.concat(fl_test_by_step.values())
+        fl_ic_per_step = (
+            fl_test_full_rob.reset_index().groupby("step")
+            .apply(lambda g: g.groupby("date")
+                   .apply(lambda x: x["score"].corr(x["label"]) if len(x) > 1 else np.nan,
+                          include_groups=False).mean(),
+                   include_groups=False)
+            .reindex(all_steps)
+        )
+        fl_test_ic_ema_lagged = (
+            fl_ic_per_step.shift(1).ewm(span=FL_IC_GATE_SPAN, min_periods=1).mean()
+        )
+
     print(f"Steps: {len(steps)}, ETFs: {len(all_etfs)}, Runs: {N_RUNS}, Drop: {N_DROP}")
 
     # Run original (no drop) first
@@ -1754,7 +1679,9 @@ def run_robustness():
     orig_returns, orig_fees = _run_single(oos, steps, daily_ret_panel,
                                           drop_etfs=None, seed=None, vix_s=vix_s,
                                           vix_ema100=vix_ema100, vix_ema300=vix_ema300,
-                                          fl_test_by_step=fl_test_by_step)
+                                          fl_test_by_step=fl_test_by_step,
+                                          test_ic_ema_lagged=test_ic_ema_lagged,
+                                          fl_test_ic_ema_lagged=fl_test_ic_ema_lagged)
     orig_m, orig_red, orig_orange = _run_metrics(orig_returns, orig_fees)
 
     # Run N_RUNS with random drops
@@ -1765,7 +1692,9 @@ def run_robustness():
         run_returns, run_fees = _run_single(oos, steps, daily_ret_panel,
                                             drop_etfs=N_DROP, seed=run, vix_s=vix_s,
                                             vix_ema100=vix_ema100, vix_ema300=vix_ema300,
-                                            fl_test_by_step=fl_test_by_step)
+                                            fl_test_by_step=fl_test_by_step,
+                                            test_ic_ema_lagged=test_ic_ema_lagged,
+                                            fl_test_ic_ema_lagged=fl_test_ic_ema_lagged)
         m, run_red, _ = _run_metrics(run_returns, run_fees)
         m["run"] = run + 1
         stats.append(m)
