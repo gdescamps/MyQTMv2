@@ -134,6 +134,62 @@ def serve_robustness():
         return FileResponse(path, media_type="image/jpeg",
                             headers={"Cache-Control": "no-cache"})
 
+@app.get("/chart/equity-2026")
+def serve_equity_2026():
+    """Generate a 2026 zoom equity chart starting at 150k EUR."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.ticker as mtick
+    from io import BytesIO
+    from starlette.responses import Response
+
+    eq_path = OUTPUTS / "backtest_equity.csv"
+    if not eq_path.exists():
+        return Response(status_code=404)
+
+    eq = pd.read_csv(eq_path, parse_dates=["date"])
+    mask_2026 = eq["date"] >= "2026-01-01"
+    if mask_2026.sum() == 0:
+        return Response(status_code=404)
+
+    eq_2026 = eq[mask_2026].copy()
+    # Rebase to 150k EUR at start of 2026
+    init = 150_000.0
+    eq_2026["value"] = eq_2026["equity"] / eq_2026["equity"].iloc[0] * init
+    returns_2026 = eq_2026["equity"].pct_change().dropna()
+    ytd_ret = eq_2026["equity"].iloc[-1] / eq_2026["equity"].iloc[0] - 1
+    ytd_sharpe = (returns_2026.mean() / returns_2026.std() * np.sqrt(252)
+                  if returns_2026.std() > 0 else 0)
+    max_dd = (eq_2026["equity"] / eq_2026["equity"].cummax() - 1).min()
+
+    fig, ax = plt.subplots(figsize=(14, 5))
+    ax.plot(eq_2026["date"], eq_2026["value"], lw=3, color="#d62728")
+    ax.axhline(init, color="#999", lw=1, ls="--", alpha=0.5)
+    ax.fill_between(eq_2026["date"], init, eq_2026["value"],
+                    where=eq_2026["value"] >= init,
+                    color="#2ca02c", alpha=0.15)
+    ax.fill_between(eq_2026["date"], init, eq_2026["value"],
+                    where=eq_2026["value"] < init,
+                    color="#d62728", alpha=0.15)
+    ax.set_ylabel("Portfolio value (EUR)")
+    ax.yaxis.set_major_formatter(
+        mtick.FuncFormatter(lambda x, _: f"{x:,.0f}".replace(",", " ")))
+    ax.set_title(f"2026 YTD  |  {ytd_ret:+.1%}  |  "
+                 f"Sharpe {ytd_sharpe:.2f}  |  DD {max_dd:.1%}  |  "
+                 f"Last: {eq_2026['value'].iloc[-1]:,.0f} EUR",
+                 fontsize=13, fontweight="bold")
+    ax.grid(True, alpha=0.3)
+    ax.set_facecolor("#f8f8f8")
+    fig.tight_layout()
+
+    buf = BytesIO()
+    fig.savefig(buf, format="jpeg", dpi=120, pil_kwargs={"quality": 80})
+    plt.close(fig)
+    buf.seek(0)
+    return Response(content=buf.read(), media_type="image/jpeg",
+                    headers={"Cache-Control": "no-cache"})
+
 
 # ===================================================================
 #  Styles (same layout as ./dashboard)
@@ -386,9 +442,16 @@ def _build_robot_tab():
 
 
 def _build_equity_tab():
-    ui.label("Equity Backtest").classes("section-title")
-
     stats = load_backtest_stats()
+
+    # 2026 YTD zoom (150k EUR starting capital)
+    ui.label("2026 YTD (150 000 EUR)").classes("section-title")
+    ui.image("/chart/equity-2026").classes("w-full rounded-lg shadow-lg")
+
+    # Full backtest
+    ui.element("div").classes("w-full h-0.5 bg-black mt-4")
+    ui.label("Full Backtest (2006-2026, 150 000 EUR)").classes("section-title")
+
     if stats:
         with ui.row().classes("gap-3 flex-wrap"):
             _stat_card("Sharpe", stats["sharpe"])
@@ -397,7 +460,6 @@ def _build_equity_tab():
             _stat_card("Total Return", stats["total_return"])
         ui.label(f"Period: {stats['period']}").classes("text-sm text-gray-500")
 
-    ui.element("div").classes("w-full h-0.5 bg-black")
     if (OUTPUTS / "backtest_equity.jpg").exists():
         ui.image("/chart/equity").classes("w-full rounded-lg shadow-lg")
     else:
