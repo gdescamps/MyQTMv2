@@ -174,12 +174,15 @@ def serve_equity_12m():
     from etf import UNIVERSE as _UNIV
     SHORT_NAMES = {e.bourso: _short_name(e.name) for e in _UNIV}
 
-    # --- Figure: 3 panels (equity+VIX, allocation) ---
-    fig = plt.figure(figsize=(16, 10))
-    gs = fig.add_gridspec(2, 1, height_ratios=[2, 1], hspace=0.08,
-                          top=0.93, bottom=0.05, left=0.06, right=0.96)
-    ax1 = fig.add_subplot(gs[0])
-    ax2 = fig.add_subplot(gs[1], sharex=ax1)
+    # --- Figure: 2 chart panels + right legend column ---
+    fig = plt.figure(figsize=(22, 10))
+    gs = fig.add_gridspec(2, 2, height_ratios=[2, 1], width_ratios=[3, 1],
+                          hspace=0.08, wspace=0.02,
+                          top=0.93, bottom=0.05, left=0.05, right=0.98)
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax2 = fig.add_subplot(gs[1, 0], sharex=ax1)
+    ax_leg = fig.add_subplot(gs[:, 1])
+    ax_leg.axis("off")
 
     # Panel 1: Equity curve
     ax1.plot(eq_1y["date"], eq_1y["value"], lw=3, color="#d62728", zorder=10)
@@ -275,19 +278,38 @@ def serve_equity_12m():
             ax2.set_facecolor("#f8f8f8")
             ax2.grid(True, alpha=0.3)
 
-            # Legend with colored dots, sorted by mean allocation
+            # Right column: ETF list sorted by mean allocation
             mean_alloc = w_sorted.mean().sort_values(ascending=False)
-            handles = []
+            max_a = mean_alloc.max() if len(mean_alloc) > 0 else 1.0
+
+            # Header
+            y = 0.97
+            ax_leg.text(0.0, y, "ETF Allocation (12m avg)",
+                        fontsize=13, fontweight="bold", va="top",
+                        transform=ax_leg.transAxes, color="#d62728")
+            y -= 0.05
+            ax_leg.plot([0.0, 0.97], [y + 0.01, y + 0.01],
+                        color="#999999", lw=0.8, transform=ax_leg.transAxes)
+
+            marker_max = 22
+            marker_min = 6
+            y_step = min(0.04, 0.85 / max(len(mean_alloc), 1))
+
             for etf_id in mean_alloc.index:
                 short = SHORT_NAMES.get(etf_id, etf_id)
                 color = ETF_COLOR_MAP.get(etf_id, "#7f7f7f")
-                h = plt.Line2D([0], [0], marker='o', color='w',
-                               markerfacecolor=color,
-                               markersize=8 + mean_alloc[etf_id] * 30,
-                               label=f"{short} ({mean_alloc[etf_id]:.0%})")
-                handles.append(h)
-            ax2.legend(handles=handles, loc="upper left", fontsize=8,
-                       ncol=min(len(handles), 6), framealpha=0.8)
+                alloc_pct = mean_alloc[etf_id]
+                frac = alloc_pct / max_a if max_a > 0 else 0
+                m_fs = marker_min + (marker_max - marker_min) * frac
+
+                ax_leg.text(0.0, y, "\u25A0", fontsize=m_fs, color=color,
+                            va="center", transform=ax_leg.transAxes)
+                ax_leg.text(0.08, y, short, fontsize=10, va="center",
+                            transform=ax_leg.transAxes)
+                ax_leg.text(0.70, y, f"{alloc_pct:.0%}", fontsize=10,
+                            va="center", ha="right",
+                            transform=ax_leg.transAxes, color="#333333")
+                y -= y_step
 
     plt.setp(ax1.get_xticklabels(), visible=False)
     fig.align_ylabels([ax1, ax2])
