@@ -743,182 +743,10 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
     plt.close(fig1)
 
 
-def _save_winners_losers_pie(period_label: str, weights_df: pd.DataFrame,
-                             daily_ret_panel: pd.DataFrame, out_dir: Path,
-                             fname: str) -> None:
-    """Two pie charts — losers (left) and winners (right). Each ETF held over
-    the period is a slice sized by its allocation volume (Σ daily weight);
-    winner/loser split by the sign of its P&L contribution (Σ weight×return).
-    Pie radius scales with each side's total volume."""
-    from etf import UNIVERSE as _UNIVERSE
-    short = {e.bourso: _short_name(e.name) for e in _UNIVERSE}
-
-    dr = daily_ret_panel.reindex(index=weights_df.index).fillna(0.0)
-    rows = []   # (ticker, volume, contribution)
-    for t in weights_df.columns:
-        if t not in dr.columns:
-            continue
-        w = weights_df[t].fillna(0.0)
-        vol = float(w.sum())
-        if vol < 1e-6:
-            continue
-        rows.append((t, vol, float((w * dr[t]).sum())))
-
-    winners = sorted([r for r in rows if r[2] >= 0], key=lambda x: -x[1])
-    losers  = sorted([r for r in rows if r[2] < 0],  key=lambda x: -x[1])
-    vol_w, vol_l = sum(r[1] for r in winners), sum(r[1] for r in losers)
-    con_w, con_l = sum(r[2] for r in winners), sum(r[2] for r in losers)
-    vmax = max(vol_w, vol_l, 1e-9)
-
-    fig, (axl, axr) = plt.subplots(1, 2, figsize=(20, 11))
-    fig.suptitle(f"Gagnants / Perdants par volume alloué — {period_label}",
-                 fontsize=18, fontweight="bold")
-
-    def _pie(ax, items, side_vol, title, tcolor, radius):
-        ax.set_title(title, fontsize=14, fontweight="bold", color=tcolor)
-        ax.axis("off")
-        if not items or side_vol <= 0:
-            ax.text(0.5, 0.5, "—", ha="center", va="center", fontsize=22,
-                    color="#999999")
-            return
-        # Group slices below 2.5% of the side into a single "Autres" wedge
-        thr = 0.025 * side_vol
-        big = [r for r in items if r[1] >= thr]
-        small = [r for r in items if r[1] < thr]
-        sizes  = [r[1] for r in big]
-        colors = [ETF_COLOR_MAP.get(r[0], "#999999") for r in big]
-        labels = [f"{short.get(r[0], r[0])}  {r[1] / side_vol:.0%}" for r in big]
-        if small:
-            sv = sum(r[1] for r in small)
-            sizes.append(sv)
-            colors.append("#cccccc")
-            labels.append(f"Autres ({len(small)})  {sv / side_vol:.0%}")
-        ax.pie(sizes, labels=labels, colors=colors, radius=radius,
-               startangle=90, counterclock=False,
-               wedgeprops=dict(edgecolor="white", linewidth=1.0),
-               textprops=dict(fontsize=9), labeldistance=1.06)
-        ax.set(aspect="equal")
-
-    _pie(axl, losers, vol_l,
-         f"Perdants — {len(losers)} ETF   (contribution {con_l:+.1%})",
-         "#d62728", radius=(vol_l / vmax) ** 0.5)
-    _pie(axr, winners, vol_w,
-         f"Gagnants — {len(winners)} ETF   (contribution {con_w:+.1%})",
-         "#1a7a1a", radius=(vol_w / vmax) ** 0.5)
-
-    fig.savefig(out_dir / fname, dpi=100, bbox_inches="tight", format="jpeg",
-                pil_kwargs={"quality": 60, "optimize": True})
-    plt.close(fig)
-
-
-def _plot_feature_importance() -> None:
-    """SHAP feature-importance evolution chart, with the red backtest equity
-    curve overlaid.
-
-    Reads two inputs:
-      outputs/feature_importances.parquet  — produced by train.py (the model)
-      outputs/backtest_equity.csv          — produced by this backtest run
-    Drawing it here (rather than in train.py) keeps the overlaid backtest
-    curve in sync with the current backtest whenever the backtest changes.
-    """
-    path = OUTPUTS / "smart_money" / "feature_importances.parquet"
-    if not path.exists():
-        path = OUTPUTS / "feature_importances.parquet"
-    if not path.exists():
-        print("  (feature_importances.parquet absent — run train_smart_money.py to generate it)")
-        return
-
-    df = pd.read_parquet(path)
-    if "step" in df.columns:
-        df = df.drop(columns=["step"])
-    # With walk-forward feature selection a feature is absent from the steps
-    # where it was not selected → treat those as zero importance.
-    df = df.fillna(0.0)
-
-    # Rank features by CUMULATIVE global SHAP importance (sum over every step),
-    # so a feature that enters/leaves the per-step WF selection is still ranked
-    # on its total contribution across the whole walk-forward.
-    total_imp = df.sum().sort_values(ascending=False)
-    TOP_N = min(50, len(total_imp))
-    top_features = total_imp.head(TOP_N).index.tolist()
-
-    print(f"\nTop {TOP_N} features by cumulative SHAP importance:")
-    for i, feat in enumerate(top_features):
-        is_sm = "so_" in feat or "shares" in feat
-        tag = " <- SMART MONEY" if is_sm else ""
-        print(f"  {i+1:2d}. {feat:<35s}  cumul={total_imp[feat]:.3f}{tag}")
-
-    fig = plt.figure(figsize=(24, 14))
-    gs = fig.add_gridspec(2, 2, width_ratios=[3, 1], height_ratios=[3, 1],
-                          hspace=0.08, wspace=0.02,
-                          top=0.95, bottom=0.05, left=0.05, right=0.98)
-    ax1 = fig.add_subplot(gs[0, 0])
-    ax2 = fig.add_subplot(gs[1, 0], sharex=ax1)
-    ax_leg = fig.add_subplot(gs[:, 1])
-    ax_leg.axis("off")
-
-    top_df = df[top_features]
-    top_smooth = top_df.rolling(5, min_periods=1).mean()
-
-    base_colors = plt.cm.gist_ncar(np.linspace(0.02, 0.95, TOP_N))
-    colors = []
-    for i, feat in enumerate(top_features):
-        if "so_" in feat or "shares" in feat:
-            colors.append("#d62728")
-        else:
-            colors.append(base_colors[i])
-
-    ax1.stackplot(top_smooth.index, top_smooth.values.T,
-                  labels=top_features, colors=colors, alpha=0.85)
-    ax1.set_ylabel("SHAP Importance (stacked)")
-    ax1.set_title(f"Top {TOP_N} Features — SHAP Importance Walk-Forward "
-                  f"(ranked by cumulative importance)", fontsize=14)
-    ax1.grid(True, alpha=0.3)
-
-    # Overlay the red backtest equity curve (IB fees only) on a twin axis
-    bt_path = OUTPUTS / "backtest_equity.csv"
-    if bt_path.exists():
-        bt = pd.read_csv(bt_path, parse_dates=["date"]).set_index("date")["equity"]
-        ax1b = ax1.twinx()
-        ax1b.plot(bt.index, bt.values, lw=3.0, color="#d62728", zorder=20,
-                  label="Backtest (frais IB)")
-        ax1b.set_yscale("log")
-        ax1b.set_ylabel("Backtest equity — frais IB (log, base 1)", color="#d62728")
-        ax1b.tick_params(axis="y", colors="#d62728")
-        ax1b.yaxis.set_major_formatter(mtick.FuncFormatter(lambda x, _: f"{x:.0f}x"))
-        ax1b.legend(loc="upper left", fontsize=11, framealpha=0.92)
-
-    fs = 9 if TOP_N <= 25 else 7
-    mk = min(16, max(7, 0.9 / max(TOP_N, 1) * 620))
-    y_start = 0.98
-    y_step = min(0.035, 0.94 / max(TOP_N, 1))
-    for i, feat in enumerate(top_features):
-        y = y_start - i * y_step
-        is_sm = "so_" in feat or "shares" in feat
-        color = "#d62728" if is_sm else colors[i]
-        fw = "bold" if is_sm else "normal"
-        ax_leg.text(0.0, y, "■", fontsize=mk, color=color, va="center",
-                    transform=ax_leg.transAxes)
-        ax_leg.text(0.08, y, f"{i+1:2d}. {feat}", fontsize=fs, fontweight=fw,
-                    va="center", transform=ax_leg.transAxes)
-        ax_leg.text(0.97, y, f"{total_imp[feat]:.2f}", fontsize=fs, va="center",
-                    ha="right", transform=ax_leg.transAxes, color="#333333")
-
-    n_active = (df > 0.001).sum(axis=1)
-    ax2.plot(n_active.index, n_active.values, lw=2, color="#1f77b4")
-    ax2.set_ylabel("Active features (SHAP > 0.001)")
-    ax2.set_xlabel("Date")
-    ax2.grid(True, alpha=0.3)
-
-    out = OUTPUTS / "feature_importance_evolution.jpg"
-    fig.savefig(out, dpi=100, bbox_inches="tight", format="jpeg",
-                pil_kwargs={"quality": 70, "optimize": True})
-    plt.close(fig)
-    print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/feature_importance_evolution.jpg")
 
 
 def run_equity():
-    """Equity backtest → global + per-year equity charts and winner/loser pies."""
+    """Equity backtest → global equity chart."""
     oos_path = DATA / "oos_predictions.parquet"
     if not oos_path.exists():
         sys.exit(f"ERROR: {oos_path} not found — run train.py first")
@@ -1349,7 +1177,6 @@ def run_equity():
     print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_equity.csv")
     print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_equity.jpg")
 
-    # (Per-year charts and pies removed — only global equity chart generated above.)
 
 
 # ===========================================================================
@@ -1910,9 +1737,6 @@ def run_robustness():
 #  Entry point — runs the equity backtest and, in parallel, the robustness
 #  backtest. A single `python backtest.py` produces every artefact:
 #    outputs/backtest_equity.jpg        global equity chart
-#    outputs/backtest_equity_YYYY.jpg   per-year equity charts
-#    outputs/backtest_pie.jpg           global winners/losers pie
-#    outputs/backtest_pie_YYYY.jpg      per-year winners/losers pies
 #    outputs/backtest_robustness.jpg    robustness chart
 # ===========================================================================
 
