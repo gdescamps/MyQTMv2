@@ -1555,6 +1555,24 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
                 test_scores.iloc[i] = sharpe_row
                 step_monitor_mask[i] = sharpe_monitor_row
 
+        # VIX spike → cash-out (same logic as main backtest)
+        cash_dates = set()
+        if not vix_s.empty:
+            vix_close_test = vix_s.reindex(test_scores.index, method="ffill")
+            vix_5d_close = vix_close_test.diff(5)
+            spike_dates = vix_5d_close[vix_5d_close > VIX_SPIKE_MIN].index
+            for sd in spike_dates:
+                if sd not in test_scores.index:
+                    continue
+                sd_pos = test_scores.index.get_loc(sd)
+                for offset in range(VIX_SPIKE_CASH_DAYS):
+                    cash_pos = sd_pos + offset
+                    if 0 <= cash_pos < len(test_scores):
+                        cash_dates.add(test_scores.index[cash_pos])
+            for cd in cash_dates:
+                test_scores.loc[cd] = np.nan
+                step_monitor_mask[test_scores.index.get_loc(cd)] = False
+
         test_dr = daily_ret_panel.reindex(index=test_scores.index, columns=test_scores.columns).fillna(0)
         result = run_backtest(test_scores, test_dr,
                               prev_weights=prev_w,
