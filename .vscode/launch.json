@@ -33,22 +33,6 @@
             "args": ["--robustness"],
             "console": "integratedTerminal",
             "justMyCode": true
-        },
-        {
-            "name": "backtest calm-only",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/knowledge/backtest_calmonly.py",
-            "console": "integratedTerminal",
-            "justMyCode": true
-        },
-        {
-            "name": "backtest no-calm (model always)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/knowledge/backtest_no_calm.py",
-            "console": "integratedTerminal",
-            "justMyCode": true
         }
     ]
 }
