@@ -54,7 +54,8 @@ FL_IC_GATE_SPAN      = 24     # EMA span (same as SM gate, ~2y)
 FL_IC_GATE_MIN_STEPS = 84     # min steps before gate can open (same as SM gate)
 FL_SHARPE_POWER = 2           # within top-N: weight by expanding Sharpe^FL_SHARPE_POWER (0=FL scores)
 CALM_SHARPE_FLOOR = 0.15
-VIX_SPIKE_MIN = 4.0
+VIX_SPIKE_MIN = 2.0        # VIX 5-day change above this → cash-out
+VIX_SPIKE_CASH_DAYS = 1    # days to stay in cash after spike detection
 VIX_CALM_THRESHOLD = 19.0  # VIX EMA100 below this → calm market
 VIX_CALM_COND_EMA100_SUP_EMA300 = False  # if True, also require EMA100 < EMA300
 
@@ -627,7 +628,7 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         _spike_mask = pd.Series(False, index=vix_raw.index)
         for _sd in vix_5d_chart[vix_5d_chart > VIX_SPIKE_MIN].index:
             _pos = vix_raw.index.get_loc(_sd)
-            for _off in range(3):
+            for _off in range(VIX_SPIKE_CASH_DAYS):
                 if _pos + _off < len(vix_raw):
                     _spike_mask.iloc[_pos + _off] = True
         # 2) Model deployed: only the dates the backtest loop actually ran the
@@ -1202,7 +1203,6 @@ def run_equity():
 
         # VIX spike — close-only detection.
         # Detect close J → sell at close J (same day cash).
-        VIX_SPIKE_CASH_DAYS = 3
         cash_dates = set()
         if not vix_s.empty:
             vix_close_test = vix_s.reindex(test_scores.index, method="ffill")
@@ -1747,7 +1747,7 @@ def run_robustness():
         _spike_mask = pd.Series(False, index=vix_raw.index)
         for _sd in vix_5d_chart[vix_5d_chart > VIX_SPIKE_MIN].index:
             _pos = vix_raw.index.get_loc(_sd)
-            for _off in range(3):
+            for _off in range(VIX_SPIKE_CASH_DAYS):
                 if _pos + _off < len(vix_raw):
                     _spike_mask.iloc[_pos + _off] = True
         # 2) Regime coloring: VIX-based proxy (robustness chart doesn't track

@@ -1025,3 +1025,108 @@ Change l'objectif du modèle.
 On essaie maintenant de prédire le sharpe ratio expending dans 10 jours, Au lieu du rendement a 10d
 Parce que follow leads, c'est juste qu'on essaie de faire mieux que d'allouer le top 3 des meilleurs smart ratios.
 En période de fallback quand ce n'est pas le moment d'utiliser le monnaie, Smart Money, quand il n'y a pas de stress.
+
+
+---------------------------------------
+
+Tu peux mettre à jour le backtest robustesse ? 
+
+Je vais gérer le fait qu'on retire au hasard des ETF et que cela implique des changements dans les deux modèles. Les deux modèles ne peuvent pas sélectionner ces ETF manquants.
+
+Également l'heuristique de fallback, on ne peut pas sélectionner le ETF retiré, les ETF retirés de la liste.
+
+Néanmoins, toutes ces méthodes doivent sélectionner l'ETF remplaçant pour un ETF qui serait gagnant, mais retirer de la liste pour le test de robustesse.
+
+Est-ce que tu peux vérifier que ce code est en place avant d'exécuter le code de robustesse ? Ouvre ici, le jpeg robustesse.
+Tu peux me commenter le backtest robustesse.
+
+---------------------------------------
+
+Je suis toujours insatisfait du backtest, notamment entre 2012 et 2018.
+Je me demande pourquoi le modèle follow leads, pas de résultat.
+Alors qu'il marche après 2020.
+Pour le modèle Smart Money, je peux comprendre.
+Est-ce que tu peux chercher des pistes ?
+
+---------------------------------------
+
+Ajouter une heuristique.
+Pour le modèle follow leads
+Avant de ramener la liste à top 3.
+On supprime les ETF qui ont un char ratio expanding inférieur à 0,5.
+
+Et pour l'heuristique top 3, sharpe ratio expanding.
+Qui est le fallback.
+On n'alloue jamais un etf qui a un sharpe ratio expanding inférieur à 0,5.
+
+Si le top 3 n'est pas rempli,
+On reste en cash.
+Sans allouer la place manquante.
+C'est à dire si on trouve que deux assets candidats Pas l'allocation.
+On laisse environ un tiers du capital en cash, comme une place vacante. 
+Pour ne pas augmenter le risque.
+D'ailleurs c'est une règle générale qu'il faut vérifier dans l'allocation, un ETF n'est jamais alloué à 100%.
+Même si c'est pondéré par son charpe ratio. 
+Cela ne doit jamais dépasser environ un tiers de la location.
+Pour faire 100% de l'allocation du capital, il faut 3 candidats ETF corrects.
+
+Pour la smart money, il n'y a pas de filtre. 
+On autorise l'allocation d'ETF qui ont un charge ratio expanding inférieur à 0,5.
+
+Sans réentrainer.
+Lancer le backtest general.
+Sans la robustesse.
+
+---------------------------------------
+
+Commentent le résultat de la robustesse.
+Après son exécution et ensuite
+
+
+peux tu faire des variations sur le cutoff, sur les front montants du VIX en termes de nombre de jours de capital off.
+Et voir le résultat sur le backtest.
+
+Peux-tu faire également des variations sur le déclenchement du cutoff en fonction de la pente du front montant du VIX.
+
+
+---------------------------------------
+
+Je paraphrase 
+si on verifier en temps reel le VIX en intraday 
+sharpe ratio de 1.64 est realiste en reel sur IB  ? 
+
+
+Gap overnight avant le signal : VIX monte de +3 pts pendant la nuit, on ouvre le matin déjà en perte → on subit ~1 jour de baisse avant de
+sortir. Ça arrive ~2-3x/an. : 
+
+A l'ouverture tu vois le spike trop tard il est deja  au dessus du seuil de declenchement
+
+
+---------------------------------------
+
+est ce que tu peux faire 
+une protection avec 2 verifications par jour d'ouverture 
+
+1) a la cloture avec execution immediate
+en calculant le signal vix avec les valeurs de clôture. 
+Et l'exécution réalisée avec le prix de clôture. 
+
+2)  a l'ouverture avec execution immediate 
+en calculant le signal vix avec les valeurs d'ouverture. 
+Et l'exécution réalisée avec le prix d'ouverture. 
+
+En théorie on réagit plus rapidement au vix
+
+En pratique si on le fait heure par heure ce devrait etre  mieux.
+
+
+je veux restaurer le resultat precedant : 
+
+sharpe ratio a 1.64 
+
+plus de vix Adaptative
+
+Check CLOSE: vix_close_J − vix_close_{J-5} > 6.0
+  Détecté à clôture → vend à clôture 
+
+plus de détection clôture J, exécution J+1
