@@ -36,6 +36,7 @@ TEMPERATURE = 1.0     # softmax concentration (fixed)
 TOP_N_ALLOC   = 3     # allocate to top 3 (model mode)
 TOP_N_MONITOR = 3     # monitor top 3 — rebalance only when allocated asset leaves top 3
 CALM_TOP_N    = 1     # calm/fallback mode: top 1 by rolling 2y Sharpe
+CALM_PREFER   = "QQQ" # prefer this ETF if it's in rolling 2y Sharpe top 3
 # --- Follow Leads IC gate (same mechanism as Smart Money gate) ---
 # Use causal EMA of past FL test_ic values (no leakage: EMA of steps < current).
 # FL model activates only when EMA > FL_IC_GATE_THRESHOLD AND step >= FL_IC_GATE_MIN_STEPS.
@@ -828,8 +829,13 @@ def run_equity():
         roll_std  = dr_hist.rolling(504, min_periods=400).std().iloc[-1] * np.sqrt(252)
         roll_sharpe = (roll_mean / roll_std.replace(0, np.nan)).clip(0.0).fillna(0.0)
         heuristic_sharpe = roll_sharpe.reindex(model_scores.columns).fillna(0.0)
-        heur_top = heuristic_sharpe.nlargest(CALM_TOP_N).index.tolist()
-        heur_top = [e for e in heur_top if heuristic_sharpe[e] > 0]
+        # Prefer CALM_PREFER (QQQ) if it's in the top 3, else top 1
+        _top3 = heuristic_sharpe.nlargest(3).index.tolist()
+        if CALM_PREFER in _top3 and heuristic_sharpe.get(CALM_PREFER, 0) > 0:
+            heur_top = [CALM_PREFER]
+        else:
+            heur_top = heuristic_sharpe.nlargest(CALM_TOP_N).index.tolist()
+            heur_top = [e for e in heur_top if heuristic_sharpe[e] > 0]
         heur_set = set(heur_top)
         heur_row = np.array([heuristic_sharpe[c] if c in heur_set else np.nan
                              for c in model_scores.columns])
@@ -1178,8 +1184,13 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
         for etf in dropped_set:
             if etf in heuristic_sharpe.index:
                 heuristic_sharpe[etf] = 0.0
-        heur_top = [e for e in heuristic_sharpe.nlargest(CALM_TOP_N).index
-                     if heuristic_sharpe[e] > 0]
+        # Prefer CALM_PREFER (QQQ) if it's in the top 3, else top 1
+        _top3 = heuristic_sharpe.nlargest(3).index.tolist()
+        if CALM_PREFER in _top3 and heuristic_sharpe.get(CALM_PREFER, 0) > 0:
+            heur_top = [CALM_PREFER]
+        else:
+            heur_top = [e for e in heuristic_sharpe.nlargest(CALM_TOP_N).index
+                         if heuristic_sharpe[e] > 0]
         heur_set = set(heur_top)
         heur_row = np.array([heuristic_sharpe[c] if c in heur_set else np.nan
                              for c in model_scores.columns])
