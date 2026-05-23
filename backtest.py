@@ -892,6 +892,7 @@ def run_equity():
         step_regime = np.zeros(len(is_calm), dtype=int)
         ema100_vals = vix_ema100.reindex(model_scores.index, method="ffill") \
             if not vix_ema100.empty else pd.Series(0.0, index=model_scores.index)
+        ema100_slope = ema100_vals.diff().fillna(0.0)  # positive = VIX rising
         for i in range(len(is_calm)):
             if is_calm.iloc[i]:
                 if use_fl_model:
@@ -905,13 +906,13 @@ def run_equity():
             elif gate_open:
                 # VIX >= 19 + SM available → SM model
                 step_regime[i] = 0
-            elif ema100_vals.iloc[i] >= VIX_CASH_THRESHOLD:
-                # VIX >= 25 + SM unavailable → cash
+            elif ema100_vals.iloc[i] >= VIX_CASH_THRESHOLD and ema100_slope.iloc[i] > 0:
+                # VIX >= 20 + rising slope + SM unavailable → cash
                 test_scores.iloc[i] = cash_row
                 step_monitor_mask[i] = cash_monitor
                 step_regime[i] = 3
             else:
-                # VIX 19-25 + SM unavailable → heuristic fallback
+                # VIX falling or < 20 + SM unavailable → heuristic fallback
                 test_scores.iloc[i] = heur_row
                 step_monitor_mask[i] = heur_monitor
                 step_regime[i] = 1
@@ -1249,6 +1250,7 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
         step_regime = np.zeros(len(is_calm), dtype=int)
         ema100_vals = vix_ema100.reindex(model_scores.index, method="ffill") \
             if not vix_ema100.empty else pd.Series(0.0, index=model_scores.index)
+        ema100_slope = ema100_vals.diff().fillna(0.0)
         for i in range(len(is_calm)):
             if is_calm.iloc[i]:
                 if use_fl:
@@ -1261,7 +1263,7 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
                     step_regime[i] = 1
             elif gate_open:
                 step_regime[i] = 0
-            elif ema100_vals.iloc[i] >= VIX_CASH_THRESHOLD:
+            elif ema100_vals.iloc[i] >= VIX_CASH_THRESHOLD and ema100_slope.iloc[i] > 0:
                 test_scores.iloc[i] = cash_row
                 step_monitor_mask[i] = cash_monitor
                 step_regime[i] = 3
