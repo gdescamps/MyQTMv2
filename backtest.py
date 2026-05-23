@@ -33,8 +33,9 @@ USE_SOFTMAX = True  # True = softmax(score/T) × Sharpe, False = equal weight am
 SHARPE_POWER = 0.0  # Sharpe weight = sharpe^SHARPE_POWER (0=equal, 1=linear, 2=concentrated)
 
 TEMPERATURE = 1.0     # softmax concentration (fixed)
-TOP_N_ALLOC   = 3     # allocate to top 3
+TOP_N_ALLOC   = 3     # allocate to top 3 (model mode)
 TOP_N_MONITOR = 3     # monitor top 3 — rebalance only when allocated asset leaves top 3
+CALM_TOP_N    = 1     # calm/fallback mode: top 1 by rolling 2y Sharpe
 # --- Follow Leads IC gate (same mechanism as Smart Money gate) ---
 # Use causal EMA of past FL test_ic values (no leakage: EMA of steps < current).
 # FL model activates only when EMA > FL_IC_GATE_THRESHOLD AND step >= FL_IC_GATE_MIN_STEPS.
@@ -43,7 +44,6 @@ FL_IC_GATE_THRESHOLD = 0.015  # require EMA(past FL test_ic) > 0.015 to use FL m
 FL_IC_GATE_SPAN      = 24     # EMA span (same as SM gate, ~2y)
 FL_IC_GATE_MIN_STEPS = 84     # min steps before gate can open (same as SM gate)
 FL_SHARPE_POWER = 2           # within top-N: weight by expanding Sharpe^FL_SHARPE_POWER (0=FL scores)
-CALM_SHARPE_FLOOR = 0.15
 VIX_SPIKE_MIN = 6.0        # VIX 5-day change above this → cash-out
 VIX_SPIKE_CASH_DAYS = 5    # days to stay in cash after spike detection
 VIX_CALM_THRESHOLD = 19.0  # VIX EMA100 below this → calm market
@@ -891,9 +891,9 @@ def run_equity():
             model_scores.iloc[idx, drop] = np.nan
 
         # --- Build calm-mode picks (always computed; consumed on calm days) ---
-        # Rolling Sharpe (heuristic baseline) — always computed as fallback.
-        roll_mean = dr_hist.rolling(252, min_periods=200).mean().iloc[-1] * 252
-        roll_std  = dr_hist.rolling(252, min_periods=200).std().iloc[-1] * np.sqrt(252)
+        # Rolling 2y Sharpe (heuristic baseline) — always computed as fallback.
+        roll_mean = dr_hist.rolling(504, min_periods=400).mean().iloc[-1] * 252
+        roll_std  = dr_hist.rolling(504, min_periods=400).std().iloc[-1] * np.sqrt(252)
         roll_sharpe = (roll_mean / roll_std.replace(0, np.nan)).clip(0.0).fillna(0.0)
         heuristic_sharpe = roll_sharpe.reindex(model_scores.columns).fillna(0.0)
 
@@ -908,33 +908,20 @@ def run_equity():
                     and fl_gate_ema > FL_IC_GATE_THRESHOLD
                 )
 
-        # Expanding Sharpe for floor filter (raw, before power transform)
         exp_sharpe_for_floor = etf_sharpe_raw.reindex(model_scores.columns).fillna(0.0)
 
         if use_fl_model:
             # High confidence → top-N by FL model score.
             fl_mean = fl_step.groupby("etf_id")["score"].mean()
             fl_series = fl_mean.reindex(model_scores.columns).fillna(0.0)
-            # Filter out ETFs with expanding Sharpe < floor BEFORE ranking
-            for etf in fl_series.index:
-                if exp_sharpe_for_floor.get(etf, 0.0) < CALM_SHARPE_FLOOR:
-                    fl_series[etf] = -999.0
-            top_calm_etfs = [e for e in fl_series.nlargest(TOP_N_ALLOC).index
-                             if fl_series[e] > -999.0]
+            top_calm_etfs = fl_series.nlargest(CALM_TOP_N).index.tolist()
             # Weight within top-N by expanding Sharpe^FL_SHARPE_POWER.
             sharpe_series = (exp_sharpe_for_floor ** FL_SHARPE_POWER)
         else:
-            # Low confidence or no FL data → top-N by rolling 252d Sharpe.
+            # Low confidence or no FL data → top-N by rolling 2y Sharpe.
             sharpe_series = heuristic_sharpe.copy()
-            # Filter out ETFs with expanding Sharpe < floor
-            for etf in sharpe_series.index:
-                if exp_sharpe_for_floor.get(etf, 0.0) < CALM_SHARPE_FLOOR:
-                    sharpe_series[etf] = 0.0
-            top_calm_etfs = sharpe_series.nlargest(TOP_N_ALLOC).index.tolist()
+            top_calm_etfs = sharpe_series.nlargest(CALM_TOP_N).index.tolist()
             top_calm_etfs = [e for e in top_calm_etfs if sharpe_series[e] > 0]
-
-        # If fewer than TOP_N pass floor, remaining capital goes to those that passed
-        # (no cash holdback — full allocation across qualifying ETFs).
 
         top_calm_set = set(top_calm_etfs)
         sharpe_row = np.array([sharpe_series[c] if c in top_calm_set else np.nan
@@ -1241,8 +1228,8 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
             model_scores.iloc[idx, drop_idx] = np.nan
 
         # --- Build CALM picks (FL model if available, else heuristic Sharpe) ---
-        roll_mean = dr_hist.rolling(252, min_periods=200).mean().iloc[-1] * 252
-        roll_std  = dr_hist.rolling(252, min_periods=200).std().iloc[-1] * np.sqrt(252)
+        roll_mean = dr_hist.rolling(504, min_periods=400).mean().iloc[-1] * 252
+        roll_std  = dr_hist.rolling(504, min_periods=400).std().iloc[-1] * np.sqrt(252)
         roll_sharpe = (roll_mean / roll_std.replace(0, np.nan)).clip(0.0).fillna(0.0)
         sharpe_series = roll_sharpe.reindex(model_scores.columns).fillna(0.0)
         for etf in dropped_set:
@@ -1261,20 +1248,16 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
             if fl_step is not None and not fl_step.empty:
                 fl_mean = fl_step.groupby("etf_id")["score"].mean()
                 fl_series = fl_mean.reindex(model_scores.columns).fillna(0.0)
-                # Zero out dropped ETFs + Sharpe floor in FL scores
+                # Zero out dropped ETFs
                 for etf in fl_series.index:
-                    if etf in dropped_set or exp_sharpe_for_floor.get(etf, 0.0) < CALM_SHARPE_FLOOR:
+                    if etf in dropped_set:
                         fl_series[etf] = -999.0
-                top_calm_etfs = [e for e in fl_series.nlargest(TOP_N_ALLOC).index
+                top_calm_etfs = [e for e in fl_series.nlargest(CALM_TOP_N).index
                                  if fl_series[e] > -999.0]
                 use_fl = True
 
         if not use_fl:
-            # Apply floor to heuristic too
-            for etf in sharpe_series.index:
-                if exp_sharpe_for_floor.get(etf, 0.0) < CALM_SHARPE_FLOOR:
-                    sharpe_series[etf] = 0.0
-            top_calm_etfs = [e for e in sharpe_series.nlargest(TOP_N_ALLOC).index
+            top_calm_etfs = [e for e in sharpe_series.nlargest(CALM_TOP_N).index
                              if sharpe_series[e] > 0]
 
         top_calm_set = set(top_calm_etfs)
@@ -1307,10 +1290,7 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
             if not fl_gate_ok:
                 use_fl = False
                 # Fall back to heuristic for this step
-                for etf in sharpe_series.index:
-                    if exp_sharpe_for_floor.get(etf, 0.0) < CALM_SHARPE_FLOOR:
-                        sharpe_series[etf] = 0.0
-                top_calm_etfs = [e for e in sharpe_series.nlargest(TOP_N_ALLOC).index
+                top_calm_etfs = [e for e in sharpe_series.nlargest(CALM_TOP_N).index
                                  if sharpe_series[e] > 0]
                 top_calm_set = set(top_calm_etfs)
                 sharpe_row = np.array([sharpe_series[c] if c in top_calm_set else np.nan
