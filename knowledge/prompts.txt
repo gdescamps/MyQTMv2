@@ -1328,6 +1328,26 @@ Dans le graphique afficher ce tableau pour illustrer les modeles utilisé pour l
   ├──────────────────┼────────┼────────┼────────────────────────────┤
   │ Spike            │ -      │ -      │ Cash only                  │ ROUGE
   ├──────────────────┼────────┼────────┼────────────────────────────┤
-  │ ≥ 19 (turbulent) │ oui    │ —      │ SM model                   │ ORANGE
-  └──────────────────┴────────┴────────┴────────────────────────────┘
+
+--------------------------------------------
+
+Est-ce que tu peux expliquer sur la pente descendante du VIX lors de la crise de 2008, qu'est ce que le modèle alloue pour avoir une montée aussi forte ? C'est quoi c'est le marché chinois ?
+
+
+--------------------------------------------
+creer switch vers la branch robot
+
+--------------------------------------------
+
+Est-ce que tu peux t'inspirer du depot ./MyQTM
+pour ecrire l'equivalent ./MyQTM/src/robot.py
+en utilisant l'image docker de IB 
+
+pour executer la stratégie sans les 2 modeles dans un premier temps.
+essayer de mettre en commun un maximum de code entre backtest normal robustesse et robot
+ecrire ca dans ./robot.py 
+
+J'ai mis à jour les variables d'environement dans
+.env
+Le compte est paper trading, donc tu peux essayer de te connecter.
 
