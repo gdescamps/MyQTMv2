@@ -1397,5 +1397,19 @@ Du coup actuellement on télécharge 26 fichiers XLS. Au lieu de 27.
 
 --------------------------------------------
 
+Une fois qu'on a fait l'entraînement et qu'on a vérifié avant et après le retrait de l'ETF, on a les mêmes résultats en backtest.
+
+
+On va modifier le robot pour supporter les deux modèles comme dans le backtest.
+Et mettre en évidence dans les répertoires output le dernier modèle valide pour Follow Leads et Smart Money.
+Les modèles qui représentent le dernier entraînement du dernier bloc.
+Là où le robot doit trouver les modèles à utiliser pour faire l'inférence.
+Si les modèles sont activés.
+Il doit trouver aussi en évidence les résultats test IC pour savoir s'il active ou pas.
+Donc l'option --data doit télécharger les XLS de iShare.
+Donc l'option --trade doit trade Avec les deux modèles comme dans le backtest normal.
+Ajouter l'option --train elle doit détecter automatiquement qu'on est en fin de bloc et qui refait l'entraînement du modèle pour le bloc suivant.
+Avec toutes les données test IC Pour savoir si on utilise les modèles pour la prise de position.
+
 
 
