@@ -815,14 +815,23 @@ def run_equity():
             drop = np.setdiff1d(pos_idx, keep_alloc)
             model_scores.iloc[idx, drop] = np.nan
 
-        # --- Build calm-mode picks (always computed; consumed on calm days) ---
-        # Rolling 2y Sharpe (heuristic baseline) — always computed as fallback.
+        # --- Build heuristic picks (VIX < 19 or fallback) ---
         roll_mean = dr_hist.rolling(504, min_periods=400).mean().iloc[-1] * 252
         roll_std  = dr_hist.rolling(504, min_periods=400).std().iloc[-1] * np.sqrt(252)
         roll_sharpe = (roll_mean / roll_std.replace(0, np.nan)).clip(0.0).fillna(0.0)
         heuristic_sharpe = roll_sharpe.reindex(model_scores.columns).fillna(0.0)
+        heur_top = heuristic_sharpe.nlargest(CALM_TOP_N).index.tolist()
+        heur_top = [e for e in heur_top if heuristic_sharpe[e] > 0]
+        heur_set = set(heur_top)
+        heur_row = np.array([heuristic_sharpe[c] if c in heur_set else np.nan
+                             for c in model_scores.columns])
+        heur_monitor = np.array([c in heur_set for c in model_scores.columns])
 
+        # --- Build FL picks (VIX >= 19, SM unavailable, FL IC positive) ---
+        exp_sharpe_for_floor = etf_sharpe_raw.reindex(model_scores.columns).fillna(0.0)
         use_fl_model = False
+        fl_row = heur_row          # fallback if FL not available
+        fl_monitor = heur_monitor
         if CALM_ALLOCATOR == "follow_leads" and fl_test_by_step is not None:
             fl_step = fl_test_by_step.get(step)
             if fl_step is not None and not fl_step.empty:
@@ -832,68 +841,61 @@ def run_equity():
                     and pd.notna(fl_gate_ema)
                     and fl_gate_ema > FL_IC_GATE_THRESHOLD
                 )
-
-        exp_sharpe_for_floor = etf_sharpe_raw.reindex(model_scores.columns).fillna(0.0)
-
         if use_fl_model:
-            # High confidence → top-N by FL model score.
             fl_mean = fl_step.groupby("etf_id")["score"].mean()
             fl_series = fl_mean.reindex(model_scores.columns).fillna(0.0)
-            top_calm_etfs = fl_series.nlargest(TOP_N_ALLOC).index.tolist()
-            # Weight within top-N by expanding Sharpe^FL_SHARPE_POWER.
-            sharpe_series = (exp_sharpe_for_floor ** FL_SHARPE_POWER)
-        else:
-            # Low confidence or no FL data → top-N by rolling 2y Sharpe.
-            sharpe_series = heuristic_sharpe.copy()
-            top_calm_etfs = sharpe_series.nlargest(CALM_TOP_N).index.tolist()
-            top_calm_etfs = [e for e in top_calm_etfs if sharpe_series[e] > 0]
-
-        top_calm_set = set(top_calm_etfs)
-        sharpe_row = np.array([sharpe_series[c] if c in top_calm_set else np.nan
+            fl_top = fl_series.nlargest(TOP_N_ALLOC).index.tolist()
+            fl_sharpe = (exp_sharpe_for_floor ** FL_SHARPE_POWER)
+            fl_set = set(fl_top)
+            fl_row = np.array([fl_sharpe[c] if c in fl_set else np.nan
                                for c in model_scores.columns])
-        sharpe_monitor_row = np.array([c in top_calm_set for c in model_scores.columns])
+            fl_monitor = np.array([c in fl_set for c in model_scores.columns])
 
-        # --- Per-day calm mask: matches the chart, no step-boundary lag ---
-        calm_per_day = pd.Series(False, index=model_scores.index)
-        if not vix_ema100.empty and not vix_ema300.empty:
+        # --- Per-day VIX calm mask ---
+        is_calm = pd.Series(True, index=model_scores.index)
+        if not vix_ema100.empty:
             ema100_t = vix_ema100.reindex(model_scores.index, method="ffill")
-            ema300_t = vix_ema300.reindex(model_scores.index, method="ffill")
-            cond = (ema100_t < VIX_CALM_THRESHOLD)
-            if VIX_CALM_COND_EMA100_SUP_EMA300:
-                cond = cond & (ema100_t < ema300_t)
-            calm_per_day = cond.fillna(False)
+            is_calm = (ema100_t < VIX_CALM_THRESHOLD).fillna(True)
 
-        # --- IC gate: if the EMA12 of past test_ic is below threshold, force
-        #     the entire step into calm mode (no model trades) ---
+        # --- SM IC gate ---
         gate_ema = test_ic_ema_lagged.get(step, np.nan)
         gate_open = (step >= IC_GATE_MIN_STEPS) and pd.notna(gate_ema) \
             and gate_ema > IC_GATE_THRESHOLD
-        if not gate_open:
-            calm_per_day[:] = True
 
-        # Record dates where the model was actually deployed (gate open AND
-        # per-day calm condition false). Drives the equity chart's VIX
-        # colouring downstream.
-        if gate_open:
-            model_days_step = calm_per_day.index[~calm_per_day.values]
-            if len(model_days_step) > 0:
-                model_active_days.append(model_days_step)
-        if use_fl_model:
-            fl_days_step = calm_per_day.index[calm_per_day.values]
-            if len(fl_days_step) > 0:
-                fl_active_days.append(fl_days_step)
-
-        # --- Combine model + Sharpe per day + build regime array ---
-        # regime: 0=model(SM), 1=calm-heuristic, 2=calm-FL, 3=spike
+        # --- Per-day regime assignment ---
+        # VIX < 19         → heuristic top-1 (regime 1)
+        # VIX >= 19 + SM   → SM model        (regime 0)
+        # VIX >= 19 + FL   → Follow Leads    (regime 2)
+        # VIX >= 19 + none → heuristic       (regime 1)
         test_scores = model_scores.copy()
         step_monitor_mask = model_monitor_mask.copy()
-        calm_regime = 2 if use_fl_model else 1
-        step_regime = np.zeros(len(calm_per_day), dtype=int)
-        for i, calm in enumerate(calm_per_day.values):
-            if calm:
-                test_scores.iloc[i] = sharpe_row
-                step_monitor_mask[i] = sharpe_monitor_row
-                step_regime[i] = calm_regime
+        step_regime = np.zeros(len(is_calm), dtype=int)
+        for i in range(len(is_calm)):
+            if is_calm.iloc[i]:
+                # Calm market → always heuristic
+                test_scores.iloc[i] = heur_row
+                step_monitor_mask[i] = heur_monitor
+                step_regime[i] = 1
+            elif gate_open:
+                # Turbulent + SM available → model scores (already set)
+                step_regime[i] = 0
+            elif use_fl_model:
+                # Turbulent + FL available → FL
+                test_scores.iloc[i] = fl_row
+                step_monitor_mask[i] = fl_monitor
+                step_regime[i] = 2
+            else:
+                # Turbulent + nothing → heuristic fallback
+                test_scores.iloc[i] = heur_row
+                step_monitor_mask[i] = heur_monitor
+                step_regime[i] = 1
+
+        # Track active days for chart colouring
+        for i in range(len(step_regime)):
+            if step_regime[i] == 0:
+                model_active_days.append(pd.DatetimeIndex([model_scores.index[i]]))
+            elif step_regime[i] == 2:
+                fl_active_days.append(pd.DatetimeIndex([model_scores.index[i]]))
 
         # VIX spike — close-only detection.
         cash_dates = set()
@@ -950,9 +952,9 @@ def run_equity():
         gate_str = (f"gate={'MODEL' if gate_open else 'CALM '} "
                     f"(ema={gate_ema:+.3f})" if pd.notna(gate_ema)
                     else f"gate=CALM  (ema=  n/a)")
-        calm_src = "FL" if use_fl_model else "heur"
+        turb_src = "FL" if use_fl_model else "heur"
         print(f"       cumul: {tmp_eq.iloc[-1]-1:+.1%}  sharpe={tmp_sharpe:.2f}  dd={tmp_dd:.1%}  "
-              f"{gate_str}  calm={calm_src}", flush=True)
+              f"{gate_str}  turb_fb={turb_src}", flush=True)
 
     if not all_test_returns:
         sys.exit("No test returns produced — check OOS predictions")
@@ -1137,22 +1139,30 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
             drop_idx = np.setdiff1d(pos_idx, keep_alloc)
             model_scores.iloc[idx, drop_idx] = np.nan
 
-        # --- Build CALM picks (FL model if available, else heuristic Sharpe) ---
+        # --- Build heuristic picks (VIX < 19 or fallback) ---
         roll_mean = dr_hist.rolling(504, min_periods=400).mean().iloc[-1] * 252
         roll_std  = dr_hist.rolling(504, min_periods=400).std().iloc[-1] * np.sqrt(252)
         roll_sharpe = (roll_mean / roll_std.replace(0, np.nan)).clip(0.0).fillna(0.0)
-        sharpe_series = roll_sharpe.reindex(model_scores.columns).fillna(0.0)
+        heuristic_sharpe = roll_sharpe.reindex(model_scores.columns).fillna(0.0)
         for etf in dropped_set:
-            if etf in sharpe_series.index:
-                sharpe_series[etf] = 0.0
+            if etf in heuristic_sharpe.index:
+                heuristic_sharpe[etf] = 0.0
+        heur_top = [e for e in heuristic_sharpe.nlargest(CALM_TOP_N).index
+                     if heuristic_sharpe[e] > 0]
+        heur_set = set(heur_top)
+        heur_row = np.array([heuristic_sharpe[c] if c in heur_set else np.nan
+                             for c in model_scores.columns])
+        heur_monitor = np.array([c in heur_set for c in model_scores.columns])
 
-        # Expanding Sharpe for floor filter
+        # --- Build FL picks (VIX >= 19, SM unavailable, FL IC positive) ---
         exp_mean_r = dr_hist.expanding(min_periods=60).mean().iloc[-1] * 252
         exp_std_r = dr_hist.expanding(min_periods=60).std().iloc[-1] * np.sqrt(252)
         exp_sharpe_for_floor = (exp_mean_r / exp_std_r.replace(0, np.nan)).clip(0.0).fillna(0.0)
         exp_sharpe_for_floor = exp_sharpe_for_floor.reindex(model_scores.columns).fillna(0.0)
 
         use_fl = False
+        fl_row = heur_row
+        fl_monitor = heur_monitor
         if CALM_ALLOCATOR == "follow_leads" and fl_test_by_step is not None:
             fl_step = fl_test_by_step.get(step)
             if fl_step is not None and not fl_step.empty:
@@ -1162,55 +1172,50 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
                     and pd.notna(fl_gate_ema)
                     and fl_gate_ema > FL_IC_GATE_THRESHOLD
                 )
-
         if use_fl:
             fl_mean = fl_step.groupby("etf_id")["score"].mean()
             fl_series = fl_mean.reindex(model_scores.columns).fillna(0.0)
-            # Zero out dropped ETFs
             for etf in fl_series.index:
                 if etf in dropped_set:
                     fl_series[etf] = -999.0
-            top_calm_etfs = [e for e in fl_series.nlargest(TOP_N_ALLOC).index
-                             if fl_series[e] > -999.0]
-            # Weight within top-N by expanding Sharpe^FL_SHARPE_POWER (matches run_equity)
-            sharpe_series = (exp_sharpe_for_floor ** FL_SHARPE_POWER)
-        else:
-            top_calm_etfs = [e for e in sharpe_series.nlargest(CALM_TOP_N).index
-                             if sharpe_series[e] > 0]
-
-        top_calm_set = set(top_calm_etfs)
-        sharpe_row = np.array([sharpe_series[c] if c in top_calm_set else np.nan
+            fl_top = [e for e in fl_series.nlargest(TOP_N_ALLOC).index
+                       if fl_series[e] > -999.0]
+            fl_sharpe = (exp_sharpe_for_floor ** FL_SHARPE_POWER)
+            fl_set = set(fl_top)
+            fl_row = np.array([fl_sharpe[c] if c in fl_set else np.nan
                                for c in model_scores.columns])
-        sharpe_monitor_row = np.array([c in top_calm_set for c in model_scores.columns])
+            fl_monitor = np.array([c in fl_set for c in model_scores.columns])
 
-        # --- Per-day calm mask (matches main backtest) ---
-        calm_per_day = pd.Series(False, index=model_scores.index)
-        if not vix_ema100.empty and not vix_ema300.empty:
+        # --- Per-day VIX calm mask ---
+        is_calm = pd.Series(True, index=model_scores.index)
+        if not vix_ema100.empty:
             ema100_t = vix_ema100.reindex(model_scores.index, method="ffill")
-            ema300_t = vix_ema300.reindex(model_scores.index, method="ffill")
-            cond = (ema100_t < VIX_CALM_THRESHOLD)
-            if VIX_CALM_COND_EMA100_SUP_EMA300:
-                cond = cond & (ema100_t < ema300_t)
-            calm_per_day = cond.fillna(False)
+            is_calm = (ema100_t < VIX_CALM_THRESHOLD).fillna(True)
 
-        # --- IC gate: force calm if SM model not yet reliable ---
+        # --- SM IC gate ---
         gate_ema = test_ic_ema_lagged.get(step, np.nan) if not test_ic_ema_lagged.empty else np.nan
         gate_open = (step >= IC_GATE_MIN_STEPS) and pd.notna(gate_ema) \
             and gate_ema > IC_GATE_THRESHOLD
-        if not gate_open:
-            calm_per_day[:] = True
 
-        # --- Combine per day + build regime array ---
-        # regime: 0=model(SM), 1=calm-heuristic, 2=calm-FL, 3=spike
+        # --- Per-day regime assignment (matches run_equity) ---
         test_scores = model_scores.copy()
         step_monitor_mask = model_monitor_mask.copy()
-        calm_regime = 2 if use_fl else 1
-        step_regime = np.zeros(len(calm_per_day), dtype=int)
-        for i, calm in enumerate(calm_per_day.values):
-            if calm:
-                test_scores.iloc[i] = sharpe_row
-                step_monitor_mask[i] = sharpe_monitor_row
-                step_regime[i] = calm_regime
+        step_regime = np.zeros(len(is_calm), dtype=int)
+        for i in range(len(is_calm)):
+            if is_calm.iloc[i]:
+                test_scores.iloc[i] = heur_row
+                step_monitor_mask[i] = heur_monitor
+                step_regime[i] = 1
+            elif gate_open:
+                step_regime[i] = 0
+            elif use_fl:
+                test_scores.iloc[i] = fl_row
+                step_monitor_mask[i] = fl_monitor
+                step_regime[i] = 2
+            else:
+                test_scores.iloc[i] = heur_row
+                step_monitor_mask[i] = heur_monitor
+                step_regime[i] = 1
 
         # VIX spike → cash-out (same logic as main backtest)
         cash_dates = set()
