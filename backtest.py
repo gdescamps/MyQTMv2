@@ -47,6 +47,7 @@ FL_SHARPE_POWER = 2           # within top-N: weight by expanding Sharpe^FL_SHAR
 VIX_SPIKE_MIN = 6.0        # VIX 5-day change above this → cash-out
 VIX_SPIKE_CASH_DAYS = 5    # days to stay in cash after spike detection
 VIX_CALM_THRESHOLD = 19.0  # VIX EMA100 below this → calm market
+VIX_CASH_THRESHOLD = 20.0  # VIX EMA100 above this + no SM → cash
 VIX_CALM_COND_EMA100_SUP_EMA300 = False  # if True, also require EMA100 < EMA300
 
 # --- Test-IC gate ------------------------------------------------------------
@@ -815,7 +816,7 @@ def run_equity():
             drop = np.setdiff1d(pos_idx, keep_alloc)
             model_scores.iloc[idx, drop] = np.nan
 
-        # --- Build heuristic picks (VIX < 19 or fallback) ---
+        # --- Build heuristic picks (VIX < 19 + FL unavailable) ---
         roll_mean = dr_hist.rolling(504, min_periods=400).mean().iloc[-1] * 252
         roll_std  = dr_hist.rolling(504, min_periods=400).std().iloc[-1] * np.sqrt(252)
         roll_sharpe = (roll_mean / roll_std.replace(0, np.nan)).clip(0.0).fillna(0.0)
@@ -827,10 +828,10 @@ def run_equity():
                              for c in model_scores.columns])
         heur_monitor = np.array([c in heur_set for c in model_scores.columns])
 
-        # --- Build FL picks (VIX >= 19, SM unavailable, FL IC positive) ---
+        # --- Build FL picks (VIX < 19 + FL IC positive) ---
         exp_sharpe_for_floor = etf_sharpe_raw.reindex(model_scores.columns).fillna(0.0)
         use_fl_model = False
-        fl_row = heur_row          # fallback if FL not available
+        fl_row = heur_row
         fl_monitor = heur_monitor
         if CALM_ALLOCATOR == "follow_leads" and fl_test_by_step is not None:
             fl_step = fl_test_by_step.get(step)
@@ -851,6 +852,10 @@ def run_equity():
                                for c in model_scores.columns])
             fl_monitor = np.array([c in fl_set for c in model_scores.columns])
 
+        # Cash row: all NaN → 0% invested (VIX >= 19 + no SM)
+        cash_row = np.full(len(model_scores.columns), np.nan)
+        cash_monitor = np.zeros(len(model_scores.columns), dtype=bool)
+
         # --- Per-day VIX calm mask ---
         is_calm = pd.Series(True, index=model_scores.index)
         if not vix_ema100.empty:
@@ -863,29 +868,37 @@ def run_equity():
             and gate_ema > IC_GATE_THRESHOLD
 
         # --- Per-day regime assignment ---
-        # VIX < 19         → heuristic top-1 (regime 1)
-        # VIX >= 19 + SM   → SM model        (regime 0)
-        # VIX >= 19 + FL   → Follow Leads    (regime 2)
-        # VIX >= 19 + none → heuristic       (regime 1)
+        # VIX < 19 + FL non    → heuristic top-1 (regime 1)
+        # VIX < 19 + FL oui    → Follow Leads    (regime 2)
+        # VIX 19-25 + SM oui   → SM model        (regime 0)
+        # VIX 19-25 + SM non   → heuristic       (regime 1)
+        # VIX >= 25 + SM oui   → SM model        (regime 0)
+        # VIX >= 25 + SM non   → cash            (regime 3)
         test_scores = model_scores.copy()
         step_monitor_mask = model_monitor_mask.copy()
         step_regime = np.zeros(len(is_calm), dtype=int)
+        ema100_vals = vix_ema100.reindex(model_scores.index, method="ffill") \
+            if not vix_ema100.empty else pd.Series(0.0, index=model_scores.index)
         for i in range(len(is_calm)):
             if is_calm.iloc[i]:
-                # Calm market → always heuristic
-                test_scores.iloc[i] = heur_row
-                step_monitor_mask[i] = heur_monitor
-                step_regime[i] = 1
+                if use_fl_model:
+                    test_scores.iloc[i] = fl_row
+                    step_monitor_mask[i] = fl_monitor
+                    step_regime[i] = 2
+                else:
+                    test_scores.iloc[i] = heur_row
+                    step_monitor_mask[i] = heur_monitor
+                    step_regime[i] = 1
             elif gate_open:
-                # Turbulent + SM available → model scores (already set)
+                # VIX >= 19 + SM available → SM model
                 step_regime[i] = 0
-            elif use_fl_model:
-                # Turbulent + FL available → FL
-                test_scores.iloc[i] = fl_row
-                step_monitor_mask[i] = fl_monitor
-                step_regime[i] = 2
+            elif ema100_vals.iloc[i] >= VIX_CASH_THRESHOLD:
+                # VIX >= 25 + SM unavailable → cash
+                test_scores.iloc[i] = cash_row
+                step_monitor_mask[i] = cash_monitor
+                step_regime[i] = 3
             else:
-                # Turbulent + nothing → heuristic fallback
+                # VIX 19-25 + SM unavailable → heuristic fallback
                 test_scores.iloc[i] = heur_row
                 step_monitor_mask[i] = heur_monitor
                 step_regime[i] = 1
@@ -912,9 +925,12 @@ def run_equity():
                     if 0 <= cash_pos < len(test_scores):
                         cash_dates.add(test_scores.index[cash_pos])
             for cd in cash_dates:
+                cd_pos = test_scores.index.get_loc(cd)
+                if step_regime[cd_pos] == 0:
+                    continue  # SM model active → no spike override
                 test_scores.loc[cd] = np.nan
-                step_monitor_mask[test_scores.index.get_loc(cd)] = False
-                step_regime[test_scores.index.get_loc(cd)] = 3
+                step_monitor_mask[cd_pos] = False
+                step_regime[cd_pos] = 3
 
         test_dr = daily_ret_panel.reindex(index=test_scores.index, columns=test_scores.columns).fillna(0)
         test_returns, test_weights, step_fees, step_rebals, _, carry_regime = run_backtest(
@@ -1139,7 +1155,7 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
             drop_idx = np.setdiff1d(pos_idx, keep_alloc)
             model_scores.iloc[idx, drop_idx] = np.nan
 
-        # --- Build heuristic picks (VIX < 19 or fallback) ---
+        # --- Build heuristic picks (VIX < 19 + FL unavailable) ---
         roll_mean = dr_hist.rolling(504, min_periods=400).mean().iloc[-1] * 252
         roll_std  = dr_hist.rolling(504, min_periods=400).std().iloc[-1] * np.sqrt(252)
         roll_sharpe = (roll_mean / roll_std.replace(0, np.nan)).clip(0.0).fillna(0.0)
@@ -1154,7 +1170,7 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
                              for c in model_scores.columns])
         heur_monitor = np.array([c in heur_set for c in model_scores.columns])
 
-        # --- Build FL picks (VIX >= 19, SM unavailable, FL IC positive) ---
+        # --- Build FL picks (VIX < 19 + FL IC positive) ---
         exp_mean_r = dr_hist.expanding(min_periods=60).mean().iloc[-1] * 252
         exp_std_r = dr_hist.expanding(min_periods=60).std().iloc[-1] * np.sqrt(252)
         exp_sharpe_for_floor = (exp_mean_r / exp_std_r.replace(0, np.nan)).clip(0.0).fillna(0.0)
@@ -1186,6 +1202,10 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
                                for c in model_scores.columns])
             fl_monitor = np.array([c in fl_set for c in model_scores.columns])
 
+        # Cash row: all NaN → 0% invested (VIX >= 19 + no SM)
+        cash_row = np.full(len(model_scores.columns), np.nan)
+        cash_monitor = np.zeros(len(model_scores.columns), dtype=bool)
+
         # --- Per-day VIX calm mask ---
         is_calm = pd.Series(True, index=model_scores.index)
         if not vix_ema100.empty:
@@ -1201,17 +1221,24 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
         test_scores = model_scores.copy()
         step_monitor_mask = model_monitor_mask.copy()
         step_regime = np.zeros(len(is_calm), dtype=int)
+        ema100_vals = vix_ema100.reindex(model_scores.index, method="ffill") \
+            if not vix_ema100.empty else pd.Series(0.0, index=model_scores.index)
         for i in range(len(is_calm)):
             if is_calm.iloc[i]:
-                test_scores.iloc[i] = heur_row
-                step_monitor_mask[i] = heur_monitor
-                step_regime[i] = 1
+                if use_fl:
+                    test_scores.iloc[i] = fl_row
+                    step_monitor_mask[i] = fl_monitor
+                    step_regime[i] = 2
+                else:
+                    test_scores.iloc[i] = heur_row
+                    step_monitor_mask[i] = heur_monitor
+                    step_regime[i] = 1
             elif gate_open:
                 step_regime[i] = 0
-            elif use_fl:
-                test_scores.iloc[i] = fl_row
-                step_monitor_mask[i] = fl_monitor
-                step_regime[i] = 2
+            elif ema100_vals.iloc[i] >= VIX_CASH_THRESHOLD:
+                test_scores.iloc[i] = cash_row
+                step_monitor_mask[i] = cash_monitor
+                step_regime[i] = 3
             else:
                 test_scores.iloc[i] = heur_row
                 step_monitor_mask[i] = heur_monitor
@@ -1232,9 +1259,12 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
                     if 0 <= cash_pos < len(test_scores):
                         cash_dates.add(test_scores.index[cash_pos])
             for cd in cash_dates:
+                cd_pos = test_scores.index.get_loc(cd)
+                if step_regime[cd_pos] == 0:
+                    continue  # SM model active → no spike override
                 test_scores.loc[cd] = np.nan
-                step_monitor_mask[test_scores.index.get_loc(cd)] = False
-                step_regime[test_scores.index.get_loc(cd)] = 3
+                step_monitor_mask[cd_pos] = False
+                step_regime[cd_pos] = 3
 
         test_dr = daily_ret_panel.reindex(index=test_scores.index, columns=test_scores.columns).fillna(0)
         result = run_backtest(test_scores, test_dr,
