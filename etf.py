@@ -157,7 +157,7 @@ UNIVERSE: list[ETF] = [
     ETF("ISF.L",   "FTSE 100",           "geo", "uk",      pea=False, zero_fees=False, proxy="ISF.L",   is_proxy=False, perf_1y=None, perf_5y=None),
     ETF("IEUR",    "Core Europe",        "geo", "europe",  pea=False, zero_fees=False, proxy="IEUR",    is_proxy=False, perf_1y=None, perf_5y=None),
     ETF("EZU",     "Eurozone",           "geo", "emu",     pea=False, zero_fees=False, proxy="EZU",     is_proxy=False, perf_1y=None, perf_5y=None),
-    ETF("EPP",     "Pacific ex-Japan",   "geo", "pacific", pea=False, zero_fees=False, proxy="EPP",     is_proxy=False, perf_1y=None, perf_5y=None),
+    # EPP (Pacific ex-Japan) removed — no UCITS EUR equivalent on IB
     ETF("SUSA",    "USA SRI",            "geo", "usa_sri", pea=False, zero_fees=False, proxy="SUSA",    is_proxy=False, perf_1y=None, perf_5y=None),
     # --- Thematic ---
     ETF("SOXX",    "Semiconductors",       "thematic", "semi",      pea=False, zero_fees=False, proxy="SOXX",    is_proxy=False, perf_1y=None, perf_5y=None),
