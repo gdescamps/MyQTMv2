@@ -87,6 +87,51 @@ CORR_BLOCKS = {
 }
 
 
+HEURISTIC_START = pd.Timestamp("2006-01-01")
+
+
+def _prepend_heuristic_steps(oos: pd.DataFrame, daily_ret_panel: pd.DataFrame) -> pd.DataFrame:
+    """Prepend synthetic walk-forward steps from HEURISTIC_START to the first
+    OOS test date.  Dummy scores (0.0) keep the IC gate closed → pure calm
+    mode (heuristic top-N + VIX spike).  ETFs without price data get rolling
+    Sharpe = 0 and are filtered out by the 'sharpe > 0' guard."""
+    from etf import UNIVERSE as _U
+    first_oos_test = (oos.reset_index()
+                      .query("split == 'test'")["date"].min())
+    if HEURISTIC_START >= first_oos_test:
+        return oos
+
+    all_bourso = [e.bourso for e in _U]
+    trading_days = daily_ret_panel.dropna(how="all").index.sort_values()
+    heur_days = trading_days[(trading_days >= HEURISTIC_START) &
+                             (trading_days < first_oos_test)]
+    _STEP = 21
+    n_steps = (len(heur_days) - _STEP) // _STEP
+    syn_rows = []
+    for k in range(n_steps):
+        step_num = -(n_steps - k)
+        val_sl  = slice(k * _STEP, (k + 1) * _STEP)
+        test_sl = slice((k + 1) * _STEP, (k + 2) * _STEP)
+        for split, sl in [("val", val_sl), ("test", test_sl)]:
+            for d in heur_days[sl]:
+                for etf in all_bourso:
+                    syn_rows.append((d, etf, step_num, split))
+    if not syn_rows:
+        return oos
+
+    syn_df = pd.DataFrame(syn_rows, columns=["date", "etf_id", "step", "split"])
+    syn_df["score"] = 0.0
+    syn_df["label"] = 0.0
+    syn_df["date"] = pd.to_datetime(syn_df["date"])
+    syn_df = syn_df.set_index(["date", "etf_id"])
+    for col in oos.columns:
+        if col not in syn_df.columns:
+            syn_df[col] = np.nan
+    print(f"Prepended {n_steps} heuristic-only steps "
+          f"({HEURISTIC_START.date()} → {first_oos_test.date()})")
+    return pd.concat([syn_df[oos.columns], oos])
+
+
 def _topn_keep(row: np.ndarray, n: int, block_ids: list) -> np.ndarray:
     """Indices of the top-n positive scores, at most one ETF per correlated
     block. Falls back to pure score order if fewer than n distinct blocks
@@ -642,48 +687,10 @@ def run_equity():
     daily_ret_panel = pd.DataFrame(daily_returns_all)
     print(f"Loaded daily returns for {len(daily_returns_all)} ETFs")
 
-    # --- Prepend heuristic-only steps (2006 → first OOS test) --------
-    # Synthetic walk-forward steps covering the period before ML
-    # predictions exist.  Dummy scores (0.0) ensure the IC gate keeps
-    # these in calm mode (heuristic top-N + VIX spike protection).
-    # ETFs activate naturally: those without price data get rolling
-    # Sharpe = 0 and are filtered out by the "sharpe > 0" guard.
-    HEURISTIC_START = pd.Timestamp("2006-01-01")
-    first_oos_test = (oos.reset_index()
-                      .query("split == 'test'")["date"].min())
-
-    if HEURISTIC_START < first_oos_test:
-        _all_bourso = [e.bourso for e in UNIVERSE]
-        _trading_days = daily_ret_panel.dropna(how="all").index.sort_values()
-        _heur_days = _trading_days[(_trading_days >= HEURISTIC_START) &
-                                   (_trading_days < first_oos_test)]
-        _STEP = 21
-        _n_steps = (len(_heur_days) - _STEP) // _STEP  # first _STEP days = val of step 0
-        _syn_rows = []
-        for k in range(_n_steps):
-            _step_num = -((_n_steps) - k)          # -N … -1
-            _val_sl  = slice(k * _STEP, (k + 1) * _STEP)
-            _test_sl = slice((k + 1) * _STEP, (k + 2) * _STEP)
-            for _split, _sl in [("val", _val_sl), ("test", _test_sl)]:
-                for _d in _heur_days[_sl]:
-                    for _etf in _all_bourso:
-                        _syn_rows.append((_d, _etf, _step_num, _split))
-        if _syn_rows:
-            _syn_df = pd.DataFrame(_syn_rows,
-                                   columns=["date", "etf_id", "step", "split"])
-            _syn_df["score"] = 0.0
-            _syn_df["label"] = 0.0
-            _syn_df["date"] = pd.to_datetime(_syn_df["date"])
-            _syn_df = _syn_df.set_index(["date", "etf_id"])
-            for _col in oos.columns:
-                if _col not in _syn_df.columns:
-                    _syn_df[_col] = np.nan
-            oos = pd.concat([_syn_df[oos.columns], oos])
-            print(f"Prepended {_n_steps} heuristic-only steps "
-                  f"({HEURISTIC_START.date()} → {first_oos_test.date()})")
+    oos = _prepend_heuristic_steps(oos, daily_ret_panel)
 
     # Filter steps: only keep test periods starting from START_YEAR
-    START_YEAR = 2006
+    START_YEAR = HEURISTIC_START.year
     all_steps = sorted(oos["step"].unique())
     steps = []
     for s in all_steps:
@@ -1286,8 +1293,10 @@ def run_robustness():
             daily_returns_all[etf.bourso] = dr
     daily_ret_panel = pd.DataFrame(daily_returns_all)
 
+    oos = _prepend_heuristic_steps(oos, daily_ret_panel)
+
     # Get steps
-    START_YEAR = 2008
+    START_YEAR = HEURISTIC_START.year
     all_steps = sorted(oos["step"].unique())
     steps = []
     for s in all_steps:
