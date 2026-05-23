@@ -1361,7 +1361,7 @@ Pour le backtest, les proxy US servent uniquement à récupérer plus de smart d
 Je souhaite trader en euros, garder mes fonds euros. Et donc trader les versions européennes des ETF UCITS
 
 Est-ce que tu peux organiser la liste d'ETF européens uniquement ? Vérifier qu'ils sont disponibles sur Interactive Broker.
-Est-ce qu'on est sûr que tous ces ETF européens sont de la marque iShare
+ Est-ce qu'on est sûr que tous ces ETF européens sont de la marque iShare
 
 --------------------------------------------
 
@@ -1385,7 +1385,13 @@ Cette mise à jour.
 
 --------------------------------------------
 
-est ce que robot.py --data Récupère toutes les données nécessaires ou sans stocker les données.
+
+
+--------------------------------------------
+
+
+est ce que robot.py --data 
+
 
 est ce que robot.py --trade Passes les positions Sur IB 
 
