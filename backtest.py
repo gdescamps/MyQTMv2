@@ -389,7 +389,8 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
                      fin: dict | None = None,
                      fname: str = "backtest_equity.jpg",
                      model_active_dates: pd.DatetimeIndex | None = None,
-                     fl_active_dates: pd.DatetimeIndex | None = None) -> None:
+                     fl_active_dates: pd.DatetimeIndex | None = None,
+                     cash_dates: pd.DatetimeIndex | None = None) -> None:
     """Save chart: equity + allocation."""
     # Compound annual growth rate (CAGR) — same definition as the summary box
     ann_ret = eq_curve.iloc[-1] ** (252.0 / max(len(port_returns), 1)) - 1
@@ -536,9 +537,10 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
             _model_mask = ~_calm_cond.reindex(vix_raw.index).fillna(False)
 
         # Color per date:
-        #   green  = heuristic top-3 Sharpe (pre-gate-open OR low FL confidence)
+        #   green  = heuristic top-1 Sharpe (VIX < 19, no FL)
         #   red    = Smart Money model deployed (VIX >= 19 + gate open)
-        #   orange = Follow Leads model (VIX < 19 + high FL confidence)
+        #   orange = Follow Leads model (VIX < 19 + FL IC positive)
+        #   white  = cash (VIX >= cash threshold + SM unavailable)
         #   grey   = VIX spike cash-out
         _colors = pd.Series("#2ca02c", index=vix_raw.index)    # default: green (heuristic)
         _colors[_model_mask.values] = "#d62728"                # red (Smart Money)
@@ -547,6 +549,11 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
             _fl_intersect = vix_raw.index.intersection(fl_active_dates)
             _fl_mask.loc[_fl_intersect] = True
             _colors[_fl_mask.values] = "#ff7f0e"               # orange (Follow Leads)
+        if cash_dates is not None and len(cash_dates) > 0:
+            _cash_mask = pd.Series(False, index=vix_raw.index)
+            _cash_intersect = vix_raw.index.intersection(cash_dates)
+            _cash_mask.loc[_cash_intersect] = True
+            _colors[_cash_mask.values] = "#ffffff"              # white (cash)
         _colors[_spike_mask.values] = "#6e6e6e"                # grey (spike)
 
         # Draw VIX line colored by regime (segment by segment)
@@ -556,10 +563,13 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
             if _colors.iloc[_i] != prev_c or _i == len(vix_raw) - 1:
                 end = _i + 1 if _i == len(vix_raw) - 1 else _i + 1
                 seg = slice(seg_start, end)
+                _is_cash = (prev_c == "#ffffff")
                 ax1b.fill_between(vix_raw.index[seg], vix_raw.values[seg],
-                                  alpha=0.15, color=prev_c, linewidth=0)
+                                  alpha=0.0 if _is_cash else 0.15,
+                                  color=prev_c, linewidth=0)
                 ax1b.plot(vix_raw.index[seg], vix_raw.values[seg],
-                          color=prev_c, alpha=0.6, linewidth=0.8)
+                          color=prev_c, alpha=0.3 if _is_cash else 0.6,
+                          linewidth=0.8)
                 seg_start = _i
                 prev_c = _colors.iloc[_i]
 
@@ -761,6 +771,7 @@ def run_equity():
     all_test_scores  = []   # scores_A per test step
     model_active_days = []  # list of DatetimeIndex segments where SM model deployed
     fl_active_days    = []  # list of DatetimeIndex segments where Follow Leads deployed
+    cash_days         = []  # VIX >= cash threshold + SM unavailable → cash
     carry_weights    = None   # chain positions between steps
     carry_regime     = None   # last regime of previous step
     step_fee_records = []     # (date_index, fee) per step — fees scaled later
@@ -903,12 +914,14 @@ def run_equity():
                 step_monitor_mask[i] = heur_monitor
                 step_regime[i] = 1
 
-        # Track active days for chart colouring
+        # Track active days for chart colouring (before spike override)
         for i in range(len(step_regime)):
             if step_regime[i] == 0:
                 model_active_days.append(pd.DatetimeIndex([model_scores.index[i]]))
             elif step_regime[i] == 2:
                 fl_active_days.append(pd.DatetimeIndex([model_scores.index[i]]))
+            elif step_regime[i] == 3:
+                cash_days.append(pd.DatetimeIndex([model_scores.index[i]]))
 
         # VIX spike — close-only detection.
         cash_dates = set()
@@ -1031,10 +1044,16 @@ def run_equity():
     )
     full_model_dates = pd.DatetimeIndex(full_model_idx)
     full_fl_dates = pd.DatetimeIndex(full_fl_idx)
+    full_cash_idx = (
+        pd.concat([pd.Series(idx) for idx in cash_days]).values
+        if cash_days else np.array([], dtype="datetime64[ns]")
+    )
+    full_cash_dates = pd.DatetimeIndex(full_cash_idx)
     _save_equity_png(port_returns, eq_curve, all_weights, OUTPUTS,
                      fin=fin,
                      model_active_dates=full_model_dates,
-                     fl_active_dates=full_fl_dates)
+                     fl_active_dates=full_fl_dates,
+                     cash_dates=full_cash_dates)
 
     print(f"\nSaved → {DATA.relative_to(Path(__file__).parent)}/backtest_results.parquet")
     print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/best_params.csv")
