@@ -64,7 +64,9 @@ IB_CONTRACT_MAP = {}
 for _etf in UNIVERSE:
     _t = _etf.bourso
     if _t == "ISF.L":
-        IB_CONTRACT_MAP[_t] = ("ISF", "LSE", "GBP")
+        IB_CONTRACT_MAP[_t] = ("ISF", "LSEETF", "GBP")
+    elif _t == "SXRS.DE":
+        IB_CONTRACT_MAP[_t] = ("SXRS", "SMART", "EUR")
     elif _t.endswith(".DE"):
         IB_CONTRACT_MAP[_t] = (_t.replace(".DE", ""), "IBIS", "EUR")
     elif _t.endswith(".AS"):

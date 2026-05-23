@@ -338,7 +338,14 @@ def run_backtest(
     SPREAD_COST = 0.0001
     REBAL_MIN_CHANGE = 0.03
 
-    def _broker_fee(order_amount):
+    # Per-ETF IB fee model from TRADING_MAP
+    from etf import TRADING_MAP, ib_commission as _ib_commission
+    _fee_models = [TRADING_MAP.get(etf, (None, None, None, None, "ams"))[4]
+                   for etf in etf_list]
+
+    def _broker_fee(order_amount, etf_idx=None):
+        if etf_idx is not None:
+            return _ib_commission(order_amount, _fee_models[etf_idx])
         return max(order_amount * 0.0005, 3.0)
 
     total_fees = 0.0
@@ -390,7 +397,7 @@ def run_backtest(
                 for j in range(n_etfs):
                     abs_diff = abs(target_pos[j] - positions[j])
                     if abs_diff > 0:
-                        trade_fees += _broker_fee(abs_diff) + abs_diff * SPREAD_COST
+                        trade_fees += _broker_fee(abs_diff, etf_idx=j) + abs_diff * SPREAD_COST
                 total_fees += trade_fees
                 positions = target_pos.copy()
                 cash = total_val - positions.sum() - trade_fees

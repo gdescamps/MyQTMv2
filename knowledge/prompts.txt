@@ -1351,3 +1351,43 @@ J'ai mis à jour les variables d'environement dans
 .env
 Le compte est paper trading, donc tu peux essayer de te connecter.
 
+
+--------------------------------------------
+
+En fait mon compte réel va être en euros.
+Là le compte paper est en USD mais je vais le convertir en euros.
+
+Pour le backtest, les proxy US servent uniquement à récupérer plus de smart data disponibles historiquement.
+Je souhaite trader en euros, garder mes fonds euros. Et donc trader les versions européennes des ETF UCITS
+
+Est-ce que tu peux organiser la liste d'ETF européens uniquement ? Vérifier qu'ils sont disponibles sur Interactive Broker.
+Est-ce qu'on est sûr que tous ces ETF européens sont de la marque iShare
+
+--------------------------------------------
+
+Supprime-le de la liste.
+commit
+dvc outputs; commit ; ush
+mettre a jour et deplacer knowledge/etf_univers.md
+Dans readme.md 
+Présenter une liste d'ETF US proxy permettant de récolter la donnée et de faire le backtest.
+Je vais vous présenter la liste d'ETF européens qu'on va réellement trader disponible sur Interactive Broker.
+Documenter les changements de marque dire qu'il n'y a pas de différence en terme de prix de comportement on traque le même indice.
+Pour la liste des 26 européens, récupérez les frais IB
+dans 
+./etf.py
+Tenir la liste des 26 proxy pour le backtest.
+Tenir la liste des 26 ETF qu'on va trader. 
+Renseignez les frais IB si on les trouve.
+Modifier le backtest pour utiliser les frais Interactive Broker les plus précis possibles.
+Pour le même backtest, proposer le résultat qu'on avait comptabilisé pour les frais Interactive Broker avant et après.
+Cette mise à jour.
+
+--------------------------------------------
+
+est ce que robot.py --data Récupère toutes les données nécessaires ou sans stocker les données.
+
+est ce que robot.py --trade Passes les positions Sur IB 
+
+
+

@@ -172,6 +172,77 @@ UNIVERSE: list[ETF] = [
 
 
 
+# ---------------------------------------------------------------------------
+# IB trading map: proxy (backtest) -> UCITS EUR (live trading)
+#
+# Each entry: (ib_symbol, ib_exchange, ib_currency, issuer, ib_fee_model)
+#
+# IB Fee models (Fixed pricing):
+#   "us"   : USD 0.005/share, min USD 1.00, max 1% of trade value
+#   "xetra": 0.10% of trade value, min EUR 4.00
+#   "lse"  : GBP 6.00 flat
+#   "ams"  : EUR 4.00 + 0.05% of trade value
+#   "sbf"  : EUR 3.00 + 0.05% of trade value  (Euronext Paris)
+#   "mil"  : EUR 4.00 + 0.05% of trade value  (Borsa Italiana)
+# ---------------------------------------------------------------------------
+TRADING_MAP: dict[str, tuple[str, str, str, str, str]] = {
+    # proxy       (ib_symbol, exchange,  currency, issuer,     fee_model)
+    # --- Geo equity ---
+    "IVV":        ("SXR8",    "IBIS2",   "EUR",    "iShares",  "xetra"),
+    "QQQ":        ("SXRV",    "IBIS2",   "EUR",    "iShares",  "xetra"),
+    "ACWI":       ("IUSQ",    "AEB",     "EUR",    "iShares",  "ams"),
+    "EEM":        ("IEMA",    "AEB",     "EUR",    "iShares",  "ams"),
+    "IEMG":       ("IEMA",    "AEB",     "EUR",    "iShares",  "ams"),   # same UCITS as EEM
+    "EMXC":       ("EMXC",    "SBF",     "EUR",    "Amundi",   "sbf"),   # same MSCI EM ex-China index
+    "ILF":        ("LTAM",    "AEB",     "EUR",    "iShares",  "ams"),
+    "EWY":        ("IKRA",    "AEB",     "EUR",    "iShares",  "ams"),
+    "EWT":        ("ITWN",    "AEB",     "EUR",    "iShares",  "ams"),
+    "EWZ":        ("IBZL",    "AEB",     "EUR",    "iShares",  "ams"),
+    "EWW":        ("D5BI",    "IBIS2",   "EUR",    "Xtrackers","xetra"), # same MSCI Mexico index
+    "EWC":        ("SXR2",    "IBIS2",   "EUR",    "iShares",  "xetra"),
+    "EWJ":        ("SJPE",    "AEB",     "EUR",    "iShares",  "ams"),
+    "TUR":        ("ITKY",    "AEB",     "EUR",    "iShares",  "ams"),
+    "FXI":        ("FXC",     "AEB",     "EUR",    "iShares",  "ams"),
+    "ISF.L":      ("ISF",     "LSEETF",  "GBP",    "iShares",  "lse"),
+    "IEUR":       ("IMEU",    "AEB",     "EUR",    "iShares",  "ams"),
+    "EZU":        ("IMEU",    "AEB",     "EUR",    "iShares",  "ams"),   # same UCITS as IEUR
+    "SUSA":       ("36B6",    "IBIS2",   "EUR",    "iShares",  "xetra"),
+    # --- Thematic ---
+    "SOXX":       ("ISQ5",    "GETTEX2", "EUR",    "iShares",  "xetra"), # GETTEX = XETRA fee schedule
+    "ROBO":       ("RBOT",    "AEB",     "EUR",    "iShares",  "ams"),
+    "ICLN":       ("INRG",    "BVME.ETF","EUR",    "iShares",  "mil"),
+    "EXX1.DE":    ("EXX1",    "IBIS",    "EUR",    "iShares",  "xetra"),
+    # --- Commodity ---
+    "RING":       ("IS0E",    "IBIS2",   "EUR",    "iShares",  "xetra"),
+    "IEO":        ("IS0D",    "IBIS2",   "EUR",    "iShares",  "xetra"),
+    "SXRS.DE":    ("SXRS",    "SMART",   "EUR",    "iShares",  "xetra"),
+}
+
+# IB fee schedule per exchange (Fixed pricing)
+IB_FEE_SCHEDULE = {
+    "us":    {"per_share": 0.005, "min": 1.00, "max_pct": 0.01, "currency": "USD"},
+    "xetra": {"pct": 0.0010, "min": 4.00, "currency": "EUR"},
+    "ams":   {"pct": 0.0005, "min": 4.00, "currency": "EUR"},
+    "sbf":   {"pct": 0.0005, "min": 3.00, "currency": "EUR"},
+    "lse":   {"flat": 6.00, "currency": "GBP"},
+    "mil":   {"pct": 0.0005, "min": 4.00, "currency": "EUR"},
+}
+
+
+def ib_commission(trade_value: float, fee_model: str) -> float:
+    """Estimate IB commission for a trade on the given exchange."""
+    sched = IB_FEE_SCHEDULE[fee_model]
+    if "flat" in sched:
+        return sched["flat"]
+    if "per_share" in sched:
+        # US: per-share model — approximate with typical ETF price ~100
+        n_shares = max(trade_value / 100.0, 1)
+        fee = n_shares * sched["per_share"]
+        return max(fee, sched["min"])
+    # Percentage model (xetra, ams, sbf, mil)
+    return max(trade_value * sched["pct"], sched["min"])
+
+
 # Quick lookup dicts
 BY_BOURSO: dict[str, ETF] = {e.bourso: e for e in UNIVERSE}
 BY_PROXY: dict[str, list[ETF]] = {}
