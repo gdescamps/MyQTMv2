@@ -1130,3 +1130,204 @@ Check CLOSE: vix_close_J − vix_close_{J-5} > 6.0
   Détecté à clôture → vend à clôture 
 
 plus de détection clôture J, exécution J+1
+
+
+---------------------------------------
+
+Est-ce que tu peux épurer le code du backtest.py au maximum en gardant le backtest normal et la robustesse avec les mêmes résultats ?
+Indépendamment des modèles je veux aussi qu'il y ait un audit du code pour vérifier que il n'y a pas de bug au niveau du calcul de la performance en comptant les ouvertures, les fermetures de position, l'allocation du capital jour après jour
+Que le backtest est bien réaliste.
+
+Si tu trouves un bug potentiel arrete je veux une explication.
+
+
+---------------------------------------
+
+
+AUDIT du backtest.py                                                                                                             
+                                                                                                                                   
+  BUG POTENTIEL : Look-ahead VIX spike (lignes 1032-1049)                                                                          
+                                                                                                                                   
+  C'est le point le plus important. Le code détecte un spike VIX au close du jour J (vix_close_test.diff(5)), puis met les scores à
+   NaN pour le même jour J. Dans run_backtest, le rebalance se fait avant l'application du return du jour. Résultat : on évite le  
+  return du jour J en utilisant une information (le close VIX du jour J) qu'on ne connaît pas encore au moment du rebalance.     
+                                                                                                                                   
+  Concrètement : sur un jour de spike, le portefeuille est vendu au début de l'itération → le return du jour = 0. Mais en réalité, 
+  tu aurais subi le return du jour avant de pouvoir vendre.                                                                        
+                                                                                                                                   
+  Impact : avec VIX_SPIKE_MIN=2.0, les jours de spike sont souvent des baisses → on les évite gratuitement. C'est un avantage      
+  non-réaliste dans le backtest.                                                                                                 
+                                                                                                                                   
+  Fix : décaler le cash d'un jour. Remplacer range(VIX_SPIKE_CASH_DAYS) par range(1, VIX_SPIKE_CASH_DAYS + 1) aux lignes 1043 et
+  1395.                                                                                                                            
+                         
+
+Si je comprends le jour du Spike
+À la clôture.
+On remet le cache.
+Et on encaisse pas les pertes ni les gains ? 
+
+Est-ce que tu peux corriger ça le jour de la détection du spike ?
+On ferme les positions en prenant les gains et les pertes.
+
+
+
+---------------------------------------
+
+Est-ce que tu peux modifier le mode fallback ?
+Qui prend le top des sharpe ratio expanding.
+Au lieu de prendre le top 3, on prend le top 1.
+Donne moi le résultat du backtest normal.
+Le vix spike detector avec le capital cutoff en prenant bien en compte les pertes au moment du cut off
+doit être activé.
+
+
+Comment le Sharpe ratio expanding Et calculer ?
+Il démarre en 2011 ou il démarre avant ?
+
+---------------------------------------
+
+Pour les tests de robustesse est ce que tu peux parallélisé sur des core differents ? 
+
+---------------------------------------
+
+pourquoi parfois en top 1, fallback.
+Dans le graphique d'allocation.
+Lorsque le capital est alloué par exemple selon le Nasdaq,
+Pourquoi il n'est pas loué à 100% ?
+
+---------------------------------------
+
+Est-ce qu'on peut faire un backtest depuis 2006 avec les ETF existants ?
+Sachant qu'on n'activera que le vix spike. 
+Pour faire la désallocation du capital en prenant les gains ou les pertes.
+Et qu'on activera le fallback Top 1.
+Les deux modèles FL et SM, ne seront pas actifs avant plusieurs années.
+
+
+---------------------------------------
+
+Introduire une nouvelle condition.
+Si la MA100 du VIX > 19
+Si le modèle Smart Money n'a pas de résultat IC positif ou n'existe pas.
+Des allocations complètes du capital.
+Le fallback n'est activé que si la EMA100 du vix. 
+Repasse au dessus de 19.
+FL N'est activé que si le EMA100 du VIX > 19 
+Et que si il fournit des résultats en IC positif.
+
+
+  ┌──────────────────┬────────┬────────┬────────────────────────────┐
+  │    VIX EMA100    │ SM IC+ │ FL IC+ │        → Allocation        │
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ < 19 (calm)      │ —      │ non    │ Heuristic top-1 (toujours) │
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ < 19             │ -      │ oui    │ Follow Leads               │
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ ≥ 25             │ non    │ -      │ Cash only                  │
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ ≥ 19 (turbulent) │ oui    │ —      │ SM model                   │
+  └──────────────────┴────────┴────────┴────────────────────────────┘
+
+
+---------------------------------------
+
+trouver X :
+
+  ┌──────────────────┬────────┬────────┬────────────────────────────┐
+  │    VIX EMA100    │ SM IC+ │ FL IC+ │        → Allocation        │
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ < 19 (calm)      │ —      │ non    │ Heuristic top-1 (toujours) │ VERT
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ < 19             │ -      │ oui    │ Follow Leads               │ BLEU
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ ≥ 20             │ non    │ -      │ Cash only                  │ ROUGE
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ ≥ 19 (turbulent) │ oui    │ —      │ SM model                   │ ORANGE
+  └──────────────────┴────────┴────────┴────────────────────────────┘
+
+
+---------------------------------------------------------------------------
+
+Changer :
+Heuristic top-1
+si 
+NASDAQ est dans le top 3 des sharpe ratio rolling 2y
+allouer NASDAQ
+sinon 
+top 1 sharpe ratio rolling 2y
+
+  ┌──────────────────┬────────┬────────┬────────────────────────────┐
+  │    VIX EMA100    │ SM IC+ │ FL IC+ │        → Allocation        │ COULEUR VIX
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │                  │ —      │ non    │ Heuristic top-1            │ VERT
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ < 19             │ -      │ oui    │ Follow Leads               │ BLEU
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ ≥ 20 and slope+  │ non    │ -      │ Cash only                  │ ROUGE
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ Spike            │ -      │ -      │ Cash only                  │ ROUGE
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ ≥ 19 (turbulent) │ oui    │ —      │ SM model                   │ ORANGE
+  └──────────────────┴────────┴────────┴────────────────────────────┘
+
+Fais attention en passant d'un mode à l'autre. 
+Si on passe en cash only, prends les gains et les pertes à chaque fois.
+A chaque fois qu'on a un rebalancement ou on passe en cash only, 
+on prend les gains et les pertes.
+Sinon ce n'est pas réaliste, 
+il faut que le backtest soit très rigoureux et reflète la réalité De la performance.
+
+
+
+Faire le cash only seulement si la EMA s'en dépasse 20 et qu'on est sur une pente positive. 
+Sur une pente négative. Repassez en heuristic top 1.
+
+
+  ┌──────────────────┬────────┬────────┬────────────────────────────┐
+  │    VIX EMA100    │ SM IC+ │ FL IC+ │        → Allocation        │ COULEUR VIX
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │                  │ —      │ non    │ Heuristic top-1            │ VERT
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ < 19             │ -      │ oui    │ Follow Leads               │ BLEU
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ ≥ 20 and slope+  │ non    │ -      │ Cash only                  │ ROUGE
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ Spike            │ -      │ -      │ Cash only                  │ ROUGE
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ ≥ 19 (turbulent) │ oui    │ —      │ SM model                   │ ORANGE
+  └──────────────────┴────────┴────────┴────────────────────────────┘
+
+
+
+  ┌──────────────────┬────────┬────────┬────────────────────────────┐
+  │    VIX EMA100    │ SM IC+ │ FL IC+ │        → Allocation        │ COULEUR VIX
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │                  │ —      │ non    │ Heuristic top-1            │ VERT
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ < 19             │ -      │ oui    │ Follow Leads               │ BLEU
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ ≥ 20 and slope+  │ non    │ -      │ Cash only                  │ ROUGE
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ Spike            │ -      │ -      │ Cash only                  │ ROUGE
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ ≥ 19 (turbulent) │ oui    │ —      │ SM model                   │ ORANGE
+  └──────────────────┴────────┴────────┴────────────────────────────┘
+
+Dans le graphique afficher ce tableau pour illustrer les modeles utilisé pour l'allocations
+  ┌──────────────────┬────────┬────────┬────────────────────────────┐
+  │    VIX EMA100    │ SM IC+ │ FL IC+ │        → Allocation        │ COULEUR VIX
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │                  │ —      │ non    │ Heuristic top-1            │ VERT
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ < 19             │ -      │ oui    │ Follow Leads               │ BLEU
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ ≥ 19 (turbulent) │ oui    │ —      │ SM model                   │ ORANGE
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ ≥ 20 and slope+  │ non    │ -      │ Cash only                  │ ROUGE
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ Spike            │ -      │ -      │ Cash only                  │ ROUGE
+  ├──────────────────┼────────┼────────┼────────────────────────────┤
+  │ ≥ 19 (turbulent) │ oui    │ —      │ SM model                   │ ORANGE
+  └──────────────────┴────────┴────────┴────────────────────────────┘
+
