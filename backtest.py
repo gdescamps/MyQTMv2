@@ -1243,20 +1243,28 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
         exp_sharpe_for_floor = exp_sharpe_for_floor.reindex(model_scores.columns).fillna(0.0)
 
         use_fl = False
-        if fl_test_by_step is not None:
+        if CALM_ALLOCATOR == "follow_leads" and fl_test_by_step is not None:
             fl_step = fl_test_by_step.get(step)
             if fl_step is not None and not fl_step.empty:
-                fl_mean = fl_step.groupby("etf_id")["score"].mean()
-                fl_series = fl_mean.reindex(model_scores.columns).fillna(0.0)
-                # Zero out dropped ETFs
-                for etf in fl_series.index:
-                    if etf in dropped_set:
-                        fl_series[etf] = -999.0
-                top_calm_etfs = [e for e in fl_series.nlargest(TOP_N_ALLOC).index
-                                 if fl_series[e] > -999.0]
-                use_fl = True
+                fl_gate_ema = fl_test_ic_ema_lagged.get(step, np.nan) if not fl_test_ic_ema_lagged.empty else np.nan
+                use_fl = (
+                    step >= FL_IC_GATE_MIN_STEPS
+                    and pd.notna(fl_gate_ema)
+                    and fl_gate_ema > FL_IC_GATE_THRESHOLD
+                )
 
-        if not use_fl:
+        if use_fl:
+            fl_mean = fl_step.groupby("etf_id")["score"].mean()
+            fl_series = fl_mean.reindex(model_scores.columns).fillna(0.0)
+            # Zero out dropped ETFs
+            for etf in fl_series.index:
+                if etf in dropped_set:
+                    fl_series[etf] = -999.0
+            top_calm_etfs = [e for e in fl_series.nlargest(TOP_N_ALLOC).index
+                             if fl_series[e] > -999.0]
+            # Weight within top-N by expanding Sharpe^FL_SHARPE_POWER (matches run_equity)
+            sharpe_series = (exp_sharpe_for_floor ** FL_SHARPE_POWER)
+        else:
             top_calm_etfs = [e for e in sharpe_series.nlargest(CALM_TOP_N).index
                              if sharpe_series[e] > 0]
 
@@ -1281,21 +1289,6 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
             and gate_ema > IC_GATE_THRESHOLD
         if not gate_open:
             calm_per_day[:] = True
-
-        # --- FL IC gate: use FL model in calm only if its own gate is open ---
-        if use_fl:
-            fl_gate_ema = fl_test_ic_ema_lagged.get(step, np.nan) if not fl_test_ic_ema_lagged.empty else np.nan
-            fl_gate_ok = (step >= FL_IC_GATE_MIN_STEPS) and pd.notna(fl_gate_ema) \
-                and fl_gate_ema > FL_IC_GATE_THRESHOLD
-            if not fl_gate_ok:
-                use_fl = False
-                # Fall back to heuristic for this step
-                top_calm_etfs = [e for e in sharpe_series.nlargest(CALM_TOP_N).index
-                                 if sharpe_series[e] > 0]
-                top_calm_set = set(top_calm_etfs)
-                sharpe_row = np.array([sharpe_series[c] if c in top_calm_set else np.nan
-                                       for c in model_scores.columns])
-                sharpe_monitor_row = np.array([c in top_calm_set for c in model_scores.columns])
 
         # --- Combine per day ---
         test_scores = model_scores.copy()
@@ -1338,6 +1331,23 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
     if not all_test_returns:
         return pd.Series(dtype=float), []
     return pd.concat(all_test_returns).sort_index(), step_fee_records
+
+
+_rob_shared = {}  # shared data for parallel robustness workers
+
+def _run_one_robustness(run_idx):
+    """Worker function for parallel robustness runs."""
+    d = _rob_shared
+    run_returns, run_fees = _run_single(
+        d["oos"], d["steps"], d["daily_ret_panel"],
+        drop_etfs=N_DROP, seed=run_idx, vix_s=d["vix_s"],
+        vix_ema100=d["vix_ema100"], vix_ema300=d["vix_ema300"],
+        fl_test_by_step=d["fl_test_by_step"],
+        test_ic_ema_lagged=d["test_ic_ema_lagged"],
+        fl_test_ic_ema_lagged=d["fl_test_ic_ema_lagged"])
+    m, run_red, _ = _run_metrics(run_returns, run_fees)
+    m["run"] = run_idx + 1
+    return m, run_red
 
 
 def run_robustness():
@@ -1434,23 +1444,29 @@ def run_robustness():
                                           fl_test_ic_ema_lagged=fl_test_ic_ema_lagged)
     orig_m, orig_red, orig_orange = _run_metrics(orig_returns, orig_fees)
 
-    # Run N_RUNS with random drops
-    all_run_red = []
+    # Run N_RUNS with random drops — parallel across CPU cores
+    from multiprocessing import Pool, cpu_count
+
+    global _rob_shared
+    _rob_shared = dict(oos=oos, steps=steps, daily_ret_panel=daily_ret_panel,
+                       vix_s=vix_s, vix_ema100=vix_ema100, vix_ema300=vix_ema300,
+                       fl_test_by_step=fl_test_by_step,
+                       test_ic_ema_lagged=test_ic_ema_lagged,
+                       fl_test_ic_ema_lagged=fl_test_ic_ema_lagged)
+
+    n_workers = min(cpu_count(), N_RUNS, 16)
+    print(f"Running {N_RUNS} perturbed backtests on {n_workers} cores...", flush=True)
+    with Pool(n_workers) as pool:
+        results = pool.map(_run_one_robustness, range(N_RUNS))
+
     stats = []
-    for run in range(N_RUNS):
-        print(f"  Run {run+1:2d}/{N_RUNS}...", end="", flush=True)
-        run_returns, run_fees = _run_single(oos, steps, daily_ret_panel,
-                                            drop_etfs=N_DROP, seed=run, vix_s=vix_s,
-                                            vix_ema100=vix_ema100, vix_ema300=vix_ema300,
-                                            fl_test_by_step=fl_test_by_step,
-                                            test_ic_ema_lagged=test_ic_ema_lagged,
-                                            fl_test_ic_ema_lagged=fl_test_ic_ema_lagged)
-        m, run_red, _ = _run_metrics(run_returns, run_fees)
-        m["run"] = run + 1
+    all_run_red = []
+    for m, run_red in results:
         stats.append(m)
         all_run_red.append(run_red)
-        print(f"  brut={m['ann_gross_pct']:+.1f}%/an  net={m['net_ann_pct']:+.1f}%/an  "
-              f"sharpe={m['sharpe']:.2f}  dd={m['max_dd_pct']:.1f}%", flush=True)
+        print(f"  Run {m['run']:2d}/{N_RUNS}  brut={m['ann_gross_pct']:+.1f}%/an  "
+              f"net={m['net_ann_pct']:+.1f}%/an  sharpe={m['sharpe']:.2f}  "
+              f"dd={m['max_dd_pct']:.1f}%", flush=True)
 
     stats_df = pd.DataFrame(stats)[["run", "total_return_pct", "ann_gross_pct",
                                     "net_return_pct", "net_ann_pct", "net_final",
