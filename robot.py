@@ -46,7 +46,7 @@ from backtest import (
     TEMPERATURE,
     USE_SOFTMAX,
 )
-from etf import UNIVERSE
+from etf import UNIVERSE, TRADING_MAP
 
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env")
@@ -56,28 +56,19 @@ ROBOT_DATA = DATA / "robot"
 ROBOT_DATA.mkdir(parents=True, exist_ok=True)
 
 REBAL_MIN_CHANGE = 0.03  # minimum weight change to trigger rebalance
+ACCOUNT_CURRENCY = "EUR"  # live account currency
 
 # ---------------------------------------------------------------------------
-#  IB contract mapping: etf bourso id -> (symbol, exchange, currency)
+#  IB contract mapping: from TRADING_MAP (UCITS EUR)
+#  etf_id (proxy) -> (ib_symbol, exchange, currency)
 # ---------------------------------------------------------------------------
-IB_CONTRACT_MAP = {}
-for _etf in UNIVERSE:
-    _t = _etf.bourso
-    if _t == "ISF.L":
-        IB_CONTRACT_MAP[_t] = ("ISF", "LSEETF", "GBP")
-    elif _t == "SXRS.DE":
-        IB_CONTRACT_MAP[_t] = ("SXRS", "SMART", "EUR")
-    elif _t.endswith(".DE"):
-        IB_CONTRACT_MAP[_t] = (_t.replace(".DE", ""), "IBIS", "EUR")
-    elif _t.endswith(".AS"):
-        IB_CONTRACT_MAP[_t] = (_t.replace(".AS", ""), "AEB", "EUR")
-    else:
-        IB_CONTRACT_MAP[_t] = (_t, "SMART", "USD")
+IB_CONTRACT_MAP = {
+    etf_id: (sym, exch, curr)
+    for etf_id, (sym, exch, curr, _issuer, _fee) in TRADING_MAP.items()
+}
 
 # Reverse map: IB symbol -> etf_id (for reading back positions)
-IB_SYMBOL_TO_ETF = {}
-for _etf_id, (_sym, _exch, _curr) in IB_CONTRACT_MAP.items():
-    IB_SYMBOL_TO_ETF[_sym] = _etf_id
+IB_SYMBOL_TO_ETF = {sym: etf_id for etf_id, (sym, _, _) in IB_CONTRACT_MAP.items()}
 
 
 # ===================================================================
@@ -339,12 +330,20 @@ def get_ib_positions() -> dict:
 def get_account_value() -> dict:
     net_liq = None
     cash = None
+    currency = ACCOUNT_CURRENCY
     for v in _ib.accountValues():
-        if v.tag == "NetLiquidationByCurrency" and v.currency == "USD":
+        if v.tag == "NetLiquidationByCurrency" and v.currency == currency:
             net_liq = float(v.value)
-        if v.tag == "TotalCashBalance" and v.currency == "USD":
+        if v.tag == "TotalCashBalance" and v.currency == currency:
             cash = float(v.value)
-    return {"net_liquidation": net_liq, "cash": cash}
+    # Fallback to BASE if EUR not found (e.g. paper account in USD)
+    if net_liq is None:
+        for v in _ib.accountValues():
+            if v.tag == "NetLiquidation" and v.currency == "BASE":
+                net_liq = float(v.value)
+            if v.tag == "TotalCashBalance" and v.currency == "BASE":
+                cash = float(v.value)
+    return {"net_liquidation": net_liq, "cash": cash, "currency": currency}
 
 
 def get_last_price(etf_id: str) -> float:
@@ -357,20 +356,21 @@ def get_last_price(etf_id: str) -> float:
 
 
 def market_is_open() -> bool:
-    """Check if US market is open via IB."""
+    """Check if European market (XETRA) is open via IB RTH hours."""
     from ib_insync import Stock
     try:
-        c = Stock("AAPL", "SMART", "USD", primaryExchange="NASDAQ")
+        # SXR8 = iShares Core S&P 500 on XETRA (most liquid UCITS in universe)
+        c = Stock("SXR8", "IBIS2", "EUR")
         c = _ib.qualifyContracts(c)[0]
         cd = _ib.reqContractDetails(c)[0]
-        tzid = cd.timeZoneId or "America/New_York"
-        et = ZoneInfo(tzid)
+        tzid = cd.timeZoneId or "Europe/Berlin"
+        tz = ZoneInfo(tzid)
         now_utc = _ib.reqCurrentTime()
         if now_utc.tzinfo is None:
             from datetime import timezone
             now_utc = now_utc.replace(tzinfo=timezone.utc)
-        now_et = now_utc.astimezone(et)
-        raw = cd.liquidHours
+        now_local = now_utc.astimezone(tz)
+        raw = cd.tradingHours  # RTH only (09:00-17:30 CET for XETRA)
         if not raw:
             return False
         for day_block in raw.split(";"):
@@ -385,9 +385,9 @@ def market_is_open() -> bool:
                 if not span or "-" not in span:
                     continue
                 start_tok, end_tok = span.split("-", 1)
-                start_dt = _parse_ib_time(start_tok, date_part, et)
-                end_dt = _parse_ib_time(end_tok, date_part, et)
-                if start_dt and end_dt and start_dt <= now_et < end_dt:
+                start_dt = _parse_ib_time(start_tok, date_part, tz)
+                end_dt = _parse_ib_time(end_tok, date_part, tz)
+                if start_dt and end_dt and start_dt <= now_local < end_dt:
                     return True
     except Exception as e:
         print(f"  market_is_open error: {e}")
@@ -428,13 +428,15 @@ def execute_trades(target_weights: dict, dry_run: bool = False):
     current_cash = account["cash"]
     current_pos = get_ib_positions()
 
-    print(f"\n  Account: net_liq={net_liq:,.0f} USD  cash={current_cash:,.0f} USD")
+    curr = account.get("currency", ACCOUNT_CURRENCY)
+    print(f"\n  Account: net_liq={net_liq:,.0f} {curr}  cash={current_cash:,.0f} {curr}")
     print(f"  Current positions ({len(current_pos)}):")
     for etf_id, shares in sorted(current_pos.items()):
+        ucits_sym = IB_CONTRACT_MAP.get(etf_id, (etf_id,))[0]
         price = get_last_price(etf_id)
         value = shares * price
-        print(f"    {etf_id:<10} {shares:>6.0f} sh  "
-              f"@ ~{price:.2f}  = {value:>10,.0f} USD")
+        print(f"    {etf_id:<10} ({ucits_sym:<6}) {shares:>6.0f} sh  "
+              f"@ ~{price:.2f}  = {value:>10,.0f}")
 
     # Compute current weights
     current_weights = {}
@@ -460,9 +462,10 @@ def execute_trades(target_weights: dict, dry_run: bool = False):
 
     print(f"\n  Target allocation (weight change: {weight_change:.1%}):")
     for etf_id, shares in sorted(target_shares.items()):
+        ucits_sym = IB_CONTRACT_MAP.get(etf_id, (etf_id,))[0]
         w = target_weights[etf_id]
         price = get_last_price(etf_id)
-        print(f"    {etf_id:<10} {shares:>6d} sh  "
+        print(f"    {etf_id:<10} ({ucits_sym:<6}) {shares:>6d} sh  "
               f"@ ~{price:.2f}  w={w:.1%}")
 
     if dry_run:
@@ -614,7 +617,10 @@ def print_allocation(alloc: dict):
         sh = alloc["sharpe_all"][etf_id]
         w = alloc["weights"].get(etf_id, 0.0)
         name = next((e.name for e in UNIVERSE if e.bourso == etf_id), etf_id)
-        print(f"  {etf_id:<10} {name:<25} Sharpe={sh:.3f}  Weight={w:.1%}")
+        ucits = TRADING_MAP.get(etf_id, (etf_id,))[0]
+        exch = TRADING_MAP.get(etf_id, ("", "", "", "", ""))[1]
+        print(f"  {etf_id:<10} -> {ucits:<6} ({exch:<8}) {name:<22} "
+              f"Sharpe={sh:.3f}  Weight={w:.1%}")
 
 
 def main():
@@ -672,19 +678,19 @@ def main():
             ib_connect()
             print("IB connected.\n")
 
-            # Wait for US market if trading for real
+            # Wait for European market (XETRA) if trading for real
             if args.trade:
-                print("Checking market status...")
+                print("Checking XETRA market status...")
                 wait_count = 0
                 while not market_is_open():
                     if wait_count == 0:
-                        print("  US market not open yet, waiting...")
+                        print("  European market not open yet, waiting...")
                     time.sleep(30)
                     wait_count += 1
                     if wait_count > 120:  # ~1h
                         print("  Market did not open in time, aborting.")
                         return
-                print("  US market is open.")
+                print("  European market is open.")
 
             execute_trades(alloc["weights"], dry_run=args.dry_run)
 
