@@ -34,8 +34,7 @@ SHARPE_POWER = 0.0
 TEMPERATURE = 1.0
 TOP_N_ALLOC   = 3
 TOP_N_MONITOR = 3
-CALM_TOP_N    = 1
-CALM_PREFER   = "QQQ"
+CALM_TOP_N    = 5
 
 FL_IC_GATE_THRESHOLD = 0.015
 FL_IC_GATE_SPAN      = 24
@@ -476,12 +475,8 @@ def _process_step(oos, step, daily_ret_panel, vix_s, vix_ema100,
         for etf in dropped_set:
             if etf in heuristic_sharpe.index:
                 heuristic_sharpe[etf] = 0.0
-    _top3 = heuristic_sharpe.nlargest(3).index.tolist()
-    if CALM_PREFER in _top3 and heuristic_sharpe.get(CALM_PREFER, 0) > 0:
-        heur_top = [CALM_PREFER]
-    else:
-        heur_top = [e for e in heuristic_sharpe.nlargest(CALM_TOP_N).index
-                     if heuristic_sharpe[e] > 0]
+    heur_top = [e for e in heuristic_sharpe.nlargest(CALM_TOP_N).index
+                 if heuristic_sharpe[e] > 0]
     heur_set = set(heur_top)
     heur_row = np.array([heuristic_sharpe[c] if c in heur_set else np.nan
                          for c in model_scores.columns])
@@ -624,7 +619,7 @@ def _draw_regime_table(ax_tbl):
     ax_tbl.axis("off")
     regime_rows = [
         ("VIX EMA100",        "SM Model Validated", "FL Model Validated", "Allocation",                              "#333333"),
-        ("< 19",              "—",                  "no",                  "Heuristic (Nasdaq if top-3 Sharpe 2y)",    "#2ca02c"),
+        ("< 19",              "—",                  "no",                  "Heuristic top-5 Sharpe-weighted 2y",    "#2ca02c"),
         ("< 19",              "—",                  "yes",                 "Follow Leads Model if validated",          "#1f77b4"),
         ("≥ 19 (turbulent)",  "yes",                "—",                   "Smart Money Model if validated",           "#ff7f0e"),
         ("≥ 20 + slope ↑",   "no",                 "—",                   "Stay in cash",                             "#d62728"),
