@@ -174,20 +174,22 @@ def serve_equity_12m():
     from etf import UNIVERSE as _UNIV
     SHORT_NAMES = {e.bourso: _short_name(e.name) for e in _UNIV}
 
-    # --- Figure: 2 chart panels + right legend column ---
-    fig = plt.figure(figsize=(22, 10))
-    gs = fig.add_gridspec(2, 2, height_ratios=[2, 1], width_ratios=[3, 1],
-                          hspace=0.08, wspace=0.02,
-                          top=0.93, bottom=0.05, left=0.05, right=0.98)
+    # --- Figure: 3 rows (equity, regime table, allocation) + right legend ---
+    fig = plt.figure(figsize=(22, 13))
+    gs = fig.add_gridspec(3, 2, height_ratios=[3, 0.45, 2],
+                          width_ratios=[3, 1],
+                          hspace=0.06, wspace=0.02,
+                          top=0.94, bottom=0.04, left=0.05, right=0.98)
     ax1 = fig.add_subplot(gs[0, 0])
-    ax2 = fig.add_subplot(gs[1, 0], sharex=ax1)
+    ax_tbl = fig.add_subplot(gs[1, 0])
+    ax2 = fig.add_subplot(gs[2, 0], sharex=ax1)
     ax_leg = fig.add_subplot(gs[:, 1])
     ax_leg.axis("off")
 
-    # Panel 1: Equity curve
+    # Panel 1: Equity curve (linear scale)
     ax1.plot(eq_1y["date"], eq_1y["value"], lw=3, color="#d62728", zorder=10)
     ax1.axhline(init, color="#999", lw=1, ls="--", alpha=0.3)
-    ax1.set_ylabel("Portfolio (EUR)")
+    ax1.set_ylabel("Portfolio (linear scale, EUR)")
     ax1.yaxis.set_major_formatter(
         mtick.FuncFormatter(lambda x, _: f"{x:,.0f}".replace(",", " ")))
     ax1.grid(True, alpha=0.3)
@@ -243,6 +245,10 @@ def serve_equity_12m():
             ax_vix.set_ylim(0, max(60, vix_12m.max() * 1.2))
             ax_vix.set_ylabel("VIX", color="#d62728", fontsize=8)
             ax_vix.tick_params(axis="y", labelcolor="#d62728", labelsize=7)
+
+    # Regime table (between equity and allocation, same as backtest.py)
+    from backtest import _draw_regime_table
+    _draw_regime_table(ax_tbl)
 
     # Panel 2: Allocation stackplot
     if weights_path.exists():
