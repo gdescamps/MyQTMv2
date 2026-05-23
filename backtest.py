@@ -1528,7 +1528,19 @@ def run_robustness():
 #  Entry point
 # ---------------------------------------------------------------------------
 
+def _auto_refresh_data():
+    """Download latest OHLCV + VIX before backtesting."""
+    from robot import refresh_ohlcv, refresh_vix
+    print("Auto-refreshing data to latest available...")
+    refresh_ohlcv()
+    refresh_vix()
+    print()
+
+
 def main():
+    no_refresh = "--no-refresh" in sys.argv[1:]
+    if not no_refresh:
+        _auto_refresh_data()
     if "--robustness" in sys.argv[1:]:
         run_robustness()
         return
