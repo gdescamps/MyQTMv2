@@ -1,22 +1,20 @@
 """
-Portfolio backtest for MyQTM-ETF with fixed allocation params.
+Portfolio backtest for MyQTM-ETF.
 
 Walk-forward structure (matches train.py):
   For each step, apply fixed params to test predictions (split="test") → true OOS returns.
 
 Allocation model:
   Score > 0 → on, softmax(score/temperature) × Sharpe weights among positives.
-  Rebalance every N days with AV arbitrage delays (J+0 sell, J+1 buy with cash, J+2 buy with settled).
+  Hysteresis rebalance: only when an allocated asset leaves the monitor top-N.
 
 Output:
-  data/{mode}/backtest_results.parquet   (daily portfolio returns, test periods only)
-  outputs/{mode}/best_params.csv         (per-step params)
-  outputs/{mode}/backtest_equity.csv     (equity curve)
+  data/backtest_results.parquet   (daily portfolio returns, test periods only)
+  outputs/best_params.csv         (per-step params)
+  outputs/backtest_equity.csv     (equity curve)
 """
 
 import sys
-import subprocess
-import threading
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -31,20 +29,12 @@ DATA    = Path(__file__).parent / "data"
 OUTPUTS = Path(__file__).parent / "outputs"
 OUTPUTS.mkdir(parents=True, exist_ok=True)
 
-EQUITY_SECTIONS    = {"geo", "sector_us", "thematic"}
-DEFENSIVE_SECTIONS = {"bond", "commodity", "crypto"}
-
-# Geo/sector redirect disabled — allocation libre
-GEO_SECTOR_REDIRECT = []
-
 USE_SOFTMAX = True  # True = softmax(score/T) × Sharpe, False = equal weight among score > 0 × Sharpe
 SHARPE_POWER = 0.0  # Sharpe weight = sharpe^SHARPE_POWER (0=equal, 1=linear, 2=concentrated)
 
 TEMPERATURE = 1.0     # softmax concentration (fixed)
-REBAL_DAYS = 5       # jours entre rebalances
 TOP_N_ALLOC   = 3     # allocate to top 3
 TOP_N_MONITOR = 3     # monitor top 3 — rebalance only when allocated asset leaves top 3
-TOP_N_SCORES  = 3     # (legacy, used as fallback)
 # --- Follow Leads IC gate (same mechanism as Smart Money gate) ---
 # Use causal EMA of past FL test_ic values (no leakage: EMA of steps < current).
 # FL model activates only when EMA > FL_IC_GATE_THRESHOLD AND step >= FL_IC_GATE_MIN_STEPS.
@@ -125,25 +115,11 @@ def _topn_keep(row: np.ndarray, n: int, block_ids: list) -> np.ndarray:
     return np.array(keep, dtype=int)
 
 
-def sigmoid(x: np.ndarray) -> np.ndarray:
-    return 1.0 / (1.0 + np.exp(-np.clip(x, -20, 20)))
-
-
-def softmax(scores: np.ndarray, temperature: float) -> np.ndarray:
-    s = scores / max(temperature, 1e-6)
-    s = s - s.max()
-    e = np.exp(s)
-    return e / e.sum()
-
-
-
-
 def run_backtest(
     scores_wide: pd.DataFrame,
     daily_returns_wide: pd.DataFrame,
     prev_weights: np.ndarray | None = None,
     sharpe_weights: np.ndarray | None = None,
-    rebal_days_override: int | None = None,
     tax_state: dict | None = None,
     monitor_mask: np.ndarray | None = None,
 ) -> tuple:
@@ -160,7 +136,6 @@ def run_backtest(
 
     # Use Sharpe weights if provided, else equal weight
     sw = sharpe_weights if sharpe_weights is not None else np.ones(n_etfs)
-    rebal_days = rebal_days_override if rebal_days_override is not None else REBAL_DAYS
 
     def _alloc(scores: np.ndarray, sw: np.ndarray) -> np.ndarray:
         """Score > 0 → on, softmax(score/T) × Sharpe weights (top-N pre-filtered)."""
@@ -188,7 +163,6 @@ def run_backtest(
 
     # Lot-based portfolio simulation with realistic fees
     LOT_SIZE = 10_000.0       # 10k€ tranches
-    INIT_CAPITAL = 150_000.0  # 150k€ portfolio
 
     # Bid/ask spread: ~0.01% for liquid ETFs (iShares core on Euronext)
     SPREAD_COST = 0.0001     # 0.01% per trade
@@ -315,7 +289,6 @@ def run_backtest(
                         spread_fee = order_amount * SPREAD_COST
                         trade_fees += broker_fee + spread_fee
                 total_fees += trade_fees
-                cash -= trade_fees
 
                 # Track realized gains on sales
                 for j in range(n_etfs):
@@ -384,12 +357,6 @@ def _pivot_step(step_data: pd.DataFrame) -> pd.DataFrame:
     for c in missing:
         scores[c] = np.nan
     return scores[full_etfs]
-
-
-def _section_arrays(etf_list: list, sections: dict) -> tuple[np.ndarray, np.ndarray]:
-    is_eq  = np.array([sections.get(e) in EQUITY_SECTIONS    for e in etf_list])
-    is_def = np.array([sections.get(e) in DEFENSIVE_SECTIONS for e in etf_list])
-    return is_eq, is_def
 
 
 def _load_benchmark(ticker: str, dates: pd.DatetimeIndex) -> pd.Series | None:
@@ -775,30 +742,16 @@ def run_equity():
     if "split" not in oos.columns:
         sys.exit("ERROR: oos_predictions.parquet has no 'split' column — retrain with updated train.py")
 
-    sys.path.insert(0, str(Path(__file__).parent))
-    from etf import UNIVERSE
-    sections = {e.bourso: e.section for e in UNIVERSE}
-
-    # Macro regime data
-    macro = pd.DataFrame()
-    for fname, col in [("vix", "vix_level"), ("hy_spread", "hy_spread_z60")]:
-        path = DATA / f"fred_{fname}.parquet"
-        if path.exists():
-            s = pd.read_parquet(path).iloc[:, 0]
-            if col == "hy_spread_z60":
-                m, sd = s.rolling(60).mean(), s.rolling(60).std()
-                s = (s - m) / sd.replace(0, np.nan)
-            macro[col] = s
-
-    vix_s    = macro.get("vix_level",     pd.Series(dtype=float))
-    hy_z60_s = macro.get("hy_spread_z60", pd.Series(dtype=float))
+    # Load VIX for calm-market detection + spike cash-out
+    vix_path = DATA / "fred_vix.parquet"
+    vix_s = pd.read_parquet(vix_path).iloc[:, 0] if vix_path.exists() else pd.Series(dtype=float)
 
     # VIX EMA for calm-market detection
     vix_ema100 = vix_s.ewm(span=100).mean() if not vix_s.empty else pd.Series(dtype=float)
     vix_ema300 = vix_s.ewm(span=300).mean() if not vix_s.empty else pd.Series(dtype=float)
 
     # Load actual daily returns for all ETFs (from price data)
-    from etf import UNIVERSE, BY_BOURSO
+    from etf import UNIVERSE
     daily_returns_all = {}
     for etf in UNIVERSE:
         proxy_file = DATA / f"{etf.proxy.replace('.', '_')}.parquet"
@@ -909,9 +862,6 @@ def run_equity():
         exp_std = dr_hist.expanding(min_periods=60).std().iloc[-1] * np.sqrt(252)
         etf_sharpe_raw = (exp_mean / exp_std.replace(0, np.nan)).clip(0.0).fillna(0.0)
         etf_sharpe = etf_sharpe_raw.values ** SHARPE_POWER
-
-        step_top_n = TOP_N_SCORES
-        step_rebal = REBAL_DAYS
 
         # --- Evaluate on test (true OOS) ---
         test_scores = _pivot_step(test_data)
@@ -1053,7 +1003,6 @@ def run_equity():
                                                    test_scores, test_dr,
                                                    prev_weights=prev_w,
                                                    sharpe_weights=etf_sharpe,
-                                                   rebal_days_override=step_rebal,
                                                    tax_state=chain_tax_state,
                                                    monitor_mask=step_monitor_mask)
 
@@ -1072,8 +1021,7 @@ def run_equity():
         all_test_weights.append(test_weights)
         step_fee_records.append((test_returns.index, step_fees))
         cumul_rebals += step_rebals
-        all_params_rows.append({"step": step, "temperature": TEMPERATURE, "rebal_days": REBAL_DAYS,
-                                })
+        all_params_rows.append({"step": step, "temperature": TEMPERATURE})
         # Save scores_A for chart (first day of test step per ETF)
         all_test_scores.append(test_scores.iloc[[0]])
 
@@ -1137,12 +1085,11 @@ def run_equity():
 
     params_df = pd.DataFrame(all_params_rows)
     params_df.to_csv(OUTPUTS / "best_params.csv", index=False)
+    params_df.to_csv(OUTPUTS / "backtest_steps.csv", index=False)
 
     eq_df = eq_curve.reset_index()
     eq_df.columns = ["date", "equity"]
     eq_df.to_csv(OUTPUTS / "backtest_equity.csv", index=False)
-
-    pd.DataFrame(all_params_rows).to_csv(OUTPUTS / "backtest_steps.csv", index=False)
 
     # Equity chart — red (fees) + orange (fees + flat tax)
     all_weights = pd.concat(all_test_weights).sort_index()
@@ -1187,10 +1134,6 @@ def _rob_sharpe(returns: pd.Series) -> float:
     if len(returns) < 10 or returns.std() == 0:
         return 0.0
     return float(returns.mean() / returns.std() * np.sqrt(252))
-
-
-def _pivot_step_rob(step_data: pd.DataFrame) -> pd.DataFrame:
-    return step_data.reset_index().pivot(index="date", columns="etf_id", values="score")
 
 
 def _run_metrics(returns: pd.Series, step_fee_records: list) -> tuple:
@@ -1429,7 +1372,6 @@ def run_robustness():
     oos["date"] = pd.to_datetime(oos["date"])
     oos = oos.set_index(["date", "etf_id"])
 
-    sys.path.insert(0, str(Path(__file__).parent))
     from etf import UNIVERSE
     all_etfs = [e.bourso for e in UNIVERSE]
 
