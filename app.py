@@ -243,11 +243,6 @@ def main_page():
         # ---- Content ----
         with ui.column().classes("content-panel"):
 
-            # Title image
-            if TITLE_IMAGE.exists():
-                ui.image(f"/assets/{TITLE_IMAGE.name}").classes(
-                    "w-full").style("max-height: 80px; object-fit: cover;")
-
             with ui.tabs().classes(
                     "w-full custom-tabs").props("dense active-color=red"
                     ) as tabs:
