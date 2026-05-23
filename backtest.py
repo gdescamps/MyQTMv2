@@ -426,12 +426,16 @@ def run_backtest(
 def _extend_to_last_date(all_test_returns, all_test_weights, carry_weights,
                          carry_regime, daily_ret_panel, vix_s, vix_ema100,
                          step_fee_records,
-                         regime_tracker=None):
+                         regime_tracker=None,
+                         test_ic_ema_lagged=None,
+                         fl_test_ic_ema_lagged=None,
+                         fl_test_by_step=None,
+                         last_step=None):
     """Extend portfolio simulation beyond last WF step to last available data date.
 
-    Uses carry_weights (last step's allocation) and applies VIX regime logic
-    for the remaining days. No model inference — heuristic or cash only.
-    Returns updated lists (mutated in place) and new carry_weights/carry_regime.
+    Loads last-step models from outputs/robot/ and runs inference per day
+    with full regime logic (SM/FL/heuristic/cash). Falls back to carry-forward
+    if model artifacts are not available.
     """
     if not all_test_returns or carry_weights is None:
         return carry_weights, carry_regime
@@ -445,7 +449,6 @@ def _extend_to_last_date(all_test_returns, all_test_weights, carry_weights,
     from etf import UNIVERSE as _UNIVERSE
     etf_list = [e.bourso for e in _UNIVERSE]
 
-    # Remaining trading days
     tail_dates = daily_ret_panel.index[
         (daily_ret_panel.index > last_oos_date) &
         (daily_ret_panel.index <= last_data_date)
@@ -453,52 +456,159 @@ def _extend_to_last_date(all_test_returns, all_test_weights, carry_weights,
     if len(tail_dates) == 0:
         return carry_weights, carry_regime
 
-    # Build scores from carry_weights (heuristic-like, positive = allocated)
+    # --- Try loading model artifacts for inference ---
+    sm_models, fl_models = None, None
+    sm_features, fl_features = None, None
+    sm_gate_open, fl_gate_open = False, False
+
+    robot_dir = Path(__file__).parent / "outputs" / "robot"
+    try:
+        import json as _json
+        import xgboost as xgb
+
+        ic_path = robot_dir / "ic_gate_state.json"
+        if ic_path.exists():
+            with open(ic_path) as f:
+                ic_state = _json.load(f)
+            sm_gate_open = ic_state["smart_money"]["gate_open"]
+            fl_gate_open = ic_state["follow_leads"]["gate_open"]
+
+        def _load_ubj(model_dir):
+            models = []
+            for i in range(20):
+                p = model_dir / f"model_{i}.ubj"
+                if p.exists():
+                    m = xgb.XGBRegressor()
+                    m.load_model(str(p))
+                    models.append(m)
+            return models if models else None
+
+        sm_feat_path = robot_dir / "sm_features.json"
+        fl_feat_path = robot_dir / "fl_features.json"
+
+        if sm_gate_open and sm_feat_path.exists():
+            sm_models = _load_ubj(robot_dir / "sm_models")
+            with open(sm_feat_path) as f:
+                sm_features = _json.load(f)
+
+        if fl_gate_open and fl_feat_path.exists():
+            fl_models = _load_ubj(robot_dir / "fl_models")
+            with open(fl_feat_path) as f:
+                fl_features = _json.load(f)
+    except Exception:
+        pass  # fall back to heuristic
+
+    has_models = (sm_models is not None) or (fl_models is not None)
+
+    # --- Load features if we have models ---
+    features_panel = None
+    if has_models:
+        feat_path = Path(__file__).parent / "data" / "features.parquet"
+        if feat_path.exists():
+            features_panel = pd.read_parquet(feat_path)
+
+    # --- Heuristic Sharpe (always needed as fallback) ---
+    dr_hist = daily_ret_panel[etf_list].loc[:last_data_date]
+    roll_mean = dr_hist.rolling(504, min_periods=400).mean() * 252
+    roll_std = dr_hist.rolling(504, min_periods=400).std() * np.sqrt(252)
+    roll_sharpe = (roll_mean / roll_std.replace(0, np.nan)).clip(0.0).fillna(0.0)
+
+    # --- Per-day regime + scores ---
     tail_scores = pd.DataFrame(np.nan, index=tail_dates, columns=etf_list)
-    for etf, w in carry_weights.items():
-        if w > 0.001 and etf in tail_scores.columns:
-            tail_scores[etf] = w  # score = weight (positive = stay allocated)
+    step_regime = np.zeros(len(tail_dates), dtype=int)
 
-    # VIX regime: check if we should go to cash
-    if not vix_ema100.empty:
-        ema_vals = vix_ema100.reindex(tail_dates, method="ffill")
-        ema_slope = ema_vals.diff().fillna(0)
-        for i, d in enumerate(tail_dates):
-            ema_v = ema_vals.get(d, 0)
-            slope_v = ema_slope.get(d, 0)
-            if ema_v >= VIX_CASH_THRESHOLD and slope_v > 0:
-                tail_scores.iloc[i] = np.nan  # cash
+    ema_vals = vix_ema100.reindex(tail_dates, method="ffill") \
+        if not vix_ema100.empty else pd.Series(0.0, index=tail_dates)
+    ema_slope = ema_vals.diff().fillna(0)
 
-    # VIX spike
+    # VIX spike pre-compute
+    spike_mask = pd.Series(False, index=tail_dates)
     if not vix_s.empty:
         vix_close = vix_s.reindex(tail_dates, method="ffill")
         vix_5d = vix_close.diff(5)
-        spike_dates = vix_5d[vix_5d > VIX_SPIKE_MIN].index
-        for sd in spike_dates:
+        for sd in vix_5d[vix_5d > VIX_SPIKE_MIN].index:
             sd_pos = tail_dates.get_loc(sd) if sd in tail_dates else -1
             if sd_pos < 0:
                 continue
-            for offset in range(1, VIX_SPIKE_CASH_DAYS + 1):
-                cp = sd_pos + offset
+            for off in range(1, VIX_SPIKE_CASH_DAYS + 1):
+                cp = sd_pos + off
                 if 0 <= cp < len(tail_dates):
-                    tail_scores.iloc[cp] = np.nan
+                    spike_mask.iloc[cp] = True
 
-    # Run portfolio simulation for tail
+    for i, d in enumerate(tail_dates):
+        is_calm = ema_vals.get(d, 0) < VIX_CALM_THRESHOLD
+        is_spike = spike_mask.iloc[i]
+
+        if is_spike and not sm_gate_open:
+            tail_scores.iloc[i] = np.nan
+            step_regime[i] = 3  # cash
+            continue
+
+        # Try model inference for this date
+        if is_calm and fl_gate_open and fl_models and features_panel is not None:
+            scores = _infer_day(features_panel, d, fl_models, fl_features, etf_list)
+            if scores is not None:
+                fl_top = scores.nlargest(TOP_N_ALLOC).index.tolist()
+                day_sharpe = roll_sharpe.loc[:d].iloc[-1] if d in roll_sharpe.index or len(roll_sharpe) > 0 else pd.Series(0, index=etf_list)
+                fl_sw = (day_sharpe.reindex(etf_list).fillna(0) ** FL_SHARPE_POWER)
+                for etf in fl_top:
+                    tail_scores.loc[d, etf] = fl_sw.get(etf, 1.0)
+                step_regime[i] = 2  # FL
+                continue
+
+        if is_calm:
+            # Heuristic
+            day_sharpe = roll_sharpe.loc[:d].iloc[-1] if len(roll_sharpe.loc[:d]) > 0 else pd.Series(0, index=etf_list)
+            heur = day_sharpe.reindex(etf_list).fillna(0)
+            heur_top = [e for e in heur.nlargest(CALM_TOP_N).index if heur[e] > 0]
+            for etf in heur_top:
+                tail_scores.loc[d, etf] = heur[etf]
+            step_regime[i] = 1  # heuristic
+            continue
+
+        if sm_gate_open and sm_models and features_panel is not None:
+            scores = _infer_day(features_panel, d, sm_models, sm_features, etf_list)
+            if scores is not None:
+                mu, sigma = scores.mean(), scores.std()
+                if sigma > 0:
+                    scores = (scores - mu) / sigma
+                pos = scores[scores > 0].nlargest(TOP_N_ALLOC)
+                for etf in pos.index:
+                    tail_scores.loc[d, etf] = pos[etf]
+                step_regime[i] = 0  # SM
+                continue
+
+        if ema_vals.get(d, 0) >= VIX_CASH_THRESHOLD and ema_slope.get(d, 0) > 0:
+            tail_scores.iloc[i] = np.nan
+            step_regime[i] = 3  # cash
+        else:
+            # Turbulent heuristic fallback
+            day_sharpe = roll_sharpe.loc[:d].iloc[-1] if len(roll_sharpe.loc[:d]) > 0 else pd.Series(0, index=etf_list)
+            heur = day_sharpe.reindex(etf_list).fillna(0)
+            heur_top = [e for e in heur.nlargest(CALM_TOP_N).index if heur[e] > 0]
+            for etf in heur_top:
+                tail_scores.loc[d, etf] = heur[etf]
+            step_regime[i] = 1
+
+    # --- Run portfolio simulation ---
     tail_dr = daily_ret_panel.reindex(index=tail_dates, columns=etf_list).fillna(0)
     prev_w = np.zeros(len(etf_list))
     for j, etf in enumerate(etf_list):
         if etf in carry_weights:
             prev_w[j] = carry_weights[etf]
 
-    from etf import TRADING_MAP, ib_commission as _ib_commission
-    _fee_models = [TRADING_MAP.get(etf, (None, None, None, None, "ams"))[4]
-                   for etf in etf_list]
-    etf_sharpe = np.ones(len(etf_list))  # uniform (heuristic carry)
+    etf_sharpe_w = np.ones(len(etf_list))
+    monitor_mask = np.zeros((len(tail_dates), len(etf_list)), dtype=bool)
+    for i in range(len(tail_dates)):
+        row = tail_scores.iloc[i].values
+        pos = np.where((~np.isnan(row)) & (row > 0))[0]
+        monitor_mask[i, pos] = True
 
     result = run_backtest(tail_scores, tail_dr,
                           prev_weights=prev_w,
-                          sharpe_weights=etf_sharpe,
-                          regime=np.ones(len(tail_dates), dtype=int),
+                          sharpe_weights=etf_sharpe_w,
+                          monitor_mask=monitor_mask,
+                          regime=step_regime,
                           prev_regime=carry_regime)
     tail_returns, tail_weights = result[0], result[1]
     tail_fees = result[2]
@@ -512,14 +622,40 @@ def _extend_to_last_date(all_test_returns, all_test_weights, carry_weights,
                                      tail_weights.iloc[-1].values))
         new_carry_regime = int(result[5]) if result[5] is not None else carry_regime
 
-        # Track regime for chart coloring
         if regime_tracker is not None:
-            for d in tail_dates:
-                regime_tracker["heuristic"].append(pd.DatetimeIndex([d]))
+            for i, d in enumerate(tail_dates):
+                r = step_regime[i]
+                if r == 0:
+                    regime_tracker.get("model", []).append(pd.DatetimeIndex([d]))
+                elif r == 2:
+                    regime_tracker.get("fl", []).append(pd.DatetimeIndex([d]))
+                elif r == 3:
+                    regime_tracker.get("cash", []).append(pd.DatetimeIndex([d]))
 
         return new_carry_weights, new_carry_regime
 
     return carry_weights, carry_regime
+
+
+def _infer_day(features_panel, date, models, feature_cols, etf_list):
+    """Run model inference for a single date. Returns pd.Series or None."""
+    try:
+        if date not in features_panel.index.get_level_values("date"):
+            return None
+        day_features = features_panel.loc[date]
+        available = [c for c in feature_cols if c in day_features.columns]
+        if len(available) != len(feature_cols):
+            return None
+        X = day_features[available].astype(np.float32).replace(
+            [np.inf, -np.inf], np.nan)
+        scores_stack = [m.predict(X.values) for m in models]
+        mean_scores = np.mean(scores_stack, axis=0)
+        idx = day_features.index
+        if idx.nlevels > 1:
+            idx = idx.droplevel("date") if "date" in idx.names else idx
+        return pd.Series(mean_scores, index=idx)
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -1540,11 +1676,22 @@ def run_robustness():
 # ---------------------------------------------------------------------------
 
 def _auto_refresh_data():
-    """Download latest OHLCV + VIX before backtesting."""
+    """Download latest OHLCV + VIX + regenerate features before backtesting."""
     from robot import refresh_ohlcv, refresh_vix
     print("Auto-refreshing data to latest available...")
     refresh_ohlcv()
     refresh_vix()
+    # Regenerate features so tail extension can use model inference
+    import subprocess
+    base = Path(__file__).parent
+    feat_path = base / "data" / "features.parquet"
+    if feat_path.exists():
+        last_feat = pd.read_parquet(feat_path).index.get_level_values("date").max()
+        last_ohlcv = _load_daily_returns().index[-1]
+        if last_ohlcv > last_feat:
+            print(f"Features outdated ({last_feat.date()} < {last_ohlcv.date()}), regenerating...")
+            subprocess.run([sys.executable, str(base / "feature_engineering.py")],
+                           cwd=str(base), check=True, timeout=600)
     print()
 
 
