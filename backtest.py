@@ -420,6 +420,109 @@ def run_backtest(
 
 
 # ---------------------------------------------------------------------------
+#  Tail extension: carry last allocation from last OOS date to last data date
+# ---------------------------------------------------------------------------
+
+def _extend_to_last_date(all_test_returns, all_test_weights, carry_weights,
+                         carry_regime, daily_ret_panel, vix_s, vix_ema100,
+                         step_fee_records,
+                         regime_tracker=None):
+    """Extend portfolio simulation beyond last WF step to last available data date.
+
+    Uses carry_weights (last step's allocation) and applies VIX regime logic
+    for the remaining days. No model inference — heuristic or cash only.
+    Returns updated lists (mutated in place) and new carry_weights/carry_regime.
+    """
+    if not all_test_returns or carry_weights is None:
+        return carry_weights, carry_regime
+
+    last_oos_date = all_test_returns[-1].index[-1]
+    last_data_date = daily_ret_panel.dropna(how="all").index[-1]
+
+    if last_data_date <= last_oos_date:
+        return carry_weights, carry_regime
+
+    from etf import UNIVERSE as _UNIVERSE
+    etf_list = [e.bourso for e in _UNIVERSE]
+
+    # Remaining trading days
+    tail_dates = daily_ret_panel.index[
+        (daily_ret_panel.index > last_oos_date) &
+        (daily_ret_panel.index <= last_data_date)
+    ]
+    if len(tail_dates) == 0:
+        return carry_weights, carry_regime
+
+    # Build scores from carry_weights (heuristic-like, positive = allocated)
+    tail_scores = pd.DataFrame(np.nan, index=tail_dates, columns=etf_list)
+    for etf, w in carry_weights.items():
+        if w > 0.001 and etf in tail_scores.columns:
+            tail_scores[etf] = w  # score = weight (positive = stay allocated)
+
+    # VIX regime: check if we should go to cash
+    if not vix_ema100.empty:
+        ema_vals = vix_ema100.reindex(tail_dates, method="ffill")
+        ema_slope = ema_vals.diff().fillna(0)
+        for i, d in enumerate(tail_dates):
+            ema_v = ema_vals.get(d, 0)
+            slope_v = ema_slope.get(d, 0)
+            if ema_v >= VIX_CASH_THRESHOLD and slope_v > 0:
+                tail_scores.iloc[i] = np.nan  # cash
+
+    # VIX spike
+    if not vix_s.empty:
+        vix_close = vix_s.reindex(tail_dates, method="ffill")
+        vix_5d = vix_close.diff(5)
+        spike_dates = vix_5d[vix_5d > VIX_SPIKE_MIN].index
+        for sd in spike_dates:
+            sd_pos = tail_dates.get_loc(sd) if sd in tail_dates else -1
+            if sd_pos < 0:
+                continue
+            for offset in range(1, VIX_SPIKE_CASH_DAYS + 1):
+                cp = sd_pos + offset
+                if 0 <= cp < len(tail_dates):
+                    tail_scores.iloc[cp] = np.nan
+
+    # Run portfolio simulation for tail
+    tail_dr = daily_ret_panel.reindex(index=tail_dates, columns=etf_list).fillna(0)
+    prev_w = np.zeros(len(etf_list))
+    for j, etf in enumerate(etf_list):
+        if etf in carry_weights:
+            prev_w[j] = carry_weights[etf]
+
+    from etf import TRADING_MAP, ib_commission as _ib_commission
+    _fee_models = [TRADING_MAP.get(etf, (None, None, None, None, "ams"))[4]
+                   for etf in etf_list]
+    etf_sharpe = np.ones(len(etf_list))  # uniform (heuristic carry)
+
+    result = run_backtest(tail_scores, tail_dr,
+                          prev_weights=prev_w,
+                          sharpe_weights=etf_sharpe,
+                          regime=np.ones(len(tail_dates), dtype=int),
+                          prev_regime=carry_regime)
+    tail_returns, tail_weights = result[0], result[1]
+    tail_fees = result[2]
+
+    if len(tail_returns) > 0:
+        all_test_returns.append(tail_returns)
+        all_test_weights.append(tail_weights)
+        step_fee_records.append((tail_returns.index, tail_fees))
+
+        new_carry_weights = dict(zip(tail_weights.columns,
+                                     tail_weights.iloc[-1].values))
+        new_carry_regime = int(result[5]) if result[5] is not None else carry_regime
+
+        # Track regime for chart coloring
+        if regime_tracker is not None:
+            for d in tail_dates:
+                regime_tracker["heuristic"].append(pd.DatetimeIndex([d]))
+
+        return new_carry_weights, new_carry_regime
+
+    return carry_weights, carry_regime
+
+
+# ---------------------------------------------------------------------------
 #  Shared step-loop: processes one WF step (used by both equity & robustness)
 # ---------------------------------------------------------------------------
 
@@ -1034,6 +1137,19 @@ def run_equity():
     if not all_test_returns:
         sys.exit("No test returns produced — check OOS predictions")
 
+    # Extend to last available data date (carry last allocation forward)
+    regime_tracker = {"heuristic": [], "model": model_active_days,
+                      "fl": fl_active_days, "cash": cash_days_list}
+    carry_weights, carry_regime = _extend_to_last_date(
+        all_test_returns, all_test_weights, carry_weights, carry_regime,
+        daily_ret_panel, vix_s, vix_ema100, step_fee_records,
+        regime_tracker=regime_tracker)
+    last_oos = all_test_returns[-2].index[-1] if len(all_test_returns) > 1 else None
+    tail_end = all_test_returns[-1].index[-1]
+    if last_oos and tail_end > last_oos:
+        print(f"\n  Tail extension: {last_oos.date()} -> {tail_end.date()} "
+              f"({len(all_test_returns[-1])} days, carry-forward)")
+
     # Final stats
     port_returns = pd.concat(all_test_returns).sort_index()
     init_capital = INIT_CAPITAL
@@ -1182,6 +1298,12 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
         if track_regimes:
             return pd.Series(dtype=float), [], {}
         return pd.Series(dtype=float), []
+
+    # Extend to last available data date
+    _extend_to_last_date(
+        all_test_returns, [], carry_weights, carry_regime,
+        daily_ret_panel, vix_s, vix_ema100, step_fee_records)
+
     ret = pd.concat(all_test_returns).sort_index()
     if track_regimes:
         def _concat_idx(lst):
