@@ -1385,15 +1385,17 @@ Cette mise à jour.
 
 --------------------------------------------
 
+est ce que robot.py --data  stocke les données ou ? 
 
+est ce que robot.py --trade Passes les positions Sur IB 
 
 --------------------------------------------
 
+Les téléchargements des fichiers XLS de e-Shape se refont de façon complète à chaque fois. ?
 
-est ce que robot.py --data 
+Du coup actuellement on télécharge 26 fichiers XLS. Au lieu de 27.
 
-
-est ce que robot.py --trade Passes les positions Sur IB 
+--------------------------------------------
 
 
 
