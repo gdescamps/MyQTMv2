@@ -54,8 +54,8 @@ FL_IC_GATE_SPAN      = 24     # EMA span (same as SM gate, ~2y)
 FL_IC_GATE_MIN_STEPS = 84     # min steps before gate can open (same as SM gate)
 FL_SHARPE_POWER = 2           # within top-N: weight by expanding Sharpe^FL_SHARPE_POWER (0=FL scores)
 CALM_SHARPE_FLOOR = 0.15
-VIX_SPIKE_MIN = 999.0      # VIX spike disabled (set to realistic value to re-enable)
-VIX_SPIKE_CASH_DAYS = 1    # days to stay in cash after spike detection
+VIX_SPIKE_MIN = 6.0        # VIX 5-day change above this → cash-out
+VIX_SPIKE_CASH_DAYS = 5    # days to stay in cash after spike detection
 VIX_CALM_THRESHOLD = 19.0  # VIX EMA100 below this → calm market
 VIX_CALM_COND_EMA100_SUP_EMA300 = False  # if True, also require EMA100 < EMA300
 
