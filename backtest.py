@@ -54,7 +54,7 @@ FL_IC_GATE_SPAN      = 24     # EMA span (same as SM gate, ~2y)
 FL_IC_GATE_MIN_STEPS = 84     # min steps before gate can open (same as SM gate)
 FL_SHARPE_POWER = 2           # within top-N: weight by expanding Sharpe^FL_SHARPE_POWER (0=FL scores)
 CALM_SHARPE_FLOOR = 0.15
-VIX_SPIKE_MIN = 2.0        # VIX 5-day change above this → cash-out
+VIX_SPIKE_MIN = 999.0      # VIX spike disabled (set to realistic value to re-enable)
 VIX_SPIKE_CASH_DAYS = 1    # days to stay in cash after spike detection
 VIX_CALM_THRESHOLD = 19.0  # VIX EMA100 below this → calm market
 VIX_CALM_COND_EMA100_SUP_EMA300 = False  # if True, also require EMA100 < EMA300
@@ -1040,7 +1040,7 @@ def run_equity():
                 if sd not in test_scores.index:
                     continue
                 sd_pos = test_scores.index.get_loc(sd)
-                for offset in range(VIX_SPIKE_CASH_DAYS):
+                for offset in range(1, VIX_SPIKE_CASH_DAYS + 1):
                     cash_pos = sd_pos + offset
                     if 0 <= cash_pos < len(test_scores):
                         cash_dates.add(test_scores.index[cash_pos])
@@ -1392,7 +1392,7 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
                 if sd not in test_scores.index:
                     continue
                 sd_pos = test_scores.index.get_loc(sd)
-                for offset in range(VIX_SPIKE_CASH_DAYS):
+                for offset in range(1, VIX_SPIKE_CASH_DAYS + 1):
                     cash_pos = sd_pos + offset
                     if 0 <= cash_pos < len(test_scores):
                         cash_dates.add(test_scores.index[cash_pos])
