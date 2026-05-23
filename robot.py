@@ -1,21 +1,21 @@
 """
-Robot for MyQTM-ETF heuristic strategy.
+Robot for MyQTM-ETF strategy with SM + FL models and heuristic fallback.
 
-Executes top-5 Sharpe-weighted 2y rolling allocation with VIX regime management.
-No predictive model needed -- runs the same heuristic as backtest.py calm mode.
-
-Regime logic (shared with backtest.py):
-  VIX EMA100 < 19          -> heuristic top-5 Sharpe-weighted 2y
-  VIX EMA100 >= 20 + slope -> cash (no SM model available)
-  VIX spike 5d > 6         -> cash for 5 days
-  else                     -> heuristic fallback
+Regime logic (same as backtest.py):
+  VIX spike 5d > 6           -> cash (unless SM gate open)
+  VIX EMA100 < 19 + FL open  -> Follow Leads model
+  VIX EMA100 < 19 + FL closed-> heuristic top-5 Sharpe 2y
+  VIX EMA100 >= 19 + SM open -> Smart Money model
+  VIX EMA100 >= 20 + slope   -> cash
+  else                       -> heuristic fallback
 
 Usage:
-    python robot.py --data                # refresh OHLCV + VIX data
-    python robot.py --trade               # compute allocation + execute via IB
-    python robot.py --dry-run             # show what would trade, no execution
-    python robot.py --allocation          # show current target allocation only
-    python robot.py --data --trade        # refresh data then trade
+    python robot.py --data                # refresh OHLCV + VIX + iShares XLS
+    python robot.py --allocation          # show current target allocation
+    python robot.py --trade               # execute trades via IB
+    python robot.py --dry-run             # show trade plan without executing
+    python robot.py --train               # retrain if end of 21-day block
+    python robot.py --stop                # stop IB Gateway docker
 """
 
 import argparse
@@ -45,6 +45,12 @@ from backtest import (
     VIX_SPIKE_CASH_DAYS,
     TEMPERATURE,
     USE_SOFTMAX,
+    IC_GATE_THRESHOLD,
+    IC_GATE_MIN_STEPS,
+    FL_IC_GATE_THRESHOLD,
+    FL_IC_GATE_MIN_STEPS,
+    TOP_N_ALLOC,
+    FL_SHARPE_POWER,
 )
 from etf import UNIVERSE, TRADING_MAP
 
@@ -52,22 +58,21 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env")
 
 DATA = Path(__file__).parent / "data"
+OUTPUTS = Path(__file__).parent / "outputs"
+ROBOT_DIR = OUTPUTS / "robot"
 ROBOT_DATA = DATA / "robot"
 ROBOT_DATA.mkdir(parents=True, exist_ok=True)
 
-REBAL_MIN_CHANGE = 0.03  # minimum weight change to trigger rebalance
-ACCOUNT_CURRENCY = "EUR"  # live account currency
+REBAL_MIN_CHANGE = 0.03
+ACCOUNT_CURRENCY = "EUR"
 
 # ---------------------------------------------------------------------------
-#  IB contract mapping: from TRADING_MAP (UCITS EUR)
-#  etf_id (proxy) -> (ib_symbol, exchange, currency)
+#  IB contract mapping from TRADING_MAP (UCITS EUR)
 # ---------------------------------------------------------------------------
 IB_CONTRACT_MAP = {
     etf_id: (sym, exch, curr)
     for etf_id, (sym, exch, curr, _issuer, _fee) in TRADING_MAP.items()
 }
-
-# Reverse map: IB symbol -> etf_id (for reading back positions)
 IB_SYMBOL_TO_ETF = {sym: etf_id for etf_id, (sym, _, _) in IB_CONTRACT_MAP.items()}
 
 
@@ -179,55 +184,145 @@ def refresh_vix():
     print(f"  VIX: updated -> {combined.index[-1].date()} ({len(combined)} rows)")
 
 
-def refresh_data():
+def refresh_ishares():
+    """Download + parse iShares XLS (shares outstanding for smart-money features)."""
+    print("Refreshing iShares XLS data...")
+    base = Path(__file__).parent
+    try:
+        subprocess.run([sys.executable, str(base / "download_ishares_xls.py")],
+                       cwd=str(base), check=True, timeout=600)
+        subprocess.run([sys.executable, str(base / "parse_ishares_xls.py")],
+                       cwd=str(base), check=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        print("  WARNING: iShares download timed out")
+    except Exception as e:
+        print(f"  iShares error: {e}")
+
+
+def refresh_features():
+    """Regenerate feature engineering (needed for model inference)."""
+    print("Regenerating features...")
+    base = Path(__file__).parent
+    subprocess.run([sys.executable, str(base / "feature_engineering.py")],
+                   cwd=str(base), check=True, timeout=600)
+
+
+def refresh_data(full: bool = True):
+    """Refresh all data sources."""
     refresh_ohlcv()
     print()
     refresh_vix()
+    if full:
+        print()
+        refresh_ishares()
+        print()
+        refresh_features()
     print("Data refresh complete.\n")
 
 
 # ===================================================================
-#  Heuristic allocation (shared logic with backtest.py)
+#  Model inference
 # ===================================================================
 
-def compute_heuristic_allocation() -> dict:
+def load_robot_artifacts() -> dict | None:
+    """Load exported model artifacts from outputs/robot/."""
+    if not ROBOT_DIR.exists():
+        return None
+
+    ic_path = ROBOT_DIR / "ic_gate_state.json"
+    info_path = ROBOT_DIR / "last_step_info.json"
+    sm_feat_path = ROBOT_DIR / "sm_features.json"
+    fl_feat_path = ROBOT_DIR / "fl_features.json"
+
+    if not all(p.exists() for p in [ic_path, info_path, sm_feat_path, fl_feat_path]):
+        return None
+
+    with open(ic_path) as f:
+        ic_state = json.load(f)
+    with open(info_path) as f:
+        step_info = json.load(f)
+    with open(sm_feat_path) as f:
+        sm_features = json.load(f)
+    with open(fl_feat_path) as f:
+        fl_features = json.load(f)
+
+    # Load SM models
+    sm_models = _load_models(ROBOT_DIR / "sm_models")
+    fl_models = _load_models(ROBOT_DIR / "fl_models")
+
+    return {
+        "ic_state": ic_state,
+        "step_info": step_info,
+        "sm_features": sm_features,
+        "fl_features": fl_features,
+        "sm_models": sm_models,
+        "fl_models": fl_models,
+        "sm_gate_open": ic_state["smart_money"]["gate_open"],
+        "fl_gate_open": ic_state["follow_leads"]["gate_open"],
+    }
+
+
+def _load_models(model_dir: Path) -> list:
+    """Load XGBoost models from .ubj files."""
+    import xgboost as xgb
+    models = []
+    for i in range(20):
+        path = model_dir / f"model_{i}.ubj"
+        if path.exists():
+            model = xgb.XGBRegressor()
+            model.load_model(str(path))
+            models.append(model)
+    return models
+
+
+def run_model_inference(features_df: pd.DataFrame, models: list,
+                        feature_cols: list) -> pd.Series:
+    """Run inference with an ensemble of XGBoost models. Returns mean scores."""
+    available = [c for c in feature_cols if c in features_df.columns]
+    if not available or not models:
+        return pd.Series(dtype=float)
+
+    X = features_df[available].astype(np.float32).replace(
+        [np.inf, -np.inf], np.nan)
+
+    scores_stack = [m.predict(X.values) for m in models]
+    mean_scores = np.mean(scores_stack, axis=0)
+    return pd.Series(mean_scores, index=features_df.index)
+
+
+# ===================================================================
+#  Allocation computation (full regime logic)
+# ===================================================================
+
+def compute_allocation() -> dict:
     """
-    Compute today's target allocation using the heuristic strategy.
+    Compute today's target allocation using the full regime logic.
 
-    Uses identical logic to backtest.py calm mode:
-      - 504d (2y) rolling Sharpe for all ETFs
-      - top-5 by Sharpe, softmax-weighted
-      - VIX regime: calm -> heuristic, turbulent -> cash (no SM model)
+    Same as backtest.py _process_step:
+      1. Compute heuristic (top-5 Sharpe 2y)
+      2. Check VIX regime
+      3. If SM/FL models available and IC gate open, use model predictions
+      4. Otherwise fall back to heuristic
 
-    Returns dict:
-      weights     : {etf_id: weight}  (sums to ~1.0, or empty dict if cash)
-      regime      : "calm" | "turbulent_heuristic" | "cash"
-      vix_ema100  : current value
-      top_etfs    : selected ETF ids
-      sharpe_all  : {etf_id: sharpe} for all ETFs
-      date        : data date
+    Returns dict with weights, regime, VIX info, model info.
     """
     daily_ret = _load_daily_returns()
     vix_s, vix_ema100, _ = _load_vix()
-
     etf_ids = [e.bourso for e in UNIVERSE]
+    data_date = daily_ret.index[-1]
 
-    # 2-year (504d) rolling Sharpe -- same as backtest.py _process_step
+    # --- Heuristic allocation (always computed as fallback) ---
     roll_mean = daily_ret.rolling(504, min_periods=400).mean().iloc[-1] * 252
     roll_std = (daily_ret.rolling(504, min_periods=400).std().iloc[-1]
                 * np.sqrt(252))
     roll_sharpe = (roll_mean / roll_std.replace(0, np.nan)).clip(0.0).fillna(0.0)
-
     sharpe_all = {etf: float(roll_sharpe.get(etf, 0.0)) for etf in etf_ids}
 
-    # Top-N selection
     heuristic_sharpe = roll_sharpe.reindex(etf_ids).fillna(0.0)
     heur_top = [e for e in heuristic_sharpe.nlargest(CALM_TOP_N).index
                 if heuristic_sharpe[e] > 0]
 
     # --- VIX regime ---
-    data_date = daily_ret.index[-1]
-
     current_vix_ema100 = 0.0
     vix_slope = 0.0
     if not vix_ema100.empty:
@@ -236,28 +331,51 @@ def compute_heuristic_allocation() -> dict:
             current_vix_ema100 = float(ema_reindexed.iloc[-1])
             vix_slope = float(ema_reindexed.diff().iloc[-1])
 
-    # VIX spike (5d change > VIX_SPIKE_MIN)
     is_spike = False
     if not vix_s.empty:
         vix_close = vix_s.reindex(daily_ret.index, method="ffill").dropna()
         if len(vix_close) >= 6:
             is_spike = float(vix_close.diff(5).iloc[-1]) > VIX_SPIKE_MIN
 
-    # Regime decision (same as backtest.py without SM/FL models)
-    if is_spike:
+    is_calm = current_vix_ema100 < VIX_CALM_THRESHOLD
+
+    # --- Load model artifacts ---
+    artifacts = load_robot_artifacts()
+    sm_gate_open = artifacts["sm_gate_open"] if artifacts else False
+    fl_gate_open = artifacts["fl_gate_open"] if artifacts else False
+
+    # --- Determine regime and compute weights ---
+    regime = "heuristic"
+    model_used = None
+    weights = {}
+    top_etfs = heur_top
+
+    if is_spike and not sm_gate_open:
         regime = "cash"
-    elif current_vix_ema100 < VIX_CALM_THRESHOLD:
-        regime = "calm"
+    elif is_calm and fl_gate_open and artifacts and artifacts["fl_models"]:
+        # Follow Leads model in calm markets
+        regime = "follow_leads"
+        model_used = "FL"
+        weights, top_etfs = _compute_fl_weights(
+            artifacts, etf_ids, heuristic_sharpe)
+    elif is_calm:
+        # Calm, no FL -> heuristic
+        regime = "heuristic"
+    elif sm_gate_open and artifacts and artifacts["sm_models"]:
+        # Turbulent with SM model validated
+        regime = "smart_money"
+        model_used = "SM"
+        weights, top_etfs = _compute_sm_weights(artifacts, etf_ids)
     elif current_vix_ema100 >= VIX_CASH_THRESHOLD and vix_slope > 0:
         regime = "cash"
     else:
-        # 19 <= VIX < 20, or slope not rising: stay with heuristic
-        regime = "turbulent_heuristic"
+        # Turbulent fallback -> heuristic
+        regime = "heuristic"
 
-    # Compute weights (softmax of Sharpe, same as backtest.py run_backtest)
-    if regime == "cash":
-        weights = {}
-    else:
+    # Heuristic weights (for heuristic regime or empty model weights)
+    if regime == "heuristic" or (regime in ("follow_leads", "smart_money") and not weights):
+        regime = "heuristic" if not weights else regime
+        top_etfs = heur_top
         scores = np.array([heuristic_sharpe[e] for e in heur_top])
         if USE_SOFTMAX and len(scores) > 0:
             s = scores / max(TEMPERATURE, 1e-6)
@@ -270,15 +388,87 @@ def compute_heuristic_allocation() -> dict:
             w = np.array([])
         weights = {etf: float(w[i]) for i, etf in enumerate(heur_top)}
 
+    if regime == "cash":
+        weights = {}
+        top_etfs = []
+
     return {
         "weights": weights,
         "regime": regime,
+        "model_used": model_used,
         "vix_ema100": current_vix_ema100,
         "vix_slope": vix_slope,
-        "top_etfs": heur_top,
+        "is_spike": is_spike,
+        "sm_gate_open": sm_gate_open,
+        "fl_gate_open": fl_gate_open,
+        "sm_ic_ema": artifacts["ic_state"]["smart_money"]["ic_ema"] if artifacts else None,
+        "fl_ic_ema": artifacts["ic_state"]["follow_leads"]["ic_ema"] if artifacts else None,
+        "top_etfs": top_etfs,
         "sharpe_all": sharpe_all,
         "date": str(data_date.date()),
     }
+
+
+def _load_today_features() -> pd.DataFrame:
+    """Load features for the most recent date."""
+    features_df = pd.read_parquet(DATA / "features.parquet")
+    last_date = features_df.index.get_level_values("date").max()
+    today = features_df.loc[last_date]
+    today.index = today.index.droplevel("date") if "date" in today.index.names else today.index
+    return today
+
+
+def _compute_sm_weights(artifacts: dict, etf_ids: list) -> tuple:
+    """Compute Smart Money model weights (same as backtest _process_step)."""
+    today_features = _load_today_features()
+
+    scores = run_model_inference(today_features, artifacts["sm_models"],
+                                artifacts["sm_features"])
+    if scores.empty:
+        return {}, []
+
+    # Z-score cross-sectionally
+    mu, sigma = scores.mean(), scores.std()
+    if sigma > 0:
+        scores = (scores - mu) / sigma
+
+    # Top-N positive scores
+    pos = scores[scores > 0].nlargest(TOP_N_ALLOC)
+    if pos.empty:
+        return {}, []
+
+    # Softmax weights
+    s = pos.values / max(TEMPERATURE, 1e-6)
+    s = s - s.max()
+    e_s = np.exp(s)
+    w = e_s / e_s.sum()
+
+    weights = {etf: float(w[i]) for i, etf in enumerate(pos.index)}
+    return weights, list(pos.index)
+
+
+def _compute_fl_weights(artifacts: dict, etf_ids: list,
+                        heuristic_sharpe: pd.Series) -> tuple:
+    """Compute Follow Leads model weights (same as backtest _process_step)."""
+    today_features = _load_today_features()
+
+    scores = run_model_inference(today_features, artifacts["fl_models"],
+                                artifacts["fl_features"])
+    if scores.empty:
+        return {}, []
+
+    fl_top = scores.nlargest(TOP_N_ALLOC).index.tolist()
+
+    # Weight by expanding Sharpe ^ FL_SHARPE_POWER
+    exp_sharpe = heuristic_sharpe.reindex(etf_ids).fillna(0.0)
+    fl_sharpe = exp_sharpe ** FL_SHARPE_POWER
+    fl_vals = np.array([fl_sharpe.get(e, 0) for e in fl_top])
+    total = fl_vals.sum()
+    if total > 0:
+        fl_vals = fl_vals / total
+
+    weights = {etf: float(fl_vals[i]) for i, etf in enumerate(fl_top)}
+    return weights, fl_top
 
 
 # ===================================================================
@@ -317,7 +507,6 @@ def make_contract(etf_id: str):
 
 
 def get_ib_positions() -> dict:
-    """Current IB positions as {etf_id: shares}."""
     positions = {}
     for pos in _ib.positions():
         symbol = pos.contract.symbol
@@ -336,7 +525,6 @@ def get_account_value() -> dict:
             net_liq = float(v.value)
         if v.tag == "TotalCashBalance" and v.currency == currency:
             cash = float(v.value)
-    # Fallback to BASE if EUR not found (e.g. paper account in USD)
     if net_liq is None:
         for v in _ib.accountValues():
             if v.tag == "NetLiquidation" and v.currency == "BASE":
@@ -347,7 +535,6 @@ def get_account_value() -> dict:
 
 
 def get_last_price(etf_id: str) -> float:
-    """Get last close from parquet (reliable, no market data subscription)."""
     proxy = next(e.proxy for e in UNIVERSE if e.bourso == etf_id)
     fname = DATA / f"{proxy.replace('.', '_')}.parquet"
     if fname.exists():
@@ -359,7 +546,6 @@ def market_is_open() -> bool:
     """Check if European market (XETRA) is open via IB RTH hours."""
     from ib_insync import Stock
     try:
-        # SXR8 = iShares Core S&P 500 on XETRA (most liquid UCITS in universe)
         c = Stock("SXR8", "IBIS2", "EUR")
         c = _ib.qualifyContracts(c)[0]
         cd = _ib.reqContractDetails(c)[0]
@@ -370,7 +556,7 @@ def market_is_open() -> bool:
             from datetime import timezone
             now_utc = now_utc.replace(tzinfo=timezone.utc)
         now_local = now_utc.astimezone(tz)
-        raw = cd.tradingHours  # RTH only (09:00-17:30 CET for XETRA)
+        raw = cd.tradingHours
         if not raw:
             return False
         for day_block in raw.split(";"):
@@ -413,14 +599,6 @@ def _parse_ib_time(token, default_date, tz):
 # ===================================================================
 
 def execute_trades(target_weights: dict, dry_run: bool = False):
-    """
-    Rebalance portfolio to target_weights.
-
-    1. Get current positions + account value
-    2. Compute target shares from weights * net_liquidation
-    3. Close positions not in target
-    4. Rebalance existing + open new
-    """
     from ib_insync import MarketOrder
 
     account = get_account_value()
@@ -438,13 +616,11 @@ def execute_trades(target_weights: dict, dry_run: bool = False):
         print(f"    {etf_id:<10} ({ucits_sym:<6}) {shares:>6.0f} sh  "
               f"@ ~{price:.2f}  = {value:>10,.0f}")
 
-    # Compute current weights
     current_weights = {}
     if net_liq and net_liq > 0:
         for etf_id, shares in current_pos.items():
             current_weights[etf_id] = shares * get_last_price(etf_id) / net_liq
 
-    # Check if rebalance needed
     all_etfs = set(list(target_weights.keys()) + list(current_weights.keys()))
     weight_change = sum(abs(target_weights.get(e, 0) - current_weights.get(e, 0))
                         for e in all_etfs)
@@ -453,7 +629,6 @@ def execute_trades(target_weights: dict, dry_run: bool = False):
               f"-- no rebalance needed.")
         return
 
-    # Target shares
     target_shares = {}
     for etf_id, weight in target_weights.items():
         price = get_last_price(etf_id)
@@ -473,10 +648,8 @@ def execute_trades(target_weights: dict, dry_run: bool = False):
         _print_trade_plan(current_pos, target_shares)
         return
 
-    # --- Execute: close first, then open/adjust ---
     trades_log = []
 
-    # 1. Close positions not in target
     for etf_id, shares in current_pos.items():
         if etf_id not in target_shares and abs(shares) > 0:
             action = "SELL" if shares > 0 else "BUY"
@@ -486,13 +659,11 @@ def execute_trades(target_weights: dict, dry_run: bool = False):
             trades_log.append({"etf": etf_id, "action": action, "qty": qty,
                                "fill": fill})
 
-    # 2. Adjust existing + open new
     for etf_id, target in target_shares.items():
         current = int(current_pos.get(etf_id, 0))
         delta = target - current
         if abs(delta) < 1:
             continue
-
         action = "BUY" if delta > 0 else "SELL"
         qty = abs(delta)
         print(f"  {'OPEN' if current == 0 else 'ADJUST'} {etf_id}: "
@@ -501,7 +672,6 @@ def execute_trades(target_weights: dict, dry_run: bool = False):
         trades_log.append({"etf": etf_id, "action": action, "qty": qty,
                            "fill": fill})
 
-    # Save trade log
     now_str = datetime.now(ZoneInfo("Europe/Paris")).strftime("%Y-%m-%d_%H%M")
     log_file = ROBOT_DATA / f"{now_str}_trades.json"
     with open(log_file, "w") as f:
@@ -517,7 +687,6 @@ def execute_trades(target_weights: dict, dry_run: bool = False):
 
 
 def _place_order(etf_id: str, action: str, qty: int) -> float:
-    """Place a market order and wait for fill. Returns fill price."""
     from ib_insync import MarketOrder
     contract = make_contract(etf_id)
     _ib.qualifyContracts(contract)
@@ -536,14 +705,11 @@ def _place_order(etf_id: str, action: str, qty: int) -> float:
 
 
 def _print_trade_plan(current_pos: dict, target_shares: dict):
-    """Print planned trades without executing."""
     print("\n  Trade plan:")
-    # Closes
     for etf_id, shares in current_pos.items():
         if etf_id not in target_shares and abs(shares) > 0:
             action = "SELL" if shares > 0 else "BUY"
             print(f"    CLOSE {etf_id}: {action} {abs(shares):.0f} shares")
-    # Opens / adjustments
     for etf_id, target in target_shares.items():
         current = int(current_pos.get(etf_id, 0))
         delta = target - current
@@ -554,6 +720,54 @@ def _print_trade_plan(current_pos: dict, target_shares: dict):
             label = "OPEN" if current == 0 else "ADJUST"
             print(f"    {label:6s} {etf_id}: {action} {abs(delta)} shares "
                   f"(current={current}, target={target})")
+
+
+# ===================================================================
+#  Incremental training (--train)
+# ===================================================================
+
+def check_and_train():
+    """Check if we're at end of a 21-day block and retrain if needed."""
+    step_info_path = ROBOT_DIR / "last_step_info.json"
+    if not step_info_path.exists():
+        print("No robot artifacts found. Run full training first:")
+        print("  python train_smart_money.py && python train_follow_leads.py")
+        print("  python export_robot_artifacts.py")
+        return
+
+    with open(step_info_path) as f:
+        step_info = json.load(f)
+
+    last_test_end = pd.Timestamp(step_info["test_end"])
+    today = pd.Timestamp.now().normalize()
+    days_since = (today - last_test_end).days
+    trading_days_since = int(days_since * 5 / 7)  # approximate
+
+    print(f"Last training step: {step_info['last_step']} "
+          f"(test ended {step_info['test_end']})")
+    print(f"Trading days since: ~{trading_days_since}")
+
+    if trading_days_since < 21:
+        print(f"Not yet end of block ({trading_days_since}/21 days). No retraining needed.")
+        return
+
+    print(f"End of block reached! Retraining...")
+    base = Path(__file__).parent
+
+    # Retrain both models
+    print("\n--- Smart Money ---")
+    subprocess.run([sys.executable, str(base / "train_smart_money.py")],
+                   cwd=str(base), check=True)
+    print("\n--- Follow Leads ---")
+    subprocess.run([sys.executable, str(base / "train_follow_leads.py")],
+                   cwd=str(base), check=True)
+
+    # Re-export artifacts
+    print("\n--- Export artifacts ---")
+    subprocess.run([sys.executable, str(base / "export_robot_artifacts.py")],
+                   cwd=str(base), check=True)
+
+    print("\nRetraining complete.")
 
 
 # ===================================================================
@@ -571,22 +785,18 @@ def wait_for_port(host, port, timeout=60):
 
 
 def ensure_gateway():
-    """Start IB Gateway via Docker if not already running."""
     if wait_for_port("127.0.0.1", 4002, timeout=2):
         print("IB Gateway already running.")
         return True
-
     print("Starting IB Gateway via Docker...")
     compose_dir = Path(__file__).parent
     subprocess.run(["docker", "compose", "up", "-d"],
                    cwd=str(compose_dir), check=True)
-
     print("Waiting for gateway (port 4002)...")
     if wait_for_port("127.0.0.1", 4002, timeout=120):
         print("IB Gateway ready, waiting 20s for full init...")
         time.sleep(20)
         return True
-
     print("ERROR: IB Gateway did not start in time.")
     return False
 
@@ -602,19 +812,28 @@ def stop_gateway():
 # ===================================================================
 
 def print_allocation(alloc: dict):
-    """Pretty-print the heuristic allocation."""
     print(f"\nDate: {alloc['date']}")
     print(f"Regime: {alloc['regime']}")
     print(f"VIX EMA100: {alloc['vix_ema100']:.1f}  "
-          f"(slope: {alloc['vix_slope']:+.3f})")
+          f"(slope: {alloc['vix_slope']:+.3f})"
+          f"{'  SPIKE!' if alloc.get('is_spike') else ''}")
+
+    # IC gate status
+    sm_ema = alloc.get("sm_ic_ema")
+    fl_ema = alloc.get("fl_ic_ema")
+    sm_str = f"ema={sm_ema:.3f} {'OPEN' if alloc['sm_gate_open'] else 'CLOSED'}" if sm_ema is not None else "no artifacts"
+    fl_str = f"ema={fl_ema:.3f} {'OPEN' if alloc['fl_gate_open'] else 'CLOSED'}" if fl_ema is not None else "no artifacts"
+    print(f"SM gate: {sm_str}  (threshold {IC_GATE_THRESHOLD})")
+    print(f"FL gate: {fl_str}  (threshold {FL_IC_GATE_THRESHOLD})")
 
     if alloc["regime"] == "cash":
-        print("\n  -> CASH regime (no positions)")
+        print("\n  -> CASH (no positions)")
         return
 
-    print(f"\nTop {CALM_TOP_N} ETFs by 2y rolling Sharpe:")
+    model_label = f" [{alloc['model_used']} model]" if alloc.get("model_used") else ""
+    print(f"\nAllocation{model_label}:")
     for etf_id in alloc["top_etfs"]:
-        sh = alloc["sharpe_all"][etf_id]
+        sh = alloc["sharpe_all"].get(etf_id, 0)
         w = alloc["weights"].get(etf_id, 0.0)
         name = next((e.name for e in UNIVERSE if e.bourso == etf_id), etf_id)
         ucits = TRADING_MAP.get(etf_id, (etf_id,))[0]
@@ -625,15 +844,19 @@ def print_allocation(alloc: dict):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="MyQTM-ETF Robot (heuristic strategy)")
+        description="MyQTM-ETF Robot (SM + FL + heuristic)")
     parser.add_argument("--data", action="store_true",
-                        help="Refresh OHLCV + VIX data")
+                        help="Refresh OHLCV + VIX + iShares + features")
+    parser.add_argument("--data-quick", action="store_true",
+                        help="Refresh OHLCV + VIX only (no iShares)")
     parser.add_argument("--trade", action="store_true",
                         help="Execute trades via IB")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show trades without executing")
     parser.add_argument("--allocation", action="store_true",
                         help="Show current target allocation")
+    parser.add_argument("--train", action="store_true",
+                        help="Retrain if end of 21-day block")
     parser.add_argument("--stop", action="store_true",
                         help="Stop IB Gateway docker")
     args = parser.parse_args()
@@ -643,25 +866,28 @@ def main():
         return
 
     if args.data:
-        refresh_data()
+        refresh_data(full=True)
+    elif args.data_quick:
+        refresh_data(full=False)
+
+    if args.train:
+        check_and_train()
 
     if args.allocation:
-        alloc = compute_heuristic_allocation()
+        alloc = compute_allocation()
         print_allocation(alloc)
         if not args.trade and not args.dry_run:
             return
 
     if args.trade or args.dry_run:
-        # Weekend check
         paris_now = datetime.now(ZoneInfo("Europe/Paris"))
         if paris_now.weekday() >= 5:
             print("Weekend -- no trading.")
             return
 
-        alloc = compute_heuristic_allocation()
+        alloc = compute_allocation()
         print_allocation(alloc)
 
-        # Check last processed date (avoid double-trading)
         last_file = ROBOT_DATA / "last_processed.json"
         if last_file.exists() and not args.dry_run:
             with open(last_file) as f:
@@ -670,7 +896,6 @@ def main():
                 print(f"\nAlready processed {last_date} -- skipping.")
                 return
 
-        # Start gateway + connect
         if not ensure_gateway():
             return
 
@@ -678,7 +903,6 @@ def main():
             ib_connect()
             print("IB connected.\n")
 
-            # Wait for European market (XETRA) if trading for real
             if args.trade:
                 print("Checking XETRA market status...")
                 wait_count = 0
@@ -687,14 +911,13 @@ def main():
                         print("  European market not open yet, waiting...")
                     time.sleep(30)
                     wait_count += 1
-                    if wait_count > 120:  # ~1h
+                    if wait_count > 120:
                         print("  Market did not open in time, aborting.")
                         return
                 print("  European market is open.")
 
             execute_trades(alloc["weights"], dry_run=args.dry_run)
 
-            # Mark as processed
             if not args.dry_run:
                 with open(last_file, "w") as f:
                     json.dump(alloc["date"], f)
@@ -706,8 +929,8 @@ def main():
         finally:
             ib_disconnect()
 
-    if not any([args.data, args.trade, args.dry_run,
-                args.allocation, args.stop]):
+    if not any([args.data, args.data_quick, args.trade, args.dry_run,
+                args.allocation, args.train, args.stop]):
         parser.print_help()
 
 

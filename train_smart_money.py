@@ -400,6 +400,12 @@ def run_walk_forward(
             print(f"  Saved feature_importances.parquet "
                   f"({len(imp_df)} steps × {len(imp_df.columns)-1} features)")
 
+    # Save last step's selected features (for robot inference)
+    import json
+    last_feats_path = OUTPUTS / "last_step_features.json"
+    with open(last_feats_path, "w") as f:
+        json.dump(available_cols, f, indent=2)
+
     return pd.concat(predictions).sort_index()
 
 
