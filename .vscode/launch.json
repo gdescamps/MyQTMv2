@@ -33,6 +33,33 @@
             "args": ["--robustness"],
             "console": "integratedTerminal",
             "justMyCode": true
+        },
+        {
+            "name": "dashboard",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/app.py",
+            "args": ["--port", "8080"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "robot --allocation",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/robot.py",
+            "args": ["--allocation"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "robot --dry-run",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/robot.py",
+            "args": ["--dry-run"],
+            "console": "integratedTerminal",
+            "justMyCode": true
         }
     ]
 }
