@@ -540,8 +540,7 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         #   green  = heuristic top-1 (VIX < 19, no FL)
         #   blue   = Follow Leads (VIX < 19, FL IC+)
         #   orange = Smart Money model (VIX >= 19, SM IC+)
-        #   red    = cash (VIX >= 20, SM unavailable)
-        #   grey   = VIX spike cash-out
+        #   red    = cash (VIX >= 20 SM unavailable, or VIX spike)
         _colors = pd.Series("#2ca02c", index=vix_raw.index)    # default: green (heuristic)
         _colors[_model_mask.values] = "#ff7f0e"                # orange (Smart Money)
         if fl_active_dates is not None and len(fl_active_dates) > 0:
@@ -554,7 +553,7 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
             _cash_intersect = vix_raw.index.intersection(cash_dates)
             _cash_mask.loc[_cash_intersect] = True
             _colors[_cash_mask.values] = "#d62728"              # red (cash)
-        _colors[_spike_mask.values] = "#6e6e6e"                # grey (spike)
+        _colors[_spike_mask.values] = "#d62728"                # red (spike = cash)
 
         # Draw VIX line colored by regime (segment by segment)
         prev_c = _colors.iloc[0]
@@ -1506,7 +1505,7 @@ def run_robustness():
         # Color: green=calm, red=stress, grey=spike
         _colors = pd.Series("#2ca02c", index=vix_raw.index)
         _colors[_model_mask.values] = "#d62728"
-        _colors[_spike_mask.values] = "#6e6e6e"                # grey (spike)
+        _colors[_spike_mask.values] = "#d62728"                # red (spike = cash)
 
         # Draw VIX line colored by regime (segment by segment)
         prev_c = _colors.iloc[0]
