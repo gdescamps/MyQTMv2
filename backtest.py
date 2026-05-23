@@ -619,11 +619,11 @@ def _draw_regime_table(ax_tbl):
     ax_tbl.axis("off")
     regime_rows = [
         ("VIX EMA100",        "SM Model Validated", "FL Model Validated", "Allocation",                              "#333333"),
-        ("< 19",              "—",                  "no",                  "Heuristic top-5 Sharpe-weighted 2y",    "#2ca02c"),
-        ("< 19",              "—",                  "yes",                 "Follow Leads Model if validated",          "#1f77b4"),
-        ("≥ 19 (turbulent)",  "yes",                "—",                   "Smart Money Model if validated",           "#ff7f0e"),
-        ("≥ 20 + slope ↑",   "no",                 "—",                   "Stay in cash",                             "#d62728"),
-        ("Spike Δ5d > 6",    "—",                  "—",                   "Stay in cash",                             "#d62728"),
+        ("—",                 "—",                  "no",                  "Heuristic top-5 Sharpe-weighted 2y",      "#2ca02c"),
+        ("< 19",              "—",                  "yes",                 "Follow Leads Model",                      "#1f77b4"),
+        ("≥ 19 (turbulent)",  "yes",                "—",                   "Smart Money Model",                       "#ff7f0e"),
+        ("≥ 20 + slope ↑",   "no",                 "—",                   "Cash",                                    "#d62728"),
+        ("Spike Δ5d > 6",    "—",                  "—",                   "Cash",                                    "#d62728"),
     ]
     n_rows = len(regime_rows)
     row_h = 1.0 / n_rows
