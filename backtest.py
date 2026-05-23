@@ -60,7 +60,6 @@ IC_GATE_THRESHOLD = 0.030  # require EMA(past test_ic) > 0.030 to deploy model
 IC_GATE_SPAN      = 24     # EMA span (~2y) — long-term test_ic, ignores short bumps
 IC_GATE_MIN_STEPS = 84     # need ≥84 past steps (~7y) — gates the model off before 2018
 
-FLAT_TAX_RATE = 0.30       # PFU 30% on realized gains (paid Jan 1st)
 INIT_CAPITAL  = 150_000.0  # portfolio starting capital
 
 # --- Calm allocator: "heuristic" = naive top-3 by rolling 252d Sharpe,
@@ -120,7 +119,6 @@ def run_backtest(
     daily_returns_wide: pd.DataFrame,
     prev_weights: np.ndarray | None = None,
     sharpe_weights: np.ndarray | None = None,
-    tax_state: dict | None = None,
     monitor_mask: np.ndarray | None = None,
     regime: np.ndarray | None = None,
     prev_regime: int | None = None,
@@ -177,25 +175,6 @@ def run_backtest(
     REBAL_MIN_CHANGE = 0.03
 
     total_fees = 0.0
-    total_taxes = 0.0
-
-    # Tax state: persists between steps via tax_state dict
-    if tax_state is not None:
-        realized_gains_ytd = tax_state.get("realized_gains_ytd", 0.0)
-        cost_basis = tax_state.get("cost_basis", np.zeros(n_etfs)).copy()
-        current_year = tax_state.get("current_year", None)
-        # Remap cost_basis to current ETF columns
-        if "etf_list" in tax_state and tax_state["etf_list"] != etf_list:
-            old_cb = tax_state["cost_basis"]
-            old_etfs = tax_state["etf_list"]
-            cost_basis = np.zeros(n_etfs)
-            for i, etf in enumerate(etf_list):
-                if etf in old_etfs:
-                    cost_basis[i] = old_cb[old_etfs.index(etf)]
-    else:
-        realized_gains_ytd = 0.0
-        cost_basis = np.zeros(n_etfs)
-        current_year = None
 
     safe_ret = np.where(np.isnan(daily_ret), 0.0, daily_ret)
     n_days = len(dates)
@@ -207,8 +186,6 @@ def run_backtest(
         total_val = INIT_CAPITAL
         for j in range(n_etfs):
             positions[j] = prev_weights[j] * total_val
-            if tax_state is None:
-                cost_basis[j] = positions[j]
         cash = total_val - positions.sum()
 
     port_returns = np.zeros(n_days)
@@ -222,19 +199,6 @@ def run_backtest(
 
     for i in range(n_days):
         total_val = positions.sum() + cash
-
-        # Flat tax 30% on Jan 1st on realized gains of previous year
-        day = dates[i]
-        if current_year is None:
-            current_year = day.year
-        elif day.year != current_year:
-            if realized_gains_ytd > 0:
-                tax = realized_gains_ytd * FLAT_TAX_RATE
-                cash -= tax
-                total_taxes += tax
-            realized_gains_ytd = 0.0
-            current_year = day.year
-            total_val = positions.sum() + cash  # recalc after tax
 
         # Rebalance when: (a) allocated asset leaves monitor set, or (b) regime changes
         if regime is not None and i == 0:
@@ -268,18 +232,6 @@ def run_backtest(
                         trade_fees += broker_fee + spread_fee
                 total_fees += trade_fees
 
-                # Track realized gains on sales
-                for j in range(n_etfs):
-                    if target_pos[j] < positions[j] and positions[j] > 0:
-                        sale_amount = positions[j] - target_pos[j]
-                        sale_frac = sale_amount / positions[j]
-                        gain = sale_amount - cost_basis[j] * sale_frac
-                        realized_gains_ytd += gain
-                        cost_basis[j] *= (1 - sale_frac)
-                    elif target_pos[j] > positions[j]:
-                        buy_amount = target_pos[j] - positions[j]
-                        cost_basis[j] += buy_amount
-
                 positions = target_pos.copy()
                 cash = total_val - positions.sum() - trade_fees
                 n_rebalances += 1
@@ -298,15 +250,8 @@ def run_backtest(
     ret_series = pd.Series(port_returns, index=dates, name="port_return")
     weights_df = pd.DataFrame(actual_weights, index=dates, columns=etf_list)
     final_val = positions.sum() + cash
-    # Return tax state for chaining between steps
-    out_tax_state = {
-        "realized_gains_ytd": realized_gains_ytd,
-        "cost_basis": cost_basis.copy(),
-        "current_year": current_year,
-        "etf_list": etf_list,
-    }
     last_regime = int(regime[-1]) if regime is not None else None
-    return ret_series, weights_df, total_fees, total_taxes, n_rebalances, final_val, out_tax_state, last_regime
+    return ret_series, weights_df, total_fees, n_rebalances, final_val, last_regime
 
 
 def sharpe(returns: pd.Series, min_obs: int = 30) -> float:
@@ -351,45 +296,24 @@ def _load_benchmark(ticker: str, dates: pd.DatetimeIndex) -> pd.Series | None:
     return None
 
 
-def compute_red_orange(port_returns: pd.Series, step_fee_records: list,
+def compute_fee_equity(port_returns: pd.Series, step_fee_records: list,
                        init_capital: float = 150_000.0) -> tuple:
-    """Build the two parallel equity curves from a gross daily-return series
-    and per-step IB fees:
-      RED    — pays IB fees only (no tax). Each step's fee enters as a
-               scale-invariant fractional drag (fee / 150k base) so fees
-               stay correct as the portfolio grows.
-      ORANGE — same, plus the 30% flat tax withdrawn from capital each
-               1st January on the prior year's realised gain (net of fees).
-    Returns (eq_red, eq_orange, daily_factor, cumul_fees, total_taxes).
+    """Build equity curve from a gross daily-return series and per-step IB fees.
+    Each step's fee enters as a scale-invariant fractional drag (fee / 150k base)
+    so fees stay correct as the portfolio grows.
+    Returns (eq_curve, cumul_fees).
     """
     if len(port_returns) == 0:
-        empty = pd.Series(dtype=float)
-        return empty, empty, empty, 0.0, 0.0
+        return pd.Series(dtype=float), 0.0
 
     fee_drag = pd.Series(1.0, index=port_returns.index)
     for idx, sf in step_fee_records:
         fee_drag.loc[idx.max()] *= (1.0 - sf / init_capital)
     daily_factor = (1.0 + port_returns) * fee_drag
-    eq_red = daily_factor.cumprod()                       # IB fees only
+    eq_curve = daily_factor.cumprod()
 
-    eq_orange = pd.Series(index=port_returns.index, dtype=float)
-    orange_start = 1.0
-    total_taxes = 0.0
-    for year in range(int(port_returns.index[0].year), int(port_returns.index[-1].year) + 1):
-        ymask = port_returns.index.year == year
-        if ymask.sum() == 0:
-            continue
-        ycum = daily_factor[ymask].cumprod()
-        eq_orange[ymask] = orange_start * ycum
-        year_end = orange_start * ycum.iloc[-1]
-        net_gain = year_end - orange_start                # already net of IB fees
-        tax = FLAT_TAX_RATE * net_gain if net_gain > 0 else 0.0
-        total_taxes += tax * init_capital
-        orange_start = year_end - tax                     # next year starts after tax
-
-    # Real cumulative IB fees, scaled to the (growing) red portfolio
-    cumul_fees = sum(sf * eq_red.loc[idx.max()] for idx, sf in step_fee_records)
-    return eq_red, eq_orange, daily_factor, cumul_fees, total_taxes
+    cumul_fees = sum(sf * eq_curve.loc[idx.max()] for idx, sf in step_fee_records)
+    return eq_curve, cumul_fees
 
 
 # Unified colour map (bourso ticker → colour), shared by the chart panels.
@@ -415,23 +339,17 @@ def _short_name(name: str) -> str:
 
 def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
                      weights_df: pd.DataFrame,
-                     params_df: pd.DataFrame, out_dir: Path,
-                     scores_A: pd.DataFrame | None = None,
+                     out_dir: Path,
                      fin: dict | None = None,
                      fname: str = "backtest_equity.jpg",
-                     eq_orange: pd.Series | None = None,
                      model_active_dates: pd.DatetimeIndex | None = None,
                      fl_active_dates: pd.DatetimeIndex | None = None) -> None:
-    """Save chart: equity, allocation, temp_A + scores_A."""
-    from etf import BY_BOURSO
+    """Save chart: equity + allocation."""
     # Compound annual growth rate (CAGR) — same definition as the summary box
     ann_ret = eq_curve.iloc[-1] ** (252.0 / max(len(port_returns), 1)) - 1
     ann_vol = port_returns.std() * np.sqrt(252)
     sh      = sharpe(port_returns)
     max_dd  = (eq_curve / eq_curve.cummax() - 1).min()
-    title = (f"MyQTM-ETF — Walk-Forward OOS  "
-             f"(Sharpe={sh:.2f}  Ann={ann_ret:.1%}  Vol={ann_vol:.1%}  MaxDD={max_dd:.1%})")
-
     etf_color_map = ETF_COLOR_MAP
     from etf import UNIVERSE as _UNIVERSE
     # Abbreviated display names (full name minus iShares/Sector/ETF/Acc/USD)
@@ -469,15 +387,9 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
     def _eur(x):
         return f"{x:,.0f}".replace(",", " ") + " €"
 
-    # Colour code: gross/performance items in red, everything about fees,
-    # tax, initial capital and the net final value in orange.
-    RED, ORANGE = "#d62728", "#ff7f0e"
+    RED = "#d62728"
     hdr = [
-        ("Ann (brut-frais)", f"{ann_ret:+.1%}", RED, True),
-    ]
-    if fin is not None:
-        hdr.append(("Ann. net", f"{fin['ann_net']:+.1%}", ORANGE, True))
-    hdr += [
+        ("Ann. return", f"{ann_ret:+.1%}", RED, True),
         ("Vol", f"{ann_vol:.1%}", RED, False),
         ("MaxDD", f"{max_dd:.1%}", RED, False),
         ("Trades", f"{trades_per_month:.1f}/mois", RED, False),
@@ -485,11 +397,9 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
     if fin is not None:
         hdr += [
             ("__sep__", "", "", False),
-            ("Capital initial", _eur(fin['init']), ORANGE, False),
-            ("Valeur finale (brut-frais)", _eur(fin['gross']), ORANGE, True),
-            ("Frais Interactive Broker", _eur(-fin['fees']), ORANGE, False),
-            ("Flat tax 30 % (versée)", _eur(-fin['taxes']), ORANGE, False),
-            ("Valeur finale NETTE", _eur(fin['net']), ORANGE, True),
+            ("Capital initial", _eur(fin['init']), RED, False),
+            ("Frais Interactive Broker", _eur(-fin['fees']), RED, False),
+            ("Valeur finale", _eur(fin['final']), RED, True),
         ]
 
     y = 1.00
@@ -508,13 +418,8 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
         y -= y_step_hdr
     hdr_bottom = y
 
-    # Portfolio curves: red = IB fees only, orange = fees + flat tax 30%
-    ax1.plot(eq_curve.index, eq_curve.values, lw=3.5, color="#d62728", zorder=10,
-             label="Frais IB seuls")
-    if eq_orange is not None:
-        ax1.plot(eq_orange.index, eq_orange.values, lw=1.5, color="#ff7f0e",
-                 zorder=11, label="Frais IB + flat tax 30 %")
-        ax1.legend(loc="upper left", fontsize=12, framealpha=0.92)
+    # Portfolio curve (IB fees only)
+    ax1.plot(eq_curve.index, eq_curve.values, lw=3.5, color="#d62728", zorder=10)
 
     # Compute portfolio Sharpe & max DD
     port_sh = sharpe(port_returns)
@@ -542,13 +447,7 @@ def _save_equity_png(port_returns: pd.Series, eq_curve: pd.Series,
             etf_curves.append((bm.iloc[-1], etf_sh, etf_dd, short, color))
 
     # Sorted list: portfolio + ETFs all sorted by final value (descending)
-    from matplotlib.lines import Line2D
-    all_items = [(eq_curve.iloc[-1], port_sh, port_dd, "Portefeuille (brut-frais)", "#d62728", True)]
-    if eq_orange is not None:
-        o_ret = eq_orange.pct_change().dropna()
-        all_items.append((eq_orange.iloc[-1], sharpe(o_ret),
-                          (eq_orange / eq_orange.cummax() - 1).min(),
-                          "Portefeuille (net)", "#ff7f0e", True))
+    all_items = [(eq_curve.iloc[-1], port_sh, port_dd, "Portefeuille", "#d62728", True)]
     all_items += [(v, sh, dd, s, c, False) for v, sh, dd, s, c in etf_curves]
     sorted_items = sorted(all_items, key=lambda x: -x[0])
 
@@ -818,7 +717,6 @@ def run_equity():
     carry_regime     = None   # last regime of previous step
     step_fee_records = []     # (date_index, fee) per step — fees scaled later
     cumul_rebals     = 0     # total rebalances
-    chain_tax_state  = None  # tax state chained between steps
 
     print(f"Temperature: {TEMPERATURE:.2f}")
 
@@ -970,11 +868,10 @@ def run_equity():
                 step_regime[test_scores.index.get_loc(cd)] = 3
 
         test_dr = daily_ret_panel.reindex(index=test_scores.index, columns=test_scores.columns).fillna(0)
-        test_returns, test_weights, step_fees, step_taxes, step_rebals, _, chain_tax_state, carry_regime = run_backtest(
+        test_returns, test_weights, step_fees, step_rebals, _, carry_regime = run_backtest(
                                                    test_scores, test_dr,
                                                    prev_weights=prev_w,
                                                    sharpe_weights=etf_sharpe,
-                                                   tax_state=chain_tax_state,
                                                    monitor_mask=step_monitor_mask,
                                                    regime=step_regime,
                                                    prev_regime=carry_regime)
@@ -1020,19 +917,13 @@ def run_equity():
     ann_vol      = port_returns.std() * np.sqrt(252)
     final_sharpe = sharpe(port_returns)
 
-    # --- Two parallel backtests: red (IB fees only) + orange (fees + tax) ---
-    eq_red, eq_orange, daily_factor, cumul_fees, total_taxes = compute_red_orange(
-        port_returns, step_fee_records, init_capital)
+    # --- Equity curve with IB fee drag ---
+    eq_curve, cumul_fees = compute_fee_equity(port_returns, step_fee_records, init_capital)
 
-    eq_curve     = eq_red                                 # red = reference curve
-    total_ret    = eq_red.iloc[-1] - 1
+    total_ret    = eq_curve.iloc[-1] - 1
     ann_ret      = (1 + total_ret) ** (1 / n_years) - 1
-    max_dd       = (eq_red / eq_red.cummax() - 1).min()
-
-    final_portfolio = eq_red.iloc[-1] * init_capital      # red final (fees only)
-    net_final  = eq_orange.iloc[-1] * init_capital        # orange final (fees + tax)
-    net_return = net_final / init_capital - 1
-    net_ann    = (1 + net_return) ** (1 / n_years) - 1
+    max_dd       = (eq_curve / eq_curve.cummax() - 1).min()
+    final_portfolio = eq_curve.iloc[-1] * init_capital
 
     print("\n" + "=" * 75)
     print("=== Final OOS backtest ===")
@@ -1041,17 +932,11 @@ def run_equity():
     print(f"  Ann. vol:     {ann_vol:.1%}")
     print(f"  Sharpe:       {final_sharpe:.3f}")
     print(f"  Max drawdown: {max_dd:.1%}")
-    print(f"  --- RED — IB fees only (no tax) ---")
     print(f"  Total return: {total_ret:.1%}")
     print(f"  Ann. return:  {ann_ret:.1%}")
     print(f"  Rebalances:   {cumul_rebals} ({cumul_rebals/n_years:.0f}/an)")
     print(f"  Trading fees: {cumul_fees:,.0f}€ ({cumul_fees/n_years:,.0f}€/an)")
     print(f"  Final value:  {final_portfolio:,.0f}€")
-    print(f"  --- ORANGE — IB fees + flat tax 30% ---")
-    print(f"  Flat tax:     {total_taxes:,.0f}€ ({total_taxes/n_years:,.0f}€/an)")
-    print(f"  Final value:  {net_final:,.0f}€")
-    print(f"  Net return:   {net_return:.1%}")
-    print(f"  Net ann.:     {net_ann:.1%}")
 
     # Save results
     port_returns.to_frame().to_parquet(DATA / "backtest_results.parquet")
@@ -1064,17 +949,12 @@ def run_equity():
     eq_df.columns = ["date", "equity"]
     eq_df.to_csv(OUTPUTS / "backtest_equity.csv", index=False)
 
-    # Equity chart — red (fees) + orange (fees + flat tax)
+    # Equity chart
     all_weights = pd.concat(all_test_weights).sort_index()
-    all_scores = pd.concat(all_test_scores).sort_index() if all_test_scores else pd.DataFrame()
     fin = {
         "init": init_capital,
-        "gross": final_portfolio,   # red final  (IB fees only)
-        "net": net_final,           # orange final (fees + flat tax)
         "fees": cumul_fees,
-        "taxes": total_taxes,
-        "ann_gross": ann_ret,
-        "ann_net": net_ann,
+        "final": final_portfolio,
     }
     full_model_idx = (
         pd.concat([pd.Series(idx) for idx in model_active_days]).values
@@ -1086,8 +966,8 @@ def run_equity():
     )
     full_model_dates = pd.DatetimeIndex(full_model_idx)
     full_fl_dates = pd.DatetimeIndex(full_fl_idx)
-    _save_equity_png(port_returns, eq_red, all_weights, params_df, OUTPUTS,
-                     scores_A=all_scores, fin=fin, eq_orange=eq_orange,
+    _save_equity_png(port_returns, eq_curve, all_weights, OUTPUTS,
+                     fin=fin,
                      model_active_dates=full_model_dates,
                      fl_active_dates=full_fl_dates)
 
@@ -1110,23 +990,20 @@ def _rob_sharpe(returns: pd.Series) -> float:
 
 
 def _run_metrics(returns: pd.Series, step_fee_records: list) -> tuple:
-    """Build red/orange curves (same model as the equity backtest) and scalar
-    metrics. Returns (metrics_dict, eq_red, eq_orange)."""
-    eq_red, eq_orange, _, _, _ = compute_red_orange(returns, step_fee_records, INIT_CAPITAL)
+    """Build equity curve with IB fee drag and compute scalar metrics.
+    Returns (metrics_dict, eq_curve)."""
+    eq_curve, _ = compute_fee_equity(returns, step_fee_records, INIT_CAPITAL)
     n_years = max(len(returns), 1) / 252
-    red_total = eq_red.iloc[-1] - 1                        # IB fees only
-    net_final = eq_orange.iloc[-1] * INIT_CAPITAL          # fees + flat tax
-    net_ret = net_final / INIT_CAPITAL - 1
+    total_ret = eq_curve.iloc[-1] - 1
+    final_val = eq_curve.iloc[-1] * INIT_CAPITAL
     m = {
-        "total_return_pct": red_total * 100,
-        "ann_gross_pct": ((1 + red_total) ** (1 / n_years) - 1) * 100,
-        "net_final": net_final,
-        "net_return_pct": net_ret * 100,
-        "net_ann_pct": ((1 + net_ret) ** (1 / n_years) - 1) * 100,
+        "total_return_pct": total_ret * 100,
+        "ann_pct": ((1 + total_ret) ** (1 / n_years) - 1) * 100,
+        "final_val": final_val,
         "sharpe": _rob_sharpe(returns),
-        "max_dd_pct": (eq_red / eq_red.cummax() - 1).min() * 100,
+        "max_dd_pct": (eq_curve / eq_curve.cummax() - 1).min() * 100,
     }
-    return m, eq_red, eq_orange
+    return m, eq_curve
 
 
 def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
@@ -1155,7 +1032,6 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
     step_fee_records = []
     carry_weights = None
     carry_regime = None
-    chain_tax_state = None
 
     for step in steps:
         val_data = oos[(oos["step"] == step) & (oos["split"] == "val")]
@@ -1312,13 +1188,11 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
         result = run_backtest(test_scores, test_dr,
                               prev_weights=prev_w,
                               sharpe_weights=etf_sharpe,
-                              tax_state=chain_tax_state,
                               monitor_mask=step_monitor_mask,
                               regime=step_regime,
                               prev_regime=carry_regime)
         test_returns, test_weights, step_fees = result[0], result[1], result[2]
-        chain_tax_state = result[6]
-        carry_regime = result[7]
+        carry_regime = result[5]
         carry_weights = dict(zip(test_weights.columns, test_weights.iloc[-1].values))
         step_fee_records.append((test_returns.index, step_fees))
         all_test_returns.append(test_returns)
@@ -1340,9 +1214,9 @@ def _run_one_robustness(run_idx):
         fl_test_by_step=d["fl_test_by_step"],
         test_ic_ema_lagged=d["test_ic_ema_lagged"],
         fl_test_ic_ema_lagged=d["fl_test_ic_ema_lagged"])
-    m, run_red, _ = _run_metrics(run_returns, run_fees)
+    m, run_eq = _run_metrics(run_returns, run_fees)
     m["run"] = run_idx + 1
-    return m, run_red
+    return m, run_eq
 
 
 def run_robustness():
@@ -1437,7 +1311,7 @@ def run_robustness():
                                           fl_test_by_step=fl_test_by_step,
                                           test_ic_ema_lagged=test_ic_ema_lagged,
                                           fl_test_ic_ema_lagged=fl_test_ic_ema_lagged)
-    orig_m, orig_red, orig_orange = _run_metrics(orig_returns, orig_fees)
+    orig_m, orig_eq = _run_metrics(orig_returns, orig_fees)
 
     # Run N_RUNS with random drops — parallel across CPU cores
     from multiprocessing import Pool, cpu_count
@@ -1455,26 +1329,24 @@ def run_robustness():
         results = pool.map(_run_one_robustness, range(N_RUNS))
 
     stats = []
-    all_run_red = []
-    for m, run_red in results:
+    all_run_eq = []
+    for m, run_eq in results:
         stats.append(m)
-        all_run_red.append(run_red)
-        print(f"  Run {m['run']:2d}/{N_RUNS}  brut={m['ann_gross_pct']:+.1f}%/an  "
-              f"net={m['net_ann_pct']:+.1f}%/an  sharpe={m['sharpe']:.2f}  "
-              f"dd={m['max_dd_pct']:.1f}%", flush=True)
+        all_run_eq.append(run_eq)
+        print(f"  Run {m['run']:2d}/{N_RUNS}  ann={m['ann_pct']:+.1f}%/an  "
+              f"sharpe={m['sharpe']:.2f}  dd={m['max_dd_pct']:.1f}%", flush=True)
 
-    stats_df = pd.DataFrame(stats)[["run", "total_return_pct", "ann_gross_pct",
-                                    "net_return_pct", "net_ann_pct", "net_final",
-                                    "sharpe", "max_dd_pct"]]
+    stats_df = pd.DataFrame(stats)[["run", "total_return_pct", "ann_pct",
+                                    "final_val", "sharpe", "max_dd_pct"]]
     stats_df.to_csv(OUTPUTS / "backtest_robustness.csv", index=False)
 
     # Aggregate stats across the runs: (median, min, max)
     def _agg(col):
         return stats_df[col].median(), stats_df[col].min(), stats_df[col].max()
 
-    ann_g, ann_n = _agg("ann_gross_pct"), _agg("net_ann_pct")
-    tot_g, tot_n = _agg("total_return_pct"), _agg("net_return_pct")
-    netf, shp, dd = _agg("net_final"), _agg("sharpe"), _agg("max_dd_pct")
+    ann_a = _agg("ann_pct")
+    tot_a = _agg("total_return_pct")
+    finv, shp, dd = _agg("final_val"), _agg("sharpe"), _agg("max_dd_pct")
 
     # --- Chart harmonised with backtest_equity.jpg ---
     fig = plt.figure(figsize=(24, 14))
@@ -1484,22 +1356,19 @@ def run_robustness():
     ax_leg = fig.add_subplot(gs[0, 1])
     ax_leg.axis("off")
 
-    # All runs in light grey (red curves = IB fees only)
-    for eq in all_run_red:
+    # All runs in light grey
+    for eq in all_run_eq:
         ax1.plot(eq.index, eq.values, lw=0.8, color="#888888", alpha=0.30, zorder=2)
 
     # Median of the run curves
-    eq_matrix = pd.DataFrame({i: eq for i, eq in enumerate(all_run_red)})
+    eq_matrix = pd.DataFrame({i: eq for i, eq in enumerate(all_run_eq)})
     median_eq = eq_matrix.median(axis=1)
     ax1.plot(median_eq.index, median_eq.values, lw=2.8, color="#1f77b4", zorder=8,
              label=f"Médiane ({N_RUNS} runs)")
 
-    # Original (no drop) — red (IB fees only) + orange (fees + flat tax),
-    # same two-curve presentation as the equity chart
-    ax1.plot(orig_red.index, orig_red.values, lw=3.5, color="#d62728", zorder=10,
-             label="Original — frais IB")
-    ax1.plot(orig_orange.index, orig_orange.values, lw=1.5, color="#ff7f0e", zorder=11,
-             label="Original — frais IB + flat tax")
+    # Original (no drop)
+    ax1.plot(orig_eq.index, orig_eq.values, lw=3.5, color="#d62728", zorder=10,
+             label="Original")
 
     ax1.set_yscale("log")
     ax1.yaxis.set_major_formatter(mtick.FuncFormatter(lambda x, _: f"{x:.1f}x"))
@@ -1513,7 +1382,7 @@ def run_robustness():
     # VIX shaded background (same as the equity chart)
     if vix_path.exists():
         vix_raw = pd.read_parquet(vix_path).iloc[:, 0]
-        vix_raw = vix_raw.reindex(orig_red.index, method="ffill").dropna()
+        vix_raw = vix_raw.reindex(orig_eq.index, method="ffill").dropna()
         ax1b = ax1.twinx()
         vix_ema100_chart = vix_raw.ewm(span=100).mean()
         vix_ema300_chart = vix_raw.ewm(span=300).mean()
@@ -1561,53 +1430,50 @@ def run_robustness():
         ax1b.set_ylabel("VIX", color="#d62728", fontsize=8)
         ax1b.tick_params(axis="y", labelcolor="#d62728", labelsize=7)
 
-    # --- Right column: gross/net return stats across the runs ---
+    # --- Right column: return stats across the runs ---
     def _eur(x):
         return f"{x:,.0f}".replace(",", " ") + " €"
 
-    rows = [
-        ("title", "ROBUSTESSE", "", ""),
-        ("text", f"{N_RUNS} backtests · {N_DROP[0]}-{N_DROP[1]} ETF retirés au hasard", "", ""),
-        ("kv", "Capital initial", _eur(INIT_CAPITAL), ""),
-        ("sep", "", "", ""),
-        ("hdr3", "", "Brut", "Net"),
-        ("sub", "Rendement annuel", "", ""),
-        ("r3", "Original", f"{orig_m['ann_gross_pct']:+.1f}%", f"{orig_m['net_ann_pct']:+.1f}%"),
-        ("r3", "Médian", f"{ann_g[0]:+.1f}%", f"{ann_n[0]:+.1f}%"),
-        ("r3", "Min", f"{ann_g[1]:+.1f}%", f"{ann_n[1]:+.1f}%"),
-        ("r3", "Max", f"{ann_g[2]:+.1f}%", f"{ann_n[2]:+.1f}%"),
-        ("sep", "", "", ""),
-        ("sub", "Rendement total", "", ""),
-        ("r3", "Original", f"{orig_m['total_return_pct']:+.0f}%", f"{orig_m['net_return_pct']:+.0f}%"),
-        ("r3", "Médian", f"{tot_g[0]:+.0f}%", f"{tot_n[0]:+.0f}%"),
-        ("r3", "Min", f"{tot_g[1]:+.0f}%", f"{tot_n[1]:+.0f}%"),
-        ("r3", "Max", f"{tot_g[2]:+.0f}%", f"{tot_n[2]:+.0f}%"),
-        ("sep", "", "", ""),
-        ("sub", "Valeur finale nette", "", ""),
-        ("kvo", "Original", _eur(orig_m["net_final"]), ""),
-        ("kvo", "Médian", _eur(netf[0]), ""),
-        ("kvo", "Min", _eur(netf[1]), ""),
-        ("kvo", "Max", _eur(netf[2]), ""),
-        ("sep", "", "", ""),
-        ("sub", "Sharpe (brut)", "", ""),
-        ("kvr", "Original", f"{orig_m['sharpe']:.2f}", ""),
-        ("kvr", "Médian", f"{shp[0]:.2f}", ""),
-        ("kvr", "Min – Max", f"{shp[1]:.2f} – {shp[2]:.2f}", ""),
-        ("sep", "", "", ""),
-        ("sub", "Max Drawdown", "", ""),
-        ("kvr", "Médian", f"{dd[0]:.1f}%", ""),
-        ("kvr", "Pire – Meilleur", f"{dd[1]:.1f}% / {dd[2]:.1f}%", ""),
-    ]
+    RED, BLUE = "#d62728", "#1f77b4"
 
-    # Colour code: brut column red, net column orange, "Médian" rows blue
-    # (the median curve on the chart is blue).
-    RED, ORANGE, BLUE = "#d62728", "#ff7f0e", "#1f77b4"
+    rows = [
+        ("title", "ROBUSTESSE", ""),
+        ("text", f"{N_RUNS} backtests · {N_DROP[0]}-{N_DROP[1]} ETF retirés au hasard", ""),
+        ("kv", "Capital initial", _eur(INIT_CAPITAL)),
+        ("sep", "", ""),
+        ("sub", "Rendement annuel", ""),
+        ("kvr", "Original", f"{orig_m['ann_pct']:+.1f}%"),
+        ("kvr", "Médian", f"{ann_a[0]:+.1f}%"),
+        ("kvr", "Min", f"{ann_a[1]:+.1f}%"),
+        ("kvr", "Max", f"{ann_a[2]:+.1f}%"),
+        ("sep", "", ""),
+        ("sub", "Rendement total", ""),
+        ("kvr", "Original", f"{orig_m['total_return_pct']:+.0f}%"),
+        ("kvr", "Médian", f"{tot_a[0]:+.0f}%"),
+        ("kvr", "Min", f"{tot_a[1]:+.0f}%"),
+        ("kvr", "Max", f"{tot_a[2]:+.0f}%"),
+        ("sep", "", ""),
+        ("sub", "Valeur finale", ""),
+        ("kvr", "Original", _eur(orig_m["final_val"])),
+        ("kvr", "Médian", _eur(finv[0])),
+        ("kvr", "Min", _eur(finv[1])),
+        ("kvr", "Max", _eur(finv[2])),
+        ("sep", "", ""),
+        ("sub", "Sharpe", ""),
+        ("kvr", "Original", f"{orig_m['sharpe']:.2f}"),
+        ("kvr", "Médian", f"{shp[0]:.2f}"),
+        ("kvr", "Min – Max", f"{shp[1]:.2f} – {shp[2]:.2f}"),
+        ("sep", "", ""),
+        ("sub", "Max Drawdown", ""),
+        ("kvr", "Médian", f"{dd[0]:.1f}%"),
+        ("kvr", "Pire – Meilleur", f"{dd[1]:.1f}% / {dd[2]:.1f}%"),
+    ]
 
     def _lbl(label):
         return (BLUE, "bold") if label.strip() == "Médian" else ("#000000", "normal")
 
     y, ystep = 0.99, 0.0305
-    for kind, a, b, c in rows:
+    for kind, a, b in rows:
         if kind == "sep":
             ax_leg.plot([0.0, 0.99], [y + 0.012, y + 0.012], color="#bbbbbb",
                         lw=1.0, transform=ax_leg.transAxes)
@@ -1624,24 +1490,9 @@ def run_robustness():
             ax_leg.text(0.0, y, a, fontsize=13, fontweight="bold", va="top",
                         transform=ax_leg.transAxes, color="#222222")
             y -= ystep
-        elif kind == "hdr3":
-            ax_leg.text(0.66, y, b, fontsize=12, fontweight="bold", va="top", ha="right",
-                        transform=ax_leg.transAxes, color=RED)
-            ax_leg.text(0.99, y, c, fontsize=12, fontweight="bold", va="top", ha="right",
-                        transform=ax_leg.transAxes, color=ORANGE)
-            y -= ystep
-        elif kind == "r3":
+        elif kind in ("kv", "kvr"):
             lcol, lfw = _lbl(a)
-            ax_leg.text(0.04, y, a, fontsize=12.5, va="top", transform=ax_leg.transAxes,
-                        color=lcol, fontweight=lfw)
-            ax_leg.text(0.66, y, b, fontsize=12.5, va="top", ha="right",
-                        transform=ax_leg.transAxes, color=RED)
-            ax_leg.text(0.99, y, c, fontsize=12.5, va="top", ha="right",
-                        transform=ax_leg.transAxes, color=ORANGE)
-            y -= ystep
-        elif kind in ("kv", "kvo", "kvr"):
-            lcol, lfw = _lbl(a)
-            vcol = ORANGE if kind == "kvo" else (RED if kind == "kvr" else "#333333")
+            vcol = RED if kind == "kvr" else "#333333"
             ax_leg.text(0.04, y, a, fontsize=12.5, va="top", transform=ax_leg.transAxes,
                         color=lcol, fontweight=lfw)
             ax_leg.text(0.99, y, b, fontsize=12.5, va="top", ha="right",
@@ -1654,12 +1505,12 @@ def run_robustness():
     plt.close(fig)
 
     print(f"\n{'='*70}")
-    print(f"  Original:  brut {orig_m['ann_gross_pct']:+.1f}%/an  net {orig_m['net_ann_pct']:+.1f}%/an  "
+    print(f"  Original:  ann {orig_m['ann_pct']:+.1f}%/an  "
           f"Sharpe {orig_m['sharpe']:.2f}  DD {orig_m['max_dd_pct']:.1f}%")
-    print(f"  Médian:    brut {ann_g[0]:+.1f}%/an  net {ann_n[0]:+.1f}%/an  "
+    print(f"  Médian:    ann {ann_a[0]:+.1f}%/an  "
           f"Sharpe {shp[0]:.2f}  DD {dd[0]:.1f}%")
-    print(f"  Min:       brut {ann_g[1]:+.1f}%/an  net {ann_n[1]:+.1f}%/an  Sharpe {shp[1]:.2f}")
-    print(f"  Max:       brut {ann_g[2]:+.1f}%/an  net {ann_n[2]:+.1f}%/an  Sharpe {shp[2]:.2f}")
+    print(f"  Min:       ann {ann_a[1]:+.1f}%/an  Sharpe {shp[1]:.2f}")
+    print(f"  Max:       ann {ann_a[2]:+.1f}%/an  Sharpe {shp[2]:.2f}")
     print(f"{'='*70}")
     print(f"\nSaved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_robustness.jpg")
     print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_robustness.csv")
