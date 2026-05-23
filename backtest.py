@@ -122,6 +122,8 @@ def run_backtest(
     sharpe_weights: np.ndarray | None = None,
     tax_state: dict | None = None,
     monitor_mask: np.ndarray | None = None,
+    regime: np.ndarray | None = None,
+    prev_regime: int | None = None,
 ) -> tuple:
     """
     Vectorised portfolio simulation.
@@ -234,8 +236,14 @@ def run_backtest(
             current_year = day.year
             total_val = positions.sum() + cash  # recalc after tax
 
-        # Rebalance only when a currently allocated asset leaves the monitor set
-        if monitor_mask is not None:
+        # Rebalance when: (a) allocated asset leaves monitor set, or (b) regime changes
+        if regime is not None and i == 0:
+            regime_changed = (prev_regime is not None and regime[0] != prev_regime)
+        else:
+            regime_changed = (regime is not None and i > 0 and regime[i] != regime[i - 1])
+        if regime_changed:
+            topn_changed = True
+        elif monitor_mask is not None:
             cur_monitor_set = set(j for j in range(n_etfs) if monitor_mask[i, j])
             allocated_out = prev_topn_set - cur_monitor_set
             topn_changed = len(allocated_out) > 0 or len(prev_topn_set) == 0
@@ -297,7 +305,8 @@ def run_backtest(
         "current_year": current_year,
         "etf_list": etf_list,
     }
-    return ret_series, weights_df, total_fees, total_taxes, n_rebalances, final_val, out_tax_state
+    last_regime = int(regime[-1]) if regime is not None else None
+    return ret_series, weights_df, total_fees, total_taxes, n_rebalances, final_val, out_tax_state, last_regime
 
 
 def sharpe(returns: pd.Series, min_obs: int = 30) -> float:
@@ -806,6 +815,7 @@ def run_equity():
     model_active_days = []  # list of DatetimeIndex segments where SM model deployed
     fl_active_days    = []  # list of DatetimeIndex segments where Follow Leads deployed
     carry_weights    = None   # chain positions between steps
+    carry_regime     = None   # last regime of previous step
     step_fee_records = []     # (date_index, fee) per step — fees scaled later
     cumul_rebals     = 0     # total rebalances
     chain_tax_state  = None  # tax state chained between steps
@@ -928,16 +938,19 @@ def run_equity():
             if len(fl_days_step) > 0:
                 fl_active_days.append(fl_days_step)
 
-        # --- Combine model + Sharpe per day ---
+        # --- Combine model + Sharpe per day + build regime array ---
+        # regime: 0=model(SM), 1=calm-heuristic, 2=calm-FL, 3=spike
         test_scores = model_scores.copy()
         step_monitor_mask = model_monitor_mask.copy()
+        calm_regime = 2 if use_fl_model else 1
+        step_regime = np.zeros(len(calm_per_day), dtype=int)
         for i, calm in enumerate(calm_per_day.values):
             if calm:
                 test_scores.iloc[i] = sharpe_row
                 step_monitor_mask[i] = sharpe_monitor_row
+                step_regime[i] = calm_regime
 
         # VIX spike — close-only detection.
-        # Detect close J → sell at close J (same day cash).
         cash_dates = set()
         if not vix_s.empty:
             vix_close_test = vix_s.reindex(test_scores.index, method="ffill")
@@ -954,14 +967,17 @@ def run_equity():
             for cd in cash_dates:
                 test_scores.loc[cd] = np.nan
                 step_monitor_mask[test_scores.index.get_loc(cd)] = False
+                step_regime[test_scores.index.get_loc(cd)] = 3
 
         test_dr = daily_ret_panel.reindex(index=test_scores.index, columns=test_scores.columns).fillna(0)
-        test_returns, test_weights, step_fees, step_taxes, step_rebals, _, chain_tax_state = run_backtest(
+        test_returns, test_weights, step_fees, step_taxes, step_rebals, _, chain_tax_state, carry_regime = run_backtest(
                                                    test_scores, test_dr,
                                                    prev_weights=prev_w,
                                                    sharpe_weights=etf_sharpe,
                                                    tax_state=chain_tax_state,
-                                                   monitor_mask=step_monitor_mask)
+                                                   monitor_mask=step_monitor_mask,
+                                                   regime=step_regime,
+                                                   prev_regime=carry_regime)
 
         # Save final weights for next step
         carry_weights = dict(zip(test_weights.columns, test_weights.iloc[-1].values))
@@ -1138,6 +1154,7 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
     all_test_returns = []
     step_fee_records = []
     carry_weights = None
+    carry_regime = None
     chain_tax_state = None
 
     for step in steps:
@@ -1260,13 +1277,17 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
         if not gate_open:
             calm_per_day[:] = True
 
-        # --- Combine per day ---
+        # --- Combine per day + build regime array ---
+        # regime: 0=model(SM), 1=calm-heuristic, 2=calm-FL, 3=spike
         test_scores = model_scores.copy()
         step_monitor_mask = model_monitor_mask.copy()
+        calm_regime = 2 if use_fl else 1
+        step_regime = np.zeros(len(calm_per_day), dtype=int)
         for i, calm in enumerate(calm_per_day.values):
             if calm:
                 test_scores.iloc[i] = sharpe_row
                 step_monitor_mask[i] = sharpe_monitor_row
+                step_regime[i] = calm_regime
 
         # VIX spike → cash-out (same logic as main backtest)
         cash_dates = set()
@@ -1285,15 +1306,19 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
             for cd in cash_dates:
                 test_scores.loc[cd] = np.nan
                 step_monitor_mask[test_scores.index.get_loc(cd)] = False
+                step_regime[test_scores.index.get_loc(cd)] = 3
 
         test_dr = daily_ret_panel.reindex(index=test_scores.index, columns=test_scores.columns).fillna(0)
         result = run_backtest(test_scores, test_dr,
                               prev_weights=prev_w,
                               sharpe_weights=etf_sharpe,
                               tax_state=chain_tax_state,
-                              monitor_mask=step_monitor_mask)
+                              monitor_mask=step_monitor_mask,
+                              regime=step_regime,
+                              prev_regime=carry_regime)
         test_returns, test_weights, step_fees = result[0], result[1], result[2]
         chain_tax_state = result[6]
+        carry_regime = result[7]
         carry_weights = dict(zip(test_weights.columns, test_weights.iloc[-1].values))
         step_fee_records.append((test_returns.index, step_fees))
         all_test_returns.append(test_returns)
