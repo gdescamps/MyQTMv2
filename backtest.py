@@ -54,8 +54,7 @@ FL_IC_GATE_SPAN      = 24     # EMA span (same as SM gate, ~2y)
 FL_IC_GATE_MIN_STEPS = 84     # min steps before gate can open (same as SM gate)
 FL_SHARPE_POWER = 2           # within top-N: weight by expanding Sharpe^FL_SHARPE_POWER (0=FL scores)
 CALM_SHARPE_FLOOR = 0.15
-VIX_SPIKE_MIN = 6.0
-VIX_SPIKE_EXEC_DELAY = 1
+VIX_SPIKE_MIN = 4.0
 VIX_CALM_THRESHOLD = 19.0  # VIX EMA100 below this → calm market
 VIX_CALM_COND_EMA100_SUP_EMA300 = False  # if True, also require EMA100 < EMA300
 
@@ -1202,8 +1201,8 @@ def run_equity():
                 step_monitor_mask[i] = sharpe_monitor_row
 
         # VIX spike — close-only detection.
-        # Detect close J, execute J+1 (cash for 1 day).
-        VIX_SPIKE_CASH_DAYS = 1
+        # Detect close J → sell at close J (same day cash).
+        VIX_SPIKE_CASH_DAYS = 3
         cash_dates = set()
         if not vix_s.empty:
             vix_close_test = vix_s.reindex(test_scores.index, method="ffill")
@@ -1213,7 +1212,7 @@ def run_equity():
                 if sd not in test_scores.index:
                     continue
                 sd_pos = test_scores.index.get_loc(sd)
-                for offset in range(VIX_SPIKE_EXEC_DELAY, VIX_SPIKE_EXEC_DELAY + VIX_SPIKE_CASH_DAYS):
+                for offset in range(VIX_SPIKE_CASH_DAYS):
                     cash_pos = sd_pos + offset
                     if 0 <= cash_pos < len(test_scores):
                         cash_dates.add(test_scores.index[cash_pos])
@@ -1250,9 +1249,8 @@ def run_equity():
         # Save scores_A for chart (first day of test step per ETF)
         all_test_scores.append(test_scores.iloc[[0]])
 
-        # Live equity curve update after each step
+        # Live progress after each step
         tmp_returns = pd.concat(all_test_returns).sort_index()
-        tmp_weights = pd.concat(all_test_weights).sort_index()
         tmp_eq = (1 + tmp_returns).cumprod()
         tmp_sharpe = sharpe(tmp_returns)
         tmp_dd = (tmp_eq / tmp_eq.cummax() - 1).min()
@@ -1262,20 +1260,6 @@ def run_equity():
         calm_src = "FL" if use_fl_model else "heur"
         print(f"       cumul: {tmp_eq.iloc[-1]-1:+.1%}  sharpe={tmp_sharpe:.2f}  dd={tmp_dd:.1%}  "
               f"{gate_str}  calm={calm_src}", flush=True)
-        params_df = pd.DataFrame(all_params_rows)
-        tmp_scores = pd.concat(all_test_scores).sort_index() if all_test_scores else pd.DataFrame()
-        live_model_idx = (
-            pd.concat([pd.Series(idx) for idx in model_active_days]).values
-            if model_active_days else np.array([], dtype="datetime64[ns]")
-        )
-        live_fl_idx = (
-            pd.concat([pd.Series(idx) for idx in fl_active_days]).values
-            if fl_active_days else np.array([], dtype="datetime64[ns]")
-        )
-        _save_equity_png(tmp_returns, tmp_eq, tmp_weights, params_df, OUTPUTS,
-                         scores_A=tmp_scores,
-                         model_active_dates=pd.DatetimeIndex(live_model_idx),
-                         fl_active_dates=pd.DatetimeIndex(live_fl_idx))
 
     if not all_test_returns:
         sys.exit("No test returns produced — check OOS predictions")
