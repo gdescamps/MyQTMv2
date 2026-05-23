@@ -914,7 +914,7 @@ def run_equity():
             # High confidence → top-N by FL model score.
             fl_mean = fl_step.groupby("etf_id")["score"].mean()
             fl_series = fl_mean.reindex(model_scores.columns).fillna(0.0)
-            top_calm_etfs = fl_series.nlargest(CALM_TOP_N).index.tolist()
+            top_calm_etfs = fl_series.nlargest(TOP_N_ALLOC).index.tolist()
             # Weight within top-N by expanding Sharpe^FL_SHARPE_POWER.
             sharpe_series = (exp_sharpe_for_floor ** FL_SHARPE_POWER)
         else:
@@ -1252,7 +1252,7 @@ def _run_single(oos, steps, daily_ret_panel, drop_etfs=None, seed=None,
                 for etf in fl_series.index:
                     if etf in dropped_set:
                         fl_series[etf] = -999.0
-                top_calm_etfs = [e for e in fl_series.nlargest(CALM_TOP_N).index
+                top_calm_etfs = [e for e in fl_series.nlargest(TOP_N_ALLOC).index
                                  if fl_series[e] > -999.0]
                 use_fl = True
 
@@ -1389,7 +1389,6 @@ def run_robustness():
         if fl_path.exists():
             fl_full = pd.read_parquet(fl_path).reset_index()
             fl_full["date"] = pd.to_datetime(fl_full["date"])
-            fl_full = fl_full.set_index(["date", "etf_id"])
             fl_test_full = fl_full[fl_full["split"] == "test"].dropna(subset=["score"])
             fl_test_by_step = {s: g for s, g in fl_test_full.groupby("step")}
             print(f"Follow Leads loaded for robustness: {len(fl_test_by_step)} steps")
