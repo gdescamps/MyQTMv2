@@ -161,9 +161,7 @@ def run_backtest(
 
     weights = _alloc(scores, sw)
 
-    # Lot-based portfolio simulation with realistic fees
-    LOT_SIZE = 10_000.0       # 10k€ tranches
-
+    # Fractional portfolio simulation with realistic fees
     # Bid/ask spread: ~0.01% for liquid ETFs (iShares core on Euronext)
     SPREAD_COST = 0.0001     # 0.01% per trade
 
@@ -172,8 +170,6 @@ def run_backtest(
     def _broker_fee(order_amount):
         """Compute the Interactive Brokers fee for a single order."""
         return max(order_amount * 0.0005, 3.0)
-
-    # iShares ETF TER: already included in NAV (price returns are net of TER)
 
     # Minimum rebalance threshold: skip if allocation change < 3%
     REBAL_MIN_CHANGE = 0.03
@@ -208,9 +204,7 @@ def run_backtest(
     if prev_weights is not None:
         total_val = INIT_CAPITAL
         for j in range(n_etfs):
-            target_val = prev_weights[j] * total_val
-            positions[j] = int(target_val / LOT_SIZE) * LOT_SIZE
-            # Only set cost_basis if not restored from tax_state
+            positions[j] = prev_weights[j] * total_val
             if tax_state is None:
                 cost_basis[j] = positions[j]
         cash = total_val - positions.sum()
@@ -223,27 +217,6 @@ def run_backtest(
         prev_topn_set = set(j for j in range(n_etfs) if prev_weights[j] > 0.001)
     else:
         prev_topn_set = set()
-
-    def _compute_target_lots(target_w, total_val):
-        """Compute target positions in LOT_SIZE lots given weights and total value."""
-        new_pos = np.zeros(n_etfs)
-        remaining = total_val
-        ranked = np.argsort(-target_w)
-        for j in ranked:
-            tv = target_w[j] * total_val
-            nl = int(tv / LOT_SIZE)
-            alloc = nl * LOT_SIZE
-            if alloc > remaining:
-                alloc = int(remaining / LOT_SIZE) * LOT_SIZE
-            new_pos[j] = alloc
-            remaining -= alloc
-        for j in ranked:
-            if remaining < LOT_SIZE:
-                break
-            if target_w[j] > 0:
-                new_pos[j] += LOT_SIZE
-                remaining -= LOT_SIZE
-        return new_pos, remaining
 
     for i in range(n_days):
         total_val = positions.sum() + cash
@@ -261,10 +234,9 @@ def run_backtest(
             current_year = day.year
             total_val = positions.sum() + cash  # recalc after tax
 
-        # Rebalance only when a currently allocated asset leaves the monitor set (top 6)
+        # Rebalance only when a currently allocated asset leaves the monitor set
         if monitor_mask is not None:
             cur_monitor_set = set(j for j in range(n_etfs) if monitor_mask[i, j])
-            # Check if any currently held position dropped out of monitor set
             allocated_out = prev_topn_set - cur_monitor_set
             topn_changed = len(allocated_out) > 0 or len(prev_topn_set) == 0
         else:
@@ -272,21 +244,19 @@ def run_backtest(
             topn_changed = (cur_topn_set != prev_topn_set)
         if not topn_changed:
             pass
-        elif total_val >= LOT_SIZE:
+        elif total_val > 0:
             target_w = weights[i]
-            target_pos, _ = _compute_target_lots(target_w, total_val)
+            target_pos = target_w * total_val
             current_w = positions / total_val if total_val > 0 else np.zeros(n_etfs)
             weight_change = np.abs(target_w - current_w).sum()
             if not np.allclose(target_pos, positions) and weight_change >= REBAL_MIN_CHANGE:
                 # Compute fees (broker commission + spread)
                 trade_fees = 0.0
                 for j in range(n_etfs):
-                    diff = target_pos[j] - positions[j]
-                    abs_diff = abs(diff)
-                    if abs_diff >= LOT_SIZE:
-                        order_amount = int(abs_diff / LOT_SIZE) * LOT_SIZE
-                        broker_fee = _broker_fee(order_amount)
-                        spread_fee = order_amount * SPREAD_COST
+                    abs_diff = abs(target_pos[j] - positions[j])
+                    if abs_diff > 0:
+                        broker_fee = _broker_fee(abs_diff)
+                        spread_fee = abs_diff * SPREAD_COST
                         trade_fees += broker_fee + spread_fee
                 total_fees += trade_fees
 
