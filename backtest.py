@@ -1187,6 +1187,7 @@ def run_equity():
 
     # Equity chart
     all_weights = pd.concat(all_test_weights).sort_index()
+    all_weights.to_parquet(OUTPUTS / "backtest_weights.parquet")
     fin = {"init": init_capital, "fees": cumul_fees, "final": final_portfolio}
 
     full_model_dates = pd.DatetimeIndex(
@@ -1204,6 +1205,16 @@ def run_equity():
                      model_active_dates=full_model_dates,
                      fl_active_dates=full_fl_dates,
                      cash_dates=full_cash_dates)
+
+    # Save regime dates for dashboard
+    import json as _json
+    regime_dates = {
+        "model": [str(d.date()) for d in full_model_dates],
+        "fl": [str(d.date()) for d in full_fl_dates],
+        "cash": [str(d.date()) for d in full_cash_dates],
+    }
+    with open(OUTPUTS / "backtest_regime_dates.json", "w") as _f:
+        _json.dump(regime_dates, _f)
 
     print(f"\nSaved → {DATA.relative_to(Path(__file__).parent)}/backtest_results.parquet")
     print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/best_params.csv")

@@ -135,8 +135,8 @@ def serve_robustness():
                             headers={"Cache-Control": "no-cache"})
 
 @app.get("/chart/equity-12m")
-def serve_equity_2026():
-    """Generate a rolling 12-month equity chart starting at 150k EUR."""
+def serve_equity_12m():
+    """Generate 12-month equity + VIX overlay + allocation stackplot."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -145,11 +145,13 @@ def serve_equity_2026():
     from starlette.responses import Response
 
     eq_path = OUTPUTS / "backtest_equity.csv"
+    weights_path = OUTPUTS / "backtest_weights.parquet"
+    regime_path = OUTPUTS / "backtest_regime_dates.json"
+    vix_path = DATA / "fred_vix.parquet"
     if not eq_path.exists():
         return Response(status_code=404)
 
     eq = pd.read_csv(eq_path, parse_dates=["date"])
-    # Last 12 months from last data date
     last_date = eq["date"].iloc[-1]
     start_1y = last_date - pd.DateOffset(years=1)
     mask_1y = eq["date"] >= start_1y
@@ -167,28 +169,131 @@ def serve_equity_2026():
     start_str = eq_1y["date"].iloc[0].strftime("%b %Y")
     end_str = eq_1y["date"].iloc[-1].strftime("%b %Y")
 
-    fig, ax = plt.subplots(figsize=(14, 5))
-    ax.plot(eq_1y["date"], eq_1y["value"], lw=3, color="#d62728")
-    ax.axhline(init, color="#999", lw=1, ls="--", alpha=0.5)
-    ax.fill_between(eq_1y["date"], init, eq_1y["value"],
-                    where=eq_1y["value"] >= init,
-                    color="#2ca02c", alpha=0.15)
-    ax.fill_between(eq_1y["date"], init, eq_1y["value"],
-                    where=eq_1y["value"] < init,
-                    color="#d62728", alpha=0.15)
-    ax.set_ylabel("Portfolio value (EUR)")
-    ax.yaxis.set_major_formatter(
+    # Load ETF color map and short names
+    from backtest import ETF_COLOR_MAP, _short_name
+    from etf import UNIVERSE as _UNIV
+    SHORT_NAMES = {e.bourso: _short_name(e.name) for e in _UNIV}
+
+    # --- Figure: 3 panels (equity+VIX, allocation) ---
+    fig = plt.figure(figsize=(16, 10))
+    gs = fig.add_gridspec(2, 1, height_ratios=[2, 1], hspace=0.08,
+                          top=0.93, bottom=0.05, left=0.06, right=0.96)
+    ax1 = fig.add_subplot(gs[0])
+    ax2 = fig.add_subplot(gs[1], sharex=ax1)
+
+    # Panel 1: Equity curve
+    ax1.plot(eq_1y["date"], eq_1y["value"], lw=3, color="#d62728", zorder=10)
+    ax1.axhline(init, color="#999", lw=1, ls="--", alpha=0.3)
+    ax1.set_ylabel("Portfolio (EUR)")
+    ax1.yaxis.set_major_formatter(
         mtick.FuncFormatter(lambda x, _: f"{x:,.0f}".replace(",", " ")))
-    ax.set_title(f"Last 12 months ({start_str} -> {end_str})  |  {ret_1y:+.1%}  |  "
-                 f"Sharpe {sharpe_1y:.2f}  |  DD {max_dd:.1%}  |  "
-                 f"Last: {eq_1y['value'].iloc[-1]:,.0f} EUR",
-                 fontsize=13, fontweight="bold")
-    ax.grid(True, alpha=0.3)
-    ax.set_facecolor("#f8f8f8")
-    fig.tight_layout()
+    ax1.grid(True, alpha=0.3)
+    ax1.set_facecolor("#f8f8f8")
+
+    fig.suptitle(
+        f"Last 12 months ({start_str} -> {end_str})  |  {ret_1y:+.1%}  |  "
+        f"Sharpe {sharpe_1y:.2f}  |  DD {max_dd:.1%}  |  "
+        f"Last: {eq_1y['value'].iloc[-1]:,.0f} EUR",
+        fontsize=13, fontweight="bold")
+
+    # VIX overlay on equity panel
+    if vix_path.exists():
+        vix_s = pd.read_parquet(vix_path).iloc[:, 0]
+        vix_12m = vix_s.reindex(pd.to_datetime(eq_1y["date"]),
+                                method="ffill").dropna()
+        if not vix_12m.empty:
+            ax_vix = ax1.twinx()
+            vix_ema100 = vix_12m.ewm(span=100).mean()
+
+            # Color VIX by regime
+            regime_dates = {}
+            if regime_path.exists():
+                with open(regime_path) as f:
+                    rd = json.load(f)
+                regime_dates = {k: set(v) for k, v in rd.items()}
+
+            colors = pd.Series("#2ca02c", index=vix_12m.index)  # green default
+            for d in vix_12m.index:
+                ds = str(d.date())
+                if ds in regime_dates.get("model", set()):
+                    colors[d] = "#ff7f0e"   # orange SM
+                elif ds in regime_dates.get("fl", set()):
+                    colors[d] = "#1f77b4"   # blue FL
+                elif ds in regime_dates.get("cash", set()):
+                    colors[d] = "#d62728"   # red cash
+
+            # Draw colored segments
+            prev_c = colors.iloc[0]
+            seg_start = 0
+            for i in range(1, len(vix_12m)):
+                if colors.iloc[i] != prev_c or i == len(vix_12m) - 1:
+                    seg = slice(seg_start, i + 1)
+                    ax_vix.fill_between(vix_12m.index[seg], vix_12m.values[seg],
+                                        alpha=0.15, color=prev_c, linewidth=0)
+                    ax_vix.plot(vix_12m.index[seg], vix_12m.values[seg],
+                                color=prev_c, alpha=0.6, linewidth=0.8)
+                    seg_start = i
+                    prev_c = colors.iloc[i]
+
+            ax_vix.plot(vix_ema100.index, vix_ema100.values,
+                        color="#d62728", alpha=0.7, lw=2, ls=(0, (8, 4)))
+            ax_vix.set_ylim(0, max(60, vix_12m.max() * 1.2))
+            ax_vix.set_ylabel("VIX", color="#d62728", fontsize=8)
+            ax_vix.tick_params(axis="y", labelcolor="#d62728", labelsize=7)
+
+    # Panel 2: Allocation stackplot
+    if weights_path.exists():
+        w_all = pd.read_parquet(weights_path)
+        w_12m = w_all.loc[w_all.index >= start_1y].copy()
+        if not w_12m.empty:
+            w_12m = w_12m.reindex(pd.to_datetime(eq_1y["date"]),
+                                  method="ffill").fillna(0)
+            cash_w = (1 - w_12m.sum(axis=1)).clip(0, 1)
+
+            # Only show allocated ETFs
+            universe_order = [e.bourso for e in _UNIV]
+            allocated = [t for t in universe_order
+                         if t in w_12m.columns and w_12m[t].mean() > 0.001]
+            w_sorted = w_12m[allocated]
+            col_names = {e: SHORT_NAMES.get(e, e) for e in w_sorted.columns}
+            w_named = w_sorted.rename(columns=col_names)
+            plot_data = w_named.copy()
+            plot_data["Cash"] = cash_w
+
+            color_map = {SHORT_NAMES.get(t, t): c
+                         for t, c in ETF_COLOR_MAP.items()}
+            color_map["Cash"] = "#e8e8e8"
+            colors_alloc = [color_map.get(c, "#7f7f7f")
+                            for c in plot_data.columns]
+
+            ax2.stackplot(plot_data.index, plot_data.values.T,
+                          labels=plot_data.columns,
+                          colors=colors_alloc, alpha=0.85)
+            ax2.set_ylabel("Allocation")
+            ax2.set_ylim(0, 1)
+            ax2.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
+            ax2.set_facecolor("#f8f8f8")
+            ax2.grid(True, alpha=0.3)
+
+            # Legend with colored dots, sorted by mean allocation
+            mean_alloc = w_sorted.mean().sort_values(ascending=False)
+            handles = []
+            for etf_id in mean_alloc.index:
+                short = SHORT_NAMES.get(etf_id, etf_id)
+                color = ETF_COLOR_MAP.get(etf_id, "#7f7f7f")
+                h = plt.Line2D([0], [0], marker='o', color='w',
+                               markerfacecolor=color,
+                               markersize=8 + mean_alloc[etf_id] * 30,
+                               label=f"{short} ({mean_alloc[etf_id]:.0%})")
+                handles.append(h)
+            ax2.legend(handles=handles, loc="upper left", fontsize=8,
+                       ncol=min(len(handles), 6), framealpha=0.8)
+
+    plt.setp(ax1.get_xticklabels(), visible=False)
+    fig.align_ylabels([ax1, ax2])
 
     buf = BytesIO()
-    fig.savefig(buf, format="jpeg", dpi=120, pil_kwargs={"quality": 80})
+    fig.savefig(buf, format="jpeg", dpi=120, pil_kwargs={"quality": 85})
     plt.close(fig)
     buf.seek(0)
     return Response(content=buf.read(), media_type="image/jpeg",
