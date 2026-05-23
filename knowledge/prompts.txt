@@ -1411,5 +1411,19 @@ Donc l'option --trade doit trade Avec les deux modèles comme dans le backtest n
 Ajouter l'option --train elle doit détecter automatiquement qu'on est en fin de bloc et qui refait l'entraînement du modèle pour le bloc suivant.
 Avec toutes les données test IC Pour savoir si on utilise les modèles pour la prise de position.
 
+--------------------------------------------
 
+Est-ce que pour le robot il y a un état qui résume les positions qui ont été plus ouverts, fermés ?
+Et l'etat courant.
+
+--------------------------------------------
+
+en t'inspirant de 
+./dashboard
+Créer dans ce repo un web app dashboard basé sur niceGUI
+Dedié a l'etat du robot et des positions reelles ainsi que les backtests normal et robustesse remottant a 2008
+mis a jour 
+Créer les sources de la web app La racine de ce projet.
+
+ajouter le lancement du webapp dans .vscode/launch.json
 
