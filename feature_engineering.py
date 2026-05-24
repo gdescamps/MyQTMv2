@@ -23,7 +23,7 @@ DATA = Path(__file__).parent / "data"
 DATA.mkdir(parents=True, exist_ok=True)
 
 # Map each ETF bourso ticker → iShares XLS ticker (for shares_outstanding)
-# 27-ETF universe — smart money via iShares US or UCITS XLS
+# 26-ETF universe — smart money via iShares US or UCITS XLS
 ISHARES_MAP = {
     # --- Geo equity ---
     "IVV":      "IVV",     # S&P 500 — direct since 2000
@@ -44,7 +44,7 @@ ISHARES_MAP = {
     "ISF.L":    "ISF",     # FTSE 100 — direct
     "IEUR":     "IMEU",    # Core MSCI Europe — IMEU UCITS proxy
     "EZU":      "CEU1",    # MSCI Eurozone — CEU1 UCITS proxy
-    "EPP":      "CPXJ",    # Pacific ex-Japan — CPXJ UCITS proxy
+    # EPP removed — no UCITS EUR equivalent on IB
     "SUSA":     "SUAS",    # MSCI USA SRI — SUAS UCITS proxy
     # --- Thematic ---
     "SOXX":     "SOXX",    # Semiconductors — since 2001

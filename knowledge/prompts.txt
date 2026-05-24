@@ -1328,6 +1328,102 @@ Dans le graphique afficher ce tableau pour illustrer les modeles utilisé pour l
   ├──────────────────┼────────┼────────┼────────────────────────────┤
   │ Spike            │ -      │ -      │ Cash only                  │ ROUGE
   ├──────────────────┼────────┼────────┼────────────────────────────┤
-  │ ≥ 19 (turbulent) │ oui    │ —      │ SM model                   │ ORANGE
-  └──────────────────┴────────┴────────┴────────────────────────────┘
+
+--------------------------------------------
+
+Est-ce que tu peux expliquer sur la pente descendante du VIX lors de la crise de 2008, qu'est ce que le modèle alloue pour avoir une montée aussi forte ? C'est quoi c'est le marché chinois ?
+
+
+--------------------------------------------
+creer switch vers la branch robot
+
+--------------------------------------------
+
+Est-ce que tu peux t'inspirer du depot ./MyQTM
+pour ecrire l'equivalent ./MyQTM/src/robot.py
+en utilisant l'image docker de IB 
+
+pour executer la stratégie sans les 2 modeles dans un premier temps.
+essayer de mettre en commun un maximum de code entre backtest normal robustesse et robot
+ecrire ca dans ./robot.py 
+
+J'ai mis à jour les variables d'environement dans
+.env
+Le compte est paper trading, donc tu peux essayer de te connecter.
+
+
+--------------------------------------------
+
+En fait mon compte réel va être en euros.
+Là le compte paper est en USD mais je vais le convertir en euros.
+
+Pour le backtest, les proxy US servent uniquement à récupérer plus de smart data disponibles historiquement.
+Je souhaite trader en euros, garder mes fonds euros. Et donc trader les versions européennes des ETF UCITS
+
+Est-ce que tu peux organiser la liste d'ETF européens uniquement ? Vérifier qu'ils sont disponibles sur Interactive Broker.
+ Est-ce qu'on est sûr que tous ces ETF européens sont de la marque iShare
+
+--------------------------------------------
+
+Supprime-le de la liste.
+commit
+dvc outputs; commit ; ush
+mettre a jour et deplacer knowledge/etf_univers.md
+Dans readme.md 
+Présenter une liste d'ETF US proxy permettant de récolter la donnée et de faire le backtest.
+Je vais vous présenter la liste d'ETF européens qu'on va réellement trader disponible sur Interactive Broker.
+Documenter les changements de marque dire qu'il n'y a pas de différence en terme de prix de comportement on traque le même indice.
+Pour la liste des 26 européens, récupérez les frais IB
+dans 
+./etf.py
+Tenir la liste des 26 proxy pour le backtest.
+Tenir la liste des 26 ETF qu'on va trader. 
+Renseignez les frais IB si on les trouve.
+Modifier le backtest pour utiliser les frais Interactive Broker les plus précis possibles.
+Pour le même backtest, proposer le résultat qu'on avait comptabilisé pour les frais Interactive Broker avant et après.
+Cette mise à jour.
+
+--------------------------------------------
+
+est ce que robot.py --data  stocke les données ou ? 
+
+est ce que robot.py --trade Passes les positions Sur IB 
+
+--------------------------------------------
+
+Les téléchargements des fichiers XLS de e-Shape se refont de façon complète à chaque fois. ?
+
+Du coup actuellement on télécharge 26 fichiers XLS. Au lieu de 27.
+
+--------------------------------------------
+
+Une fois qu'on a fait l'entraînement et qu'on a vérifié avant et après le retrait de l'ETF, on a les mêmes résultats en backtest.
+
+
+On va modifier le robot pour supporter les deux modèles comme dans le backtest.
+Et mettre en évidence dans les répertoires output le dernier modèle valide pour Follow Leads et Smart Money.
+Les modèles qui représentent le dernier entraînement du dernier bloc.
+Là où le robot doit trouver les modèles à utiliser pour faire l'inférence.
+Si les modèles sont activés.
+Il doit trouver aussi en évidence les résultats test IC pour savoir s'il active ou pas.
+Donc l'option --data doit télécharger les XLS de iShare.
+Donc l'option --trade doit trade Avec les deux modèles comme dans le backtest normal.
+Ajouter l'option --train elle doit détecter automatiquement qu'on est en fin de bloc et qui refait l'entraînement du modèle pour le bloc suivant.
+Avec toutes les données test IC Pour savoir si on utilise les modèles pour la prise de position.
+
+--------------------------------------------
+
+Est-ce que pour le robot il y a un état qui résume les positions qui ont été plus ouverts, fermés ?
+Et l'etat courant.
+
+--------------------------------------------
+
+en t'inspirant de 
+./dashboard
+Créer dans ce repo un web app dashboard basé sur niceGUI
+Dedié a l'etat du robot et des positions reelles ainsi que les backtests normal et robustesse remottant a 2008
+mis a jour 
+Créer les sources de la web app La racine de ce projet.
+
+ajouter le lancement du webapp dans .vscode/launch.json
 
