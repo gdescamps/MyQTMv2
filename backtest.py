@@ -1009,7 +1009,7 @@ def _save_equity_png(port_returns, eq_curve, weights_df, out_dir,
                      lw=1.5, label="EMA50")
             ax4.plot(baa_ema200.index, baa_ema200.values, color="#1565c0",
                      lw=1.5, label="EMA200")
-            ax4.set_ylim(1, 3)
+            ax4.set_ylim(0, 6.5)
             ax4.set_ylabel("Credit spread (BAA-10Y)")
             ax4.legend(loc="upper left", fontsize=9)
             ax4.grid(True, alpha=0.3)
