@@ -39,7 +39,7 @@ SHARPE_POWER = 0.0
 TEMPERATURE = 1.0
 TOP_N_ALLOC   = 3
 TOP_N_MONITOR = 3
-CALM_TOP_N    = 2
+CALM_TOP_N    = 1
 
 FL_IC_GATE_THRESHOLD = 0.015
 FL_IC_GATE_SPAN      = 24
@@ -465,13 +465,7 @@ def _extend_to_last_date(all_test_returns, all_test_weights, carry_weights,
     if len(tail_dates) == 0:
         return carry_weights, carry_regime
 
-    # --- Heuristic Sharpe ---
-    dr_hist = daily_ret_panel[etf_list].loc[:last_data_date]
-    roll_mean = dr_hist.rolling(504, min_periods=400).mean() * 252
-    roll_std = dr_hist.rolling(504, min_periods=400).std() * np.sqrt(252)
-    roll_sharpe = (roll_mean / roll_std.replace(0, np.nan)).clip(0.0).fillna(0.0)
-
-    # --- Per-day regime + scores (heuristic + VIX spike only) ---
+    # --- Per-day regime + scores (QQQ + BAA/VIX cash-out) ---
     tail_scores = pd.DataFrame(np.nan, index=tail_dates, columns=etf_list)
     step_regime = np.ones(len(tail_dates), dtype=int)  # 1 = heuristic
 
@@ -503,7 +497,7 @@ def _extend_to_last_date(all_test_returns, all_test_weights, carry_weights,
         if credit_stress or vix_spike:
             spike_active = True
         elif (not baa_ema200_t.empty and pd.notna(baa_ema200_t.iloc[i])
-                and baa_reindexed.iloc[i] / baa_ema200_t.iloc[i] < 1.0):
+                and baa_ema50_t.iloc[i] / baa_ema200_t.iloc[i] < 1.0):
             spike_active = False
 
         if spike_active:
@@ -625,7 +619,7 @@ def _process_step(oos, step, daily_ret_panel, vix_s, vix_ema100,
     heur_row = np.array([1.0 if c == "QQQ" else np.nan for c in etf_list])
     heur_monitor = np.array([c == "QQQ" for c in etf_list])
 
-    # Per-day regime: heuristic everywhere
+    # Per-day regime: heuristic (QQQ) everywhere
     final_scores = test_scores.copy()
     step_monitor_mask = np.zeros((len(test_scores), n_cols), dtype=bool)
     step_regime = np.ones(len(test_scores), dtype=int)  # 1 = heuristic
@@ -658,7 +652,7 @@ def _process_step(oos, step, daily_ret_panel, vix_s, vix_ema100,
             if credit_stress or vix_spike:
                 spike_active = True
             elif (not baa_ema200_s.empty and pd.notna(baa_ema200_s.iloc[i])
-                    and baa_reindexed.iloc[i] / baa_ema200_s.iloc[i] < 1.0):
+                    and baa_ema50_s.iloc[i] / baa_ema200_s.iloc[i] < 1.0):
                 spike_active = False
             if spike_active:
                 final_scores.iloc[i] = np.nan
@@ -968,7 +962,23 @@ def _save_equity_png(port_returns, eq_curve, weights_df, out_dir,
                      lw=1.2, label="EMA50")
             ax3.plot(vix_ema200_chart.index, vix_ema200_chart.values, color="#1565c0",
                      lw=1.2, label="EMA200")
-            # Shade spike cash periods
+            # Shade SM active periods (orange)
+            if model_active_dates is not None and len(model_active_dates) > 0:
+                _sm_mask = pd.Series(False, index=vix_chart.index)
+                _sm_inter = vix_chart.index.intersection(model_active_dates)
+                _sm_mask.loc[_sm_inter] = True
+                ax3.fill_between(vix_chart.index, 0, vix_chart.values,
+                                 where=_sm_mask.values, color="#ff7f0e",
+                                 alpha=0.15, label="SM active")
+            # Shade FL active periods (blue)
+            if fl_active_dates is not None and len(fl_active_dates) > 0:
+                _fl_mask = pd.Series(False, index=vix_chart.index)
+                _fl_inter = vix_chart.index.intersection(fl_active_dates)
+                _fl_mask.loc[_fl_inter] = True
+                ax3.fill_between(vix_chart.index, 0, vix_chart.values,
+                                 where=_fl_mask.values, color="#1f77b4",
+                                 alpha=0.15, label="FL active")
+            # Shade spike cash periods (red)
             if cash_dates is not None and len(cash_dates) > 0:
                 _cash_mask = pd.Series(False, index=vix_chart.index)
                 _cash_inter = vix_chart.index.intersection(cash_dates)
@@ -999,7 +1009,7 @@ def _save_equity_png(port_returns, eq_curve, weights_df, out_dir,
                      lw=1.5, label="EMA50")
             ax4.plot(baa_ema200.index, baa_ema200.values, color="#1565c0",
                      lw=1.5, label="EMA200")
-            ax4.set_ylim(0, 6.5)
+            ax4.set_ylim(1, 3)
             ax4.set_ylabel("Credit spread (BAA-10Y)")
             ax4.legend(loc="upper left", fontsize=9)
             ax4.grid(True, alpha=0.3)
