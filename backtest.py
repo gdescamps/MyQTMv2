@@ -1,6 +1,11 @@
 """
 Portfolio backtest for MyQTM-ETF.
 
+Temporal convention (close-to-close):
+  All indicators and model scores are computed at close J.
+  Portfolio is rebalanced at close J (in practice ~30 min before close).
+  Returns earned: close(J) → close(J+1).
+
 Walk-forward structure (matches train.py):
   For each step, apply fixed params to test predictions (split="test") → true OOS returns.
 
@@ -34,14 +39,14 @@ SHARPE_POWER = 0.0
 TEMPERATURE = 1.0
 TOP_N_ALLOC   = 3
 TOP_N_MONITOR = 3
-CALM_TOP_N    = 5
+CALM_TOP_N    = 2
 
 FL_IC_GATE_THRESHOLD = 0.015
 FL_IC_GATE_SPAN      = 24
 FL_IC_GATE_MIN_STEPS = 84
 FL_SHARPE_POWER = 2
 
-VIX_SPIKE_MIN = 6.0
+VIX_SPIKE_MIN = 3.0
 VIX_SPIKE_CASH_DAYS = 5
 VIX_CALM_THRESHOLD = 19.0
 VIX_CASH_THRESHOLD = 20.0
@@ -306,7 +311,11 @@ def run_backtest(
     regime: np.ndarray | None = None,
     prev_regime: int | None = None,
 ) -> tuple:
-    """Vectorised portfolio simulation with realistic fees."""
+    """Portfolio simulation: decide at close J, execute at close J, earn close(J)→close(J+1).
+
+    daily_returns_wide should already be shifted so that row J contains the
+    return from close(J) to close(J+1), i.e. daily_ret_panel.shift(-1).
+    """
     dates   = scores_wide.index
     n_etfs  = scores_wide.shape[1]
     etf_list = scores_wide.columns.tolist()
@@ -456,142 +465,59 @@ def _extend_to_last_date(all_test_returns, all_test_weights, carry_weights,
     if len(tail_dates) == 0:
         return carry_weights, carry_regime
 
-    # --- Try loading model artifacts for inference ---
-    sm_models, fl_models = None, None
-    sm_features, fl_features = None, None
-    sm_gate_open, fl_gate_open = False, False
-
-    robot_dir = Path(__file__).parent / "outputs" / "robot"
-    try:
-        import json as _json
-        import xgboost as xgb
-
-        ic_path = robot_dir / "ic_gate_state.json"
-        if ic_path.exists():
-            with open(ic_path) as f:
-                ic_state = _json.load(f)
-            sm_gate_open = ic_state["smart_money"]["gate_open"]
-            fl_gate_open = ic_state["follow_leads"]["gate_open"]
-
-        def _load_ubj(model_dir):
-            models = []
-            for i in range(20):
-                p = model_dir / f"model_{i}.ubj"
-                if p.exists():
-                    m = xgb.XGBRegressor()
-                    m.load_model(str(p))
-                    models.append(m)
-            return models if models else None
-
-        sm_feat_path = robot_dir / "sm_features.json"
-        fl_feat_path = robot_dir / "fl_features.json"
-
-        if sm_gate_open and sm_feat_path.exists():
-            sm_models = _load_ubj(robot_dir / "sm_models")
-            with open(sm_feat_path) as f:
-                sm_features = _json.load(f)
-
-        if fl_gate_open and fl_feat_path.exists():
-            fl_models = _load_ubj(robot_dir / "fl_models")
-            with open(fl_feat_path) as f:
-                fl_features = _json.load(f)
-    except Exception:
-        pass  # fall back to heuristic
-
-    has_models = (sm_models is not None) or (fl_models is not None)
-
-    # --- Load features if we have models ---
-    features_panel = None
-    if has_models:
-        feat_path = Path(__file__).parent / "data" / "features.parquet"
-        if feat_path.exists():
-            features_panel = pd.read_parquet(feat_path)
-
-    # --- Heuristic Sharpe (always needed as fallback) ---
+    # --- Heuristic Sharpe ---
     dr_hist = daily_ret_panel[etf_list].loc[:last_data_date]
     roll_mean = dr_hist.rolling(504, min_periods=400).mean() * 252
     roll_std = dr_hist.rolling(504, min_periods=400).std() * np.sqrt(252)
     roll_sharpe = (roll_mean / roll_std.replace(0, np.nan)).clip(0.0).fillna(0.0)
 
-    # --- Per-day regime + scores ---
+    # --- Per-day regime + scores (heuristic + VIX spike only) ---
     tail_scores = pd.DataFrame(np.nan, index=tail_dates, columns=etf_list)
-    step_regime = np.zeros(len(tail_dates), dtype=int)
+    step_regime = np.ones(len(tail_dates), dtype=int)  # 1 = heuristic
 
-    ema_vals = vix_ema100.reindex(tail_dates, method="ffill") \
-        if not vix_ema100.empty else pd.Series(0.0, index=tail_dates)
-    ema_slope = ema_vals.diff().fillna(0)
+    # Cash-out: VIX spike (diff1 > 3, VIX >= 20) OR credit spread EMA50 > EMA200
+    baa_path = Path(__file__).parent / "data" / "fred_baa_spread.parquet"
+    baa_ema50_t, baa_ema200_t = pd.Series(dtype=float), pd.Series(dtype=float)
+    if baa_path.exists():
+        baa_raw = pd.read_parquet(baa_path).iloc[:, 0]
+        baa_reindexed = baa_raw.reindex(tail_dates, method="ffill")
+        # Compute EMAs on full history, then reindex to tail dates
+        baa_ema50_full = baa_raw.ewm(span=50).mean()
+        baa_ema200_full = baa_raw.ewm(span=200).mean()
+        baa_ema50_t = baa_ema50_full.reindex(tail_dates, method="ffill")
+        baa_ema200_t = baa_ema200_full.reindex(tail_dates, method="ffill")
 
-    # VIX spike pre-compute
-    spike_mask = pd.Series(False, index=tail_dates)
+    spike_active = False
     if not vix_s.empty:
         vix_close = vix_s.reindex(tail_dates, method="ffill")
-        vix_5d = vix_close.diff(5)
-        for sd in vix_5d[vix_5d > VIX_SPIKE_MIN].index:
-            sd_pos = tail_dates.get_loc(sd) if sd in tail_dates else -1
-            if sd_pos < 0:
-                continue
-            for off in range(1, VIX_SPIKE_CASH_DAYS + 1):
-                cp = sd_pos + off
-                if 0 <= cp < len(tail_dates):
-                    spike_mask.iloc[cp] = True
+        vix_diff1 = vix_close.diff(1).fillna(0)
+    else:
+        vix_diff1 = pd.Series(0, index=tail_dates)
+        vix_close = vix_diff1
 
     for i, d in enumerate(tail_dates):
-        is_calm = ema_vals.get(d, 0) < VIX_CALM_THRESHOLD
-        is_spike = spike_mask.iloc[i]
+        vix_spike = vix_diff1.iloc[i] > 5.0
+        credit_stress = (not baa_ema50_t.empty and pd.notna(baa_ema50_t.iloc[i])
+                and baa_ema50_t.iloc[i] / baa_ema200_t.iloc[i] > 1.07
+                and baa_ema50_t.iloc[i] > 2.0)
+        if credit_stress or vix_spike:
+            spike_active = True
+        elif (not baa_ema200_t.empty and pd.notna(baa_ema200_t.iloc[i])
+                and baa_reindexed.iloc[i] / baa_ema200_t.iloc[i] < 1.0):
+            spike_active = False
 
-        if is_spike and not sm_gate_open:
+        if spike_active:
             tail_scores.iloc[i] = np.nan
             step_regime[i] = 3  # cash
             continue
 
-        # Try model inference for this date
-        if is_calm and fl_gate_open and fl_models and features_panel is not None:
-            scores = _infer_day(features_panel, d, fl_models, fl_features, etf_list)
-            if scores is not None:
-                fl_top = scores.nlargest(TOP_N_ALLOC).index.tolist()
-                day_sharpe = roll_sharpe.loc[:d].iloc[-1] if d in roll_sharpe.index or len(roll_sharpe) > 0 else pd.Series(0, index=etf_list)
-                fl_sw = (day_sharpe.reindex(etf_list).fillna(0) ** FL_SHARPE_POWER)
-                for etf in fl_top:
-                    tail_scores.loc[d, etf] = fl_sw.get(etf, 1.0)
-                step_regime[i] = 2  # FL
-                continue
-
-        if is_calm:
-            # Heuristic
-            day_sharpe = roll_sharpe.loc[:d].iloc[-1] if len(roll_sharpe.loc[:d]) > 0 else pd.Series(0, index=etf_list)
-            heur = day_sharpe.reindex(etf_list).fillna(0)
-            heur_top = [e for e in heur.nlargest(CALM_TOP_N).index if heur[e] > 0]
-            for etf in heur_top:
-                tail_scores.loc[d, etf] = heur[etf]
-            step_regime[i] = 1  # heuristic
-            continue
-
-        if sm_gate_open and sm_models and features_panel is not None:
-            scores = _infer_day(features_panel, d, sm_models, sm_features, etf_list)
-            if scores is not None:
-                mu, sigma = scores.mean(), scores.std()
-                if sigma > 0:
-                    scores = (scores - mu) / sigma
-                pos = scores[scores > 0].nlargest(TOP_N_ALLOC)
-                for etf in pos.index:
-                    tail_scores.loc[d, etf] = pos[etf]
-                step_regime[i] = 0  # SM
-                continue
-
-        if ema_vals.get(d, 0) >= VIX_CASH_THRESHOLD and ema_slope.get(d, 0) > 0:
-            tail_scores.iloc[i] = np.nan
-            step_regime[i] = 3  # cash
-        else:
-            # Turbulent heuristic fallback
-            day_sharpe = roll_sharpe.loc[:d].iloc[-1] if len(roll_sharpe.loc[:d]) > 0 else pd.Series(0, index=etf_list)
-            heur = day_sharpe.reindex(etf_list).fillna(0)
-            heur_top = [e for e in heur.nlargest(CALM_TOP_N).index if heur[e] > 0]
-            for etf in heur_top:
-                tail_scores.loc[d, etf] = heur[etf]
-            step_regime[i] = 1
+        # Heuristic: 100% QQQ
+        tail_scores.loc[d, "QQQ"] = 1.0
 
     # --- Run portfolio simulation ---
-    tail_dr = daily_ret_panel.reindex(index=tail_dates, columns=etf_list).fillna(0)
+    # Shift returns: ret at date J = return from close(J) to close(J+1)
+    next_day_ret = daily_ret_panel.shift(-1)
+    tail_dr = next_day_ret.reindex(index=tail_dates, columns=etf_list).fillna(0)
     prev_w = np.zeros(len(etf_list))
     for j, etf in enumerate(etf_list):
         if etf in carry_weights:
@@ -673,16 +599,15 @@ def _process_step(oos, step, daily_ret_panel, vix_s, vix_ema100,
     if len(val_data) < 50 or len(test_data) == 0:
         return None
 
-    # Expanding Sharpe weights
+    # Pivot test scores
     val_scores = _pivot_step(val_data)
     val_end_date = val_scores.index[-1]
     dr_hist = daily_ret_panel[val_scores.columns].loc[:val_end_date]
-    exp_mean = dr_hist.expanding(min_periods=60).mean().iloc[-1] * 252
-    exp_std = dr_hist.expanding(min_periods=60).std().iloc[-1] * np.sqrt(252)
-    etf_sharpe_raw = (exp_mean / exp_std.replace(0, np.nan)).clip(0.0).fillna(0.0)
-    etf_sharpe = etf_sharpe_raw.values ** SHARPE_POWER
+    etf_sharpe = np.ones(len(val_scores.columns))  # uniform (heuristic drives allocation)
 
     test_scores = _pivot_step(test_data)
+    etf_list = test_scores.columns.tolist()
+    n_cols = len(etf_list)
 
     # Random ETF drop (robustness only)
     if dropped_set:
@@ -691,142 +616,60 @@ def _process_step(oos, step, daily_ret_panel, vix_s, vix_ema100,
     # Remap carry_weights
     prev_w = None
     if carry_weights is not None:
-        prev_w = np.zeros(len(test_scores.columns))
-        for i, etf in enumerate(test_scores.columns):
+        prev_w = np.zeros(n_cols)
+        for i, etf in enumerate(etf_list):
             if etf in carry_weights:
                 prev_w[i] = carry_weights[etf]
 
-    # Build MODEL scores (z-scored, top-N filtered)
-    model_row_mean = test_scores.mean(axis=1)
-    model_row_std  = test_scores.std(axis=1).replace(0, 1.0)
-    model_scores   = test_scores.sub(model_row_mean, axis=0).div(model_row_std, axis=0)
-    block_ids = [CORR_BLOCKS.get(c, c) for c in model_scores.columns]
-    n_cols = len(model_scores.columns)
-    model_monitor_mask = np.zeros((len(model_scores), n_cols), dtype=bool)
-    for idx in range(len(model_scores)):
-        row = model_scores.iloc[idx].values
-        keep_monitor = _topn_keep(row, TOP_N_MONITOR, block_ids)
-        model_monitor_mask[idx, keep_monitor] = True
-        keep_alloc = _topn_keep(row, TOP_N_ALLOC, block_ids)
-        pos_idx = np.where((~np.isnan(row)) & (row > 0))[0]
-        drop_idx = np.setdiff1d(pos_idx, keep_alloc)
-        model_scores.iloc[idx, drop_idx] = np.nan
+    # Heuristic: 100% QQQ
+    heur_row = np.array([1.0 if c == "QQQ" else np.nan for c in etf_list])
+    heur_monitor = np.array([c == "QQQ" for c in etf_list])
 
-    # Build heuristic picks (VIX < 19 + FL unavailable)
-    roll_mean = dr_hist.rolling(504, min_periods=400).mean().iloc[-1] * 252
-    roll_std  = dr_hist.rolling(504, min_periods=400).std().iloc[-1] * np.sqrt(252)
-    roll_sharpe = (roll_mean / roll_std.replace(0, np.nan)).clip(0.0).fillna(0.0)
-    heuristic_sharpe = roll_sharpe.reindex(model_scores.columns).fillna(0.0)
-    if dropped_set:
-        for etf in dropped_set:
-            if etf in heuristic_sharpe.index:
-                heuristic_sharpe[etf] = 0.0
-    heur_top = [e for e in heuristic_sharpe.nlargest(CALM_TOP_N).index
-                 if heuristic_sharpe[e] > 0]
-    heur_set = set(heur_top)
-    heur_row = np.array([heuristic_sharpe[c] if c in heur_set else np.nan
-                         for c in model_scores.columns])
-    heur_monitor = np.array([c in heur_set for c in model_scores.columns])
+    # Per-day regime: heuristic everywhere
+    final_scores = test_scores.copy()
+    step_monitor_mask = np.zeros((len(test_scores), n_cols), dtype=bool)
+    step_regime = np.ones(len(test_scores), dtype=int)  # 1 = heuristic
+    for i in range(len(test_scores)):
+        final_scores.iloc[i] = heur_row
+        step_monitor_mask[i] = heur_monitor
 
-    # Build FL picks (VIX < 19 + FL IC positive)
-    exp_sharpe_for_floor = etf_sharpe_raw.reindex(model_scores.columns).fillna(0.0)
-    use_fl_model = False
-    fl_row = heur_row
-    fl_monitor = heur_monitor
-    if CALM_ALLOCATOR == "follow_leads" and fl_test_by_step is not None:
-        fl_step = fl_test_by_step.get(step)
-        if fl_step is not None and not fl_step.empty:
-            fl_gate_ema = fl_test_ic_ema_lagged.get(step, np.nan) if not fl_test_ic_ema_lagged.empty else np.nan
-            use_fl_model = (
-                step >= FL_IC_GATE_MIN_STEPS
-                and pd.notna(fl_gate_ema)
-                and fl_gate_ema > FL_IC_GATE_THRESHOLD
-            )
-    if use_fl_model:
-        fl_mean = fl_step.groupby("etf_id")["score"].mean()
-        fl_series = fl_mean.reindex(model_scores.columns).fillna(0.0)
-        if dropped_set:
-            for etf in fl_series.index:
-                if etf in dropped_set:
-                    fl_series[etf] = -999.0
-            fl_top = [e for e in fl_series.nlargest(TOP_N_ALLOC).index
-                       if fl_series[e] > -999.0]
-        else:
-            fl_top = fl_series.nlargest(TOP_N_ALLOC).index.tolist()
-        fl_sharpe = (exp_sharpe_for_floor ** FL_SHARPE_POWER)
-        fl_set = set(fl_top)
-        fl_row = np.array([fl_sharpe[c] if c in fl_set else np.nan
-                           for c in model_scores.columns])
-        fl_monitor = np.array([c in fl_set for c in model_scores.columns])
+    # Cash-out: VIX spike (diff1 > 3, VIX >= 20) OR credit spread EMA50 > EMA200
+    baa_path = Path(__file__).parent / "data" / "fred_baa_spread.parquet"
+    baa_reindexed = pd.Series(dtype=float)
+    baa_ema50_s, baa_ema200_s = pd.Series(dtype=float), pd.Series(dtype=float)
+    if baa_path.exists():
+        baa_raw = pd.read_parquet(baa_path).iloc[:, 0]
+        baa_reindexed = baa_raw.reindex(final_scores.index, method="ffill")
+        # Compute EMAs on full history, then reindex to score dates
+        baa_ema50_full = baa_raw.ewm(span=50).mean()
+        baa_ema200_full = baa_raw.ewm(span=200).mean()
+        baa_ema50_s = baa_ema50_full.reindex(final_scores.index, method="ffill")
+        baa_ema200_s = baa_ema200_full.reindex(final_scores.index, method="ffill")
 
-    # Cash row: all NaN → 0% invested
-    cash_row = np.full(n_cols, np.nan)
-    cash_monitor = np.zeros(n_cols, dtype=bool)
-
-    # Per-day VIX calm mask
-    is_calm = pd.Series(True, index=model_scores.index)
-    if not vix_ema100.empty:
-        ema100_t = vix_ema100.reindex(model_scores.index, method="ffill")
-        is_calm = (ema100_t < VIX_CALM_THRESHOLD).fillna(True)
-
-    # SM IC gate
-    gate_ema = test_ic_ema_lagged.get(step, np.nan) if not test_ic_ema_lagged.empty else np.nan
-    gate_open = (step >= IC_GATE_MIN_STEPS) and pd.notna(gate_ema) \
-        and gate_ema > IC_GATE_THRESHOLD
-
-    # Per-day regime assignment
-    final_scores = model_scores.copy()
-    step_monitor_mask = model_monitor_mask.copy()
-    step_regime = np.zeros(len(is_calm), dtype=int)
-    ema100_vals = vix_ema100.reindex(model_scores.index, method="ffill") \
-        if not vix_ema100.empty else pd.Series(0.0, index=model_scores.index)
-    ema100_slope = ema100_vals.diff().fillna(0.0)
-    for i in range(len(is_calm)):
-        if is_calm.iloc[i]:
-            if use_fl_model:
-                final_scores.iloc[i] = fl_row
-                step_monitor_mask[i] = fl_monitor
-                step_regime[i] = 2
-            else:
-                final_scores.iloc[i] = heur_row
-                step_monitor_mask[i] = heur_monitor
-                step_regime[i] = 1
-        elif gate_open:
-            step_regime[i] = 0
-        elif ema100_vals.iloc[i] >= VIX_CASH_THRESHOLD and ema100_slope.iloc[i] > 0:
-            final_scores.iloc[i] = cash_row
-            step_monitor_mask[i] = cash_monitor
-            step_regime[i] = 3
-        else:
-            final_scores.iloc[i] = heur_row
-            step_monitor_mask[i] = heur_monitor
-            step_regime[i] = 1
-
-    # VIX spike → cash-out
-    spike_cash_dates = set()
     if not vix_s.empty:
         vix_close_test = vix_s.reindex(final_scores.index, method="ffill")
-        vix_5d_close = vix_close_test.diff(5)
-        spike_dates = vix_5d_close[vix_5d_close > VIX_SPIKE_MIN].index
-        for sd in spike_dates:
-            if sd not in final_scores.index:
-                continue
-            sd_pos = final_scores.index.get_loc(sd)
-            for offset in range(1, VIX_SPIKE_CASH_DAYS + 1):
-                cash_pos = sd_pos + offset
-                if 0 <= cash_pos < len(final_scores):
-                    spike_cash_dates.add(final_scores.index[cash_pos])
-        for cd in spike_cash_dates:
-            cd_pos = final_scores.index.get_loc(cd)
-            if step_regime[cd_pos] == 0:
-                continue  # SM model active → no spike override
-            final_scores.loc[cd] = np.nan
-            step_monitor_mask[cd_pos] = False
-            step_regime[cd_pos] = 3
+        vix_diff1 = vix_close_test.diff(1).fillna(0)
+        spike_active = False
+        for i in range(len(final_scores)):
+            vix_spike = vix_diff1.iloc[i] > 5.0
+            credit_stress = (not baa_ema50_s.empty and pd.notna(baa_ema50_s.iloc[i])
+                    and baa_ema50_s.iloc[i] / baa_ema200_s.iloc[i] > 1.07
+                    and baa_ema50_s.iloc[i] > 2.0)
+            if credit_stress or vix_spike:
+                spike_active = True
+            elif (not baa_ema200_s.empty and pd.notna(baa_ema200_s.iloc[i])
+                    and baa_reindexed.iloc[i] / baa_ema200_s.iloc[i] < 1.0):
+                spike_active = False
+            if spike_active:
+                final_scores.iloc[i] = np.nan
+                step_monitor_mask[i] = False
+                step_regime[i] = 3
 
     # Run portfolio simulation
-    test_dr = daily_ret_panel.reindex(index=final_scores.index,
-                                      columns=final_scores.columns).fillna(0)
+    # Shift returns: ret at date J = return from close(J) to close(J+1)
+    next_day_ret = daily_ret_panel.shift(-1)
+    test_dr = next_day_ret.reindex(index=final_scores.index,
+                                   columns=final_scores.columns).fillna(0)
     result = run_backtest(final_scores, test_dr,
                           prev_weights=prev_w,
                           sharpe_weights=etf_sharpe,
@@ -846,11 +689,11 @@ def _process_step(oos, step, daily_ret_panel, vix_s, vix_ema100,
         "carry_weights": new_carry_weights,
         "carry_regime": new_carry_regime,
         "step_regime": step_regime,
-        "gate_open": gate_open,
-        "gate_ema": gate_ema,
-        "use_fl_model": use_fl_model,
+        "gate_open": False,
+        "gate_ema": np.nan,
+        "use_fl_model": False,
         "final_scores": final_scores,
-        "model_scores_index": model_scores.index,
+        "model_scores_index": final_scores.index,
     }
 
 
@@ -864,35 +707,28 @@ def _draw_regime_table(ax_tbl):
     ax_tbl.set_ylim(0, 1)
     ax_tbl.axis("off")
     regime_rows = [
-        ("VIX EMA100",        "SM Model Validated", "FL Model Validated", "Allocation",                              "#333333"),
-        ("—",                 "—",                  "no",                  "Heuristic top-5 Sharpe-weighted 2y",      "#2ca02c"),
-        ("< 19",              "—",                  "yes",                 "Follow Leads Model",                      "#1f77b4"),
-        ("≥ 19 (turbulent)",  "yes",                "—",                   "Smart Money Model",                       "#ff7f0e"),
-        ("≥ 20 + slope ↑",   "no",                 "—",                   "Cash",                                    "#d62728"),
-        ("Spike Δ5d > 6",    "—",                  "—",                   "Cash",                                    "#d62728"),
+        ("Condition",          "Allocation",                              "#333333"),
+        ("Default",            "Heuristic top-5 Sharpe-weighted 2y",      "#2ca02c"),
+        ("Spike Δ5d > 6",     "Cash",                                    "#d62728"),
     ]
     n_rows = len(regime_rows)
     row_h = 1.0 / n_rows
-    col_x = [0.02, 0.22, 0.42, 0.60]
-    for r, (vix_cond, sm, fl, alloc, color) in enumerate(regime_rows):
+    col_x = [0.02, 0.35]
+    for r, (cond, alloc, color) in enumerate(regime_rows):
         ry = 1.0 - (r + 0.5) * row_h
         is_hdr = (r == 0)
         fw = "bold" if is_hdr else "normal"
         fs = 10 if is_hdr else 9.5
         txt_color = "#333333" if is_hdr else "#555555"
-        ax_tbl.text(col_x[0], ry, vix_cond, fontsize=fs, fontweight=fw, va="center",
-                    transform=ax_tbl.transAxes, color=txt_color)
-        ax_tbl.text(col_x[1], ry, sm, fontsize=fs, fontweight=fw, va="center",
-                    transform=ax_tbl.transAxes, color=txt_color)
-        ax_tbl.text(col_x[2], ry, fl, fontsize=fs, fontweight=fw, va="center",
+        ax_tbl.text(col_x[0], ry, cond, fontsize=fs, fontweight=fw, va="center",
                     transform=ax_tbl.transAxes, color=txt_color)
         if is_hdr:
-            ax_tbl.text(col_x[3], ry, alloc, fontsize=fs, fontweight=fw, va="center",
+            ax_tbl.text(col_x[1], ry, alloc, fontsize=fs, fontweight=fw, va="center",
                         transform=ax_tbl.transAxes, color=txt_color)
         else:
-            ax_tbl.text(col_x[3], ry, "■ ", fontsize=fs + 2, va="center",
+            ax_tbl.text(col_x[1], ry, "■ ", fontsize=fs + 2, va="center",
                         transform=ax_tbl.transAxes, color=color)
-            ax_tbl.text(col_x[3] + 0.03, ry, alloc, fontsize=fs, fontweight="bold",
+            ax_tbl.text(col_x[1] + 0.03, ry, alloc, fontsize=fs, fontweight="bold",
                         va="center", transform=ax_tbl.transAxes, color=color)
         if r == 0:
             ax_tbl.plot([0.01, 0.99], [1.0 - row_h, 1.0 - row_h], color="#999999",
@@ -911,7 +747,7 @@ def _draw_vix_overlay(ax, eq_index, vix_s,
     ax1b = ax.twinx()
     vix_ema100_chart = vix_raw.ewm(span=100).mean()
     vix_ema300_chart = vix_raw.ewm(span=300).mean()
-    vix_5d_chart = vix_raw.diff(5)
+    vix_5d_chart = vix_raw.diff(1)
 
     # Spike mask
     _spike_mask = pd.Series(False, index=vix_raw.index)
@@ -989,13 +825,16 @@ def _save_equity_png(port_returns, eq_curve, weights_df, out_dir,
     SHORT_NAMES = {e.bourso: _short_name(e.name) for e in _UNIVERSE}
     BOLD_TICKERS = {"IVV", "GLD", "IEO", "QQQ", "RING"}
 
-    fig1 = plt.figure(figsize=(24, 15))
-    gs = fig1.add_gridspec(3, 2, width_ratios=[3, 1], height_ratios=[3, 0.45, 2],
+    fig1 = plt.figure(figsize=(24, 22))
+    gs = fig1.add_gridspec(5, 2, width_ratios=[3, 1],
+                           height_ratios=[3, 0.35, 1.2, 1.2, 1.2],
                            hspace=0.06, wspace=0.02,
                            top=0.98, bottom=0.04, left=0.05, right=0.98)
     ax1 = fig1.add_subplot(gs[0, 0])
-    ax_tbl = fig1.add_subplot(gs[1, 0])     # regime table between equity & allocation
-    ax2 = fig1.add_subplot(gs[2, 0], sharex=ax1)
+    ax_tbl = fig1.add_subplot(gs[1, 0])     # regime table
+    ax3 = fig1.add_subplot(gs[2, 0], sharex=ax1)  # VIX + MAs
+    ax4 = fig1.add_subplot(gs[3, 0], sharex=ax1)  # Credit spread
+    ax2 = fig1.add_subplot(gs[4, 0], sharex=ax1)  # Allocation
     ax_leg = fig1.add_subplot(gs[:, 1])
     ax_leg.axis("off")
 
@@ -1087,15 +926,6 @@ def _save_equity_png(port_returns, eq_curve, weights_df, out_dir,
     ax1.grid(True, alpha=0.3, which="both")
     ax1.set_facecolor("#f8f8f8")
 
-    # VIX overlay
-    vix_path = DATA / "fred_vix.parquet"
-    if vix_path.exists():
-        vix_s = pd.read_parquet(vix_path).iloc[:, 0]
-        _draw_vix_overlay(ax1, eq_curve.index, vix_s,
-                          model_active_dates=model_active_dates,
-                          fl_active_dates=fl_active_dates,
-                          cash_dates=cash_dates)
-
     # Panel 2: Allocation
     if len(weights_df) > 0:
         w = weights_df.reindex(eq_curve.index, method="ffill").fillna(0)
@@ -1117,6 +947,63 @@ def _save_equity_png(port_returns, eq_curve, weights_df, out_dir,
         ax2.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
         ax2.set_facecolor("#f8f8f8")
         ax2.grid(True, alpha=0.3)
+
+    # Panel 3: VIX + MAs + spike cash zones
+    vix_path_chart = DATA / "fred_vix.parquet"
+    if vix_path_chart.exists():
+        vix_raw = pd.read_parquet(vix_path_chart).iloc[:, 0]
+        vix_chart = vix_raw.reindex(eq_curve.index, method="ffill").dropna()
+        if not vix_chart.empty:
+            vix_ema10_chart = vix_chart.ewm(span=10).mean()
+            vix_ema20_chart = vix_chart.ewm(span=20).mean()
+            vix_ema50_chart = vix_chart.ewm(span=50).mean()
+            vix_ema200_chart = vix_chart.ewm(span=200).mean()
+            ax3.plot(vix_chart.index, vix_chart.values, color="#000000",
+                     alpha=0.7, lw=1.0, label="VIX")
+            ax3.plot(vix_ema10_chart.index, vix_ema10_chart.values, color="#d62728",
+                     lw=1.0, label="EMA10")
+            ax3.plot(vix_ema20_chart.index, vix_ema20_chart.values, color="#2ca02c",
+                     lw=1.2, label="EMA20")
+            ax3.plot(vix_ema50_chart.index, vix_ema50_chart.values, color="#ff7f0e",
+                     lw=1.2, label="EMA50")
+            ax3.plot(vix_ema200_chart.index, vix_ema200_chart.values, color="#1565c0",
+                     lw=1.2, label="EMA200")
+            # Shade spike cash periods
+            if cash_dates is not None and len(cash_dates) > 0:
+                _cash_mask = pd.Series(False, index=vix_chart.index)
+                _cash_inter = vix_chart.index.intersection(cash_dates)
+                _cash_mask.loc[_cash_inter] = True
+                ax3.fill_between(vix_chart.index, 0, vix_chart.values,
+                                 where=_cash_mask.values, color="#d62728",
+                                 alpha=0.15, label="Cash")
+            ax3.set_ylabel("VIX")
+            ax3.set_ylim(0, 85)  # VIX historical max ~82
+            ax3.legend(loc="upper left", fontsize=9)
+            ax3.grid(True, alpha=0.3)
+            ax3.set_facecolor("#f8f8f8")
+
+    # Panel 4: Credit spread (BAA-10Y)
+    baa_path = DATA / "fred_baa_spread.parquet"
+    if baa_path.exists():
+        baa_raw = pd.read_parquet(baa_path).iloc[:, 0]
+        baa_chart = baa_raw.reindex(eq_curve.index, method="ffill").dropna()
+        if not baa_chart.empty:
+            baa_ema10 = baa_chart.ewm(span=10).mean()
+            baa_ema50 = baa_chart.ewm(span=50).mean()
+            baa_ema200 = baa_chart.ewm(span=200).mean()
+            ax4.plot(baa_chart.index, baa_chart.values, color="#9467bd",
+                     lw=1.0, alpha=0.5, label="BAA-10Y")
+            ax4.plot(baa_ema10.index, baa_ema10.values, color="#2ca02c",
+                     lw=1.2, label="EMA10")
+            ax4.plot(baa_ema50.index, baa_ema50.values, color="#ff7f0e",
+                     lw=1.5, label="EMA50")
+            ax4.plot(baa_ema200.index, baa_ema200.values, color="#1565c0",
+                     lw=1.5, label="EMA200")
+            ax4.set_ylim(0, 6.5)
+            ax4.set_ylabel("Credit spread (BAA-10Y)")
+            ax4.legend(loc="upper left", fontsize=9)
+            ax4.grid(True, alpha=0.3)
+            ax4.set_facecolor("#f8f8f8")
 
     # Right column: ETF list sorted by Sharpe
     n_items = len(sorted_by_sharpe)
@@ -1288,12 +1175,24 @@ def run_equity():
 
     # Final stats
     port_returns = pd.concat(all_test_returns).sort_index()
+    # TEMP zoom disabled — full backtest
     init_capital = INIT_CAPITAL
+
+    # Compute equity with original dates (fee records reference these)
+    eq_curve, cumul_fees = compute_fee_equity(port_returns, step_fee_records, init_capital)
+
+    # Shift dates to realization: equity[D] = value at close(D), aligns with benchmarks
+    _all_days = daily_ret_panel.dropna(how='all').index.sort_values()
+    def _next_bday(d):
+        pos = _all_days.searchsorted(d, side='right')
+        return _all_days[pos] if pos < len(_all_days) else d + pd.Timedelta(days=1)
+    _shifted = pd.DatetimeIndex([_next_bday(d) for d in port_returns.index])
+    port_returns.index = _shifted
+    eq_curve.index = _shifted
+
     n_years      = max(len(port_returns), 1) / 252
     ann_vol      = port_returns.std() * np.sqrt(252)
     final_sharpe = sharpe(port_returns)
-
-    eq_curve, cumul_fees = compute_fee_equity(port_returns, step_fee_records, init_capital)
 
     total_ret    = eq_curve.iloc[-1] - 1
     ann_ret      = (1 + total_ret) ** (1 / n_years) - 1
@@ -1323,6 +1222,7 @@ def run_equity():
 
     # Equity chart
     all_weights = pd.concat(all_test_weights).sort_index()
+    all_weights.index = pd.DatetimeIndex([_next_bday(d) for d in all_weights.index])
     all_weights.to_parquet(OUTPUTS / "backtest_weights.parquet")
     fin = {"init": init_capital, "fees": cumul_fees, "final": final_portfolio}
 
@@ -1696,9 +1596,10 @@ def _auto_refresh_data():
 
 
 def main():
-    no_refresh = "--no-refresh" in sys.argv[1:]
-    if not no_refresh:
-        _auto_refresh_data()
+    # Data refresh disabled — working on backtest only
+    # To re-enable: uncomment the two lines below
+    # if "--no-refresh" not in sys.argv[1:]:
+    #     _auto_refresh_data()
     if "--robustness" in sys.argv[1:]:
         run_robustness()
         return
