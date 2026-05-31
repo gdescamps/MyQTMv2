@@ -34,6 +34,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent / "multietfs_strategy"))
 
 from backtest import (
     _load_daily_returns,

@@ -88,7 +88,7 @@ def fetch_and_save(ticker: str, label: str) -> tuple[bool, int]:
 
 
 def main():
-    sys.path.insert(0, str(Path(__file__).parent))
+    sys.path.insert(0, str(Path(__file__).parent / "multietfs_strategy"))
     from etf import UNIVERSE
 
     print(f"Universe: {len(UNIVERSE)} ETFs\n")

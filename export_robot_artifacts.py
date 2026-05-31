@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent / "multietfs_strategy"))
 
 from backtest import (
     IC_GATE_THRESHOLD, IC_GATE_SPAN, IC_GATE_MIN_STEPS,

@@ -17,9 +17,10 @@ import pandas as pd
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+ROOT = Path(__file__).resolve().parent.parent
 from etf import UNIVERSE
 
-DATA = Path(__file__).parent / "data"
+DATA = ROOT / "data"
 DATA.mkdir(parents=True, exist_ok=True)
 
 # Map each ETF bourso ticker → iShares XLS ticker (for shares_outstanding)
@@ -298,6 +299,21 @@ def load_macro() -> pd.DataFrame:
     mac["hy_cross_5v60"]  = _z(hy, 5) - _z(hy, 60)
     mac["hy_cross_20v60"] = _z(hy, 20) - _z(hy, 60)
 
+    # BAA-10Y credit spread (long history since 2000)
+    baa = _fred("baa_spread", "baa")
+    mac["baa_spread"] = baa
+    for d in [5, 20, 60]:
+        mac[f"baa_spread_z{d}"] = _z(baa, d)
+    mac["baa_spread_velocity"]    = baa.diff(5)
+    mac["baa_spread_velocity_20"] = baa.diff(20)
+    mac["baa_cross_5v20"]  = _z(baa, 5) - _z(baa, 20)
+    mac["baa_cross_5v60"]  = _z(baa, 5) - _z(baa, 60)
+    mac["baa_cross_20v60"] = _z(baa, 20) - _z(baa, 60)
+    # EMA ratio (used in cash-out logic)
+    baa_ema50 = baa.ewm(span=50).mean()
+    baa_ema200 = baa.ewm(span=200).mean()
+    mac["baa_ema50_200_ratio"] = baa_ema50 / baa_ema200
+
     yc = _fred("yield_curve", "yc")
     mac["yield_curve"] = yc
     for d in [5, 20, 60]:
@@ -332,6 +348,8 @@ def load_macro() -> pd.DataFrame:
     # VIX × HY spread interaction
     if "vix_level" in mac.columns and "hy_spread" in mac.columns:
         mac["vix_x_hy"] = mac["vix_level"] * mac["hy_spread"]
+    if "vix_level" in mac.columns and "baa_spread" in mac.columns:
+        mac["vix_x_baa"] = mac["vix_level"] * mac["baa_spread"]
     # Yield curve × VIX (inverted curve + high VIX = crisis)
     if "yield_curve" in mac.columns and "vix_level" in mac.columns:
         mac["yc_x_vix"] = mac["yield_curve"] * mac["vix_level"]

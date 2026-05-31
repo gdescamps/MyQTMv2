@@ -30,9 +30,10 @@ import xgboost as xgb
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+ROOT = Path(__file__).resolve().parent.parent
 
-DATA    = Path(__file__).parent / "data"
-OUTPUTS = Path(__file__).parent / "outputs" / "smart_money"
+DATA    = ROOT / "data"
+OUTPUTS = ROOT / "outputs" / "smart_money"
 DATA.mkdir(parents=True, exist_ok=True)
 OUTPUTS.mkdir(parents=True, exist_ok=True)
 

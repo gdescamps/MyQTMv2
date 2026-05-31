@@ -22,11 +22,12 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
+ROOT = Path(__file__).resolve().parent.parent
 import train_smart_money as train  # noqa: E402
 
-DATA       = Path(__file__).parent / "data"
+DATA       = ROOT / "data"
 DATA_OUT   = DATA / "follow_leads"
-OUTPUTS_FL = Path(__file__).parent / "outputs" / "follow_leads"
+OUTPUTS_FL = ROOT / "outputs" / "follow_leads"
 DATA_OUT.mkdir(parents=True, exist_ok=True)
 OUTPUTS_FL.mkdir(parents=True, exist_ok=True)
 
@@ -111,7 +112,7 @@ def main():
         val_oos.index.get_level_values("date")
     ).apply(lambda x: x["score"].corr(x["label"])).mean()
 
-    print(f"\nSaved → {out.relative_to(Path(__file__).parent)}")
+    print(f"\nSaved → {out.relative_to(ROOT)}")
     print(f"  val rows:       {(oos['split']=='val').sum()}")
     print(f"  test rows:      {(oos['split']=='test').sum()}")
     print(f"  Mean val IC:    {mean_val_ic:+.4f}")

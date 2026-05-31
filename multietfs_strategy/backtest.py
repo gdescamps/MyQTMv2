@@ -29,9 +29,11 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 
 sys.path.insert(0, str(Path(__file__).parent))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
-DATA    = Path(__file__).parent / "data"
-OUTPUTS = Path(__file__).parent / "outputs"
+DATA    = ROOT / "data"
+OUTPUTS = ROOT / "outputs"
 OUTPUTS.mkdir(parents=True, exist_ok=True)
 
 USE_SOFTMAX = True
@@ -470,7 +472,7 @@ def _extend_to_last_date(all_test_returns, all_test_weights, carry_weights,
     step_regime = np.ones(len(tail_dates), dtype=int)  # 1 = heuristic
 
     # Cash-out: VIX spike (diff1 > 3, VIX >= 20) OR credit spread EMA50 > EMA200
-    baa_path = Path(__file__).parent / "data" / "fred_baa_spread.parquet"
+    baa_path = ROOT / "data" / "fred_baa_spread.parquet"
     baa_ema50_t, baa_ema200_t = pd.Series(dtype=float), pd.Series(dtype=float)
     if baa_path.exists():
         baa_raw = pd.read_parquet(baa_path).iloc[:, 0]
@@ -628,7 +630,7 @@ def _process_step(oos, step, daily_ret_panel, vix_s, vix_ema100,
         step_monitor_mask[i] = heur_monitor
 
     # Cash-out: VIX spike (diff1 > 3, VIX >= 20) OR credit spread EMA50 > EMA200
-    baa_path = Path(__file__).parent / "data" / "fred_baa_spread.parquet"
+    baa_path = ROOT / "data" / "fred_baa_spread.parquet"
     baa_reindexed = pd.Series(dtype=float)
     baa_ema50_s, baa_ema200_s = pd.Series(dtype=float), pd.Series(dtype=float)
     if baa_path.exists():
@@ -1262,11 +1264,11 @@ def run_equity():
     with open(OUTPUTS / "backtest_regime_dates.json", "w") as _f:
         _json.dump(regime_dates, _f)
 
-    print(f"\nSaved → {DATA.relative_to(Path(__file__).parent)}/backtest_results.parquet")
-    print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/best_params.csv")
-    print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_steps.csv")
-    print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_equity.csv")
-    print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_equity.jpg")
+    print(f"\nSaved → {DATA.relative_to(ROOT)}/backtest_results.parquet")
+    print(f"Saved → {OUTPUTS.relative_to(ROOT)}/best_params.csv")
+    print(f"Saved → {OUTPUTS.relative_to(ROOT)}/backtest_steps.csv")
+    print(f"Saved → {OUTPUTS.relative_to(ROOT)}/backtest_equity.csv")
+    print(f"Saved → {OUTPUTS.relative_to(ROOT)}/backtest_equity.jpg")
 
 
 # ---------------------------------------------------------------------------
@@ -1577,8 +1579,8 @@ def run_robustness():
     print(f"  Min:       ann {ann_a[1]:+.1f}%/an  Sharpe {shp[1]:.2f}")
     print(f"  Max:       ann {ann_a[2]:+.1f}%/an  Sharpe {shp[2]:.2f}")
     print(f"{'='*70}")
-    print(f"\nSaved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_robustness.jpg")
-    print(f"Saved → {OUTPUTS.relative_to(Path(__file__).parent)}/backtest_robustness.csv")
+    print(f"\nSaved → {OUTPUTS.relative_to(ROOT)}/backtest_robustness.jpg")
+    print(f"Saved → {OUTPUTS.relative_to(ROOT)}/backtest_robustness.csv")
 
 
 # ---------------------------------------------------------------------------
@@ -1593,15 +1595,15 @@ def _auto_refresh_data():
     refresh_vix()
     # Regenerate features so tail extension can use model inference
     import subprocess
-    base = Path(__file__).parent
-    feat_path = base / "data" / "features.parquet"
+    feat_path = ROOT / "data" / "features.parquet"
     if feat_path.exists():
         last_feat = pd.read_parquet(feat_path).index.get_level_values("date").max()
         last_ohlcv = _load_daily_returns().index[-1]
         if last_ohlcv > last_feat:
             print(f"Features outdated ({last_feat.date()} < {last_ohlcv.date()}), regenerating...")
-            subprocess.run([sys.executable, str(base / "feature_engineering.py")],
-                           cwd=str(base), check=True, timeout=600)
+            feat_eng = Path(__file__).parent / "feature_engineering.py"
+            subprocess.run([sys.executable, str(feat_eng)],
+                           cwd=str(ROOT), check=True, timeout=600)
     print()
 
 

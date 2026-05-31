@@ -23,6 +23,7 @@ import xgboost as xgb
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+ROOT = Path(__file__).resolve().parent.parent
 from train_smart_money import (
     XGB_PARAMS, _try_gpu, LABEL_COL, _zscore_per_date,
     BLOCK_ROWS, EMBARGO_ROWS, run_walk_forward,
@@ -32,8 +33,8 @@ from select_features import get_all_feature_cols
 import train_smart_money as train_mod
 from train_follow_leads import _is_smart_money, OUTPUTS_FL, DATA_OUT
 
-DATA    = Path(__file__).parent / "data"
-OUTPUTS = Path(__file__).parent / "knowledge"
+DATA    = ROOT / "data"
+OUTPUTS = ROOT / "knowledge"
 OUTPUTS.mkdir(exist_ok=True)
 
 # --- Search grid (targeting overfitting reduction) ---
@@ -221,7 +222,7 @@ def main():
               f"{row['fsp']:4.1f}  {int(row['cap']):3d}  "
               f"{row['test_ic']:+.4f}  {row['val_ic']:+.4f}  {row['gap']:.3f}")
     print(f"{'='*70}")
-    print(f"\nSaved → {out_csv.relative_to(Path(__file__).parent)}")
+    print(f"\nSaved → {out_csv.relative_to(ROOT)}")
 
     # Retrain best — restore full N_MODELS=20 ensemble
     train_mod.N_MODELS = 20
@@ -257,8 +258,8 @@ def main():
     print(f"  val IC:  {m_final['val_ic']:+.4f}")
     print(f"  test IC: {m_final['test_ic']:+.4f}")
     print(f"  gap:     {m_final['gap']:.4f}")
-    print(f"\nSaved → {out_oos.relative_to(Path(__file__).parent)}")
-    print(f"Saved → {feat_json.relative_to(Path(__file__).parent)} ({len(best_feats)} features)")
+    print(f"\nSaved → {out_oos.relative_to(ROOT)}")
+    print(f"Saved → {feat_json.relative_to(ROOT)} ({len(best_feats)} features)")
 
 
 if __name__ == "__main__":

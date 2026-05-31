@@ -23,6 +23,7 @@ from fastapi.responses import FileResponse
 from nicegui import app, ui
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent / "multietfs_strategy"))
 
 ROOT = Path(__file__).parent
 DATA = ROOT / "data"

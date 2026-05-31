@@ -19,6 +19,7 @@ import xgboost as xgb
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+ROOT = Path(__file__).resolve().parent.parent
 from train_smart_money import (
     XGB_PARAMS, _try_gpu, LABEL_COL, _zscore_per_date,
     BLOCK_ROWS, EMBARGO_ROWS, run_walk_forward,
@@ -26,8 +27,8 @@ from train_smart_money import (
 from select_features import get_all_feature_cols
 import train_smart_money as train_mod
 
-DATA    = Path(__file__).parent / "data"
-OUTPUTS = Path(__file__).parent / "knowledge"
+DATA    = ROOT / "data"
+OUTPUTS = ROOT / "knowledge"
 OUTPUTS.mkdir(exist_ok=True)
 
 # Search grid

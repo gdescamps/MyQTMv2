@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent / "multietfs_strategy"))
 from etf import UNIVERSE
 
 DATA    = Path(__file__).parent / "data"

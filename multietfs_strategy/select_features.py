@@ -20,10 +20,11 @@ import xgboost as xgb
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+ROOT = Path(__file__).resolve().parent.parent
 from train_smart_money import XGB_PARAMS, _try_gpu, LABEL_COL, _zscore_per_date, BLOCK_ROWS, EMBARGO_ROWS
 
-DATA    = Path(__file__).parent / "data"
-OUTPUTS = Path(__file__).parent / "outputs"
+DATA    = ROOT / "data"
+OUTPUTS = ROOT / "outputs"
 OUTPUTS.mkdir(parents=True, exist_ok=True)
 
 # Interlaced 3-period split using train.py block size
