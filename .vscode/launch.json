@@ -8,39 +8,6 @@
             "program": "${workspaceFolder}/src/qqq_strategy/run.py",
             "console": "integratedTerminal",
             "justMyCode": true
-        },
-        {
-            "name": "ETFs feature_engineering",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/src/etfs_strategy/feature_engineering.py",
-            "console": "integratedTerminal",
-            "justMyCode": true
-        },
-        {
-            "name": "ETFs train",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/src/etfs_strategy/train_smart_money.py",
-            "console": "integratedTerminal",
-            "justMyCode": true
-        },
-        {
-            "name": "ETFs backtest",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/src/etfs_strategy/backtest.py",
-            "console": "integratedTerminal",
-            "justMyCode": true
-        },
-        {
-            "name": "ETFs backtest --robustness",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/src/etfs_strategy/backtest.py",
-            "args": ["--robustness"],
-            "console": "integratedTerminal",
-            "justMyCode": true
         }
     ]
 }
