@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
 from src.qqq_strategy.data import load_data, build_features, build_realtime_target
-from src.qqq_strategy.backtest import walk_forward, compute_equity, plot_results
+from src.qqq_strategy.backtest import walk_forward, plot_results
 
 # ── Config ────────────────────────────────────────────────
 START = "2000-01-01"
@@ -22,7 +22,6 @@ DD_REENTER = -0.05
 MIN_TRAIN = 504
 STEP = 21
 TEMPERATURE = 3.0
-MAX_LEVERAGE = 1.5
 PROB_CASH = 0.5
 PROB_FULL = 0.85
 
@@ -49,16 +48,11 @@ wf_pred, wf_proba, model = walk_forward(
 pred_mask = wf_pred >= 0
 wf_dates = df.index[pred_mask]
 wf_prob = wf_proba[pred_mask]
-
 qqq_ret = qqq.pct_change().fillna(0).loc[df.index].values[pred_mask]
 
-# ── Equity & Plot ─────────────────────────────────────────
-bh_eq, cont_eq, alloc = compute_equity(
-    qqq_ret, wf_prob,
-    max_leverage=MAX_LEVERAGE, prob_cash=PROB_CASH, prob_full=PROB_FULL,
-)
-
+# ── Plot (3 leverages + Bourso fees + 5y tax projection) ─
 plot_results(
-    wf_dates, bh_eq, cont_eq, alloc, MAX_LEVERAGE,
+    wf_dates, qqq_ret, wf_prob,
+    prob_cash=PROB_CASH, prob_full=PROB_FULL,
     save_path=str(ROOT / "outputs" / "qqq_strategy" / "backtest.png"),
 )
