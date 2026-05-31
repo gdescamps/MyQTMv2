@@ -12,8 +12,8 @@ def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
 
-def walk_forward(X, y, feature_cols, min_train=504, step=21, temperature=3.0,
-                 xgb_params=None):
+def walk_forward(X, y, feature_cols, min_train=504, step=21, embargo=21,
+                 temperature=3.0, xgb_params=None):
     if xgb_params is None:
         xgb_params = dict(
             n_estimators=300, max_depth=4, learning_rate=0.03,
@@ -30,8 +30,13 @@ def walk_forward(X, y, feature_cols, min_train=504, step=21, temperature=3.0,
     t = min_train
     while t < N:
         test_end = min(t + step, N)
-        train_idx = np.arange(0, t)
+        train_end = max(t - embargo, 0)
+        train_idx = np.arange(0, train_end)
         test_idx = np.arange(t, test_end)
+
+        if len(train_idx) < min_train:
+            t = test_end
+            continue
 
         model = xgb.XGBClassifier(**xgb_params)
         model.fit(X[train_idx], y[train_idx], verbose=False)
