@@ -13,13 +13,15 @@ def load_data(start="2006-01-01", end="2026-05-31"):
     qqq = pd.read_parquet(DATA_DIR / "QQQ.parquet")["close"]
     vix = pd.read_parquet(DATA_DIR / "vix_ohlc.parquet")["close"]
     spread = pd.read_parquet(DATA_DIR / "fred_baa_spread.parquet")["baa_spread"]
+    tlt = pd.read_parquet(DATA_DIR / "TLT.parquet")["close"]
 
     qqq = qqq.loc[start:end].dropna()
     vix = vix.loc[start:end].dropna()
     spread = spread.loc[start:end].dropna()
+    tlt = tlt.loc[start:end].dropna()
 
-    common = qqq.index.intersection(vix.index).intersection(spread.index)
-    return qqq.loc[common], vix.loc[common], spread.loc[common]
+    common = qqq.index.intersection(vix.index).intersection(spread.index).intersection(tlt.index)
+    return qqq.loc[common], vix.loc[common], spread.loc[common], tlt.loc[common]
 
 
 def build_realtime_target(prices, dd_exit=-0.10, dd_reenter=-0.05):
@@ -39,7 +41,7 @@ def build_realtime_target(prices, dd_exit=-0.10, dd_reenter=-0.05):
     return target, drawdown_arr
 
 
-def build_features(qqq, vix, spread):
+def build_features(qqq, vix, spread, tlt=None):
     prices = qqq.values
     dates = qqq.index
     n = len(prices)
@@ -159,4 +161,21 @@ def build_features(qqq, vix, spread):
     # 13. Spread acceleration
     df["spread_accel"] = df["spread"].diff(5).diff(5)
 
+    # 14. QQQ/TLT ratio (risk-on vs risk-off)
+    if tlt is not None:
+        tlt_s = pd.Series(tlt.values, index=dates)
+        df["tlt"] = tlt_s
+        df["qqq_tlt_ratio"] = df["qqq_close"] / tlt_s
+        for w in [5, 10, 20, 50]:
+            df[f"qqq_tlt_ratio_ret{w}"] = df["qqq_tlt_ratio"].pct_change(w)
+        df["qqq_tlt_ratio_vs_sma20"] = df["qqq_tlt_ratio"] / df["qqq_tlt_ratio"].rolling(20).mean() - 1
+        df["qqq_tlt_ratio_vs_sma50"] = df["qqq_tlt_ratio"] / df["qqq_tlt_ratio"].rolling(50).mean() - 1
+        # TLT momentum (flight to safety)
+        for w in [5, 10, 20, 50]:
+            df[f"tlt_ret{w}"] = tlt_s.pct_change(w)
+        df["tlt_vs_sma20"] = tlt_s / tlt_s.rolling(20).mean() - 1
+        df["tlt_vs_sma50"] = tlt_s / tlt_s.rolling(50).mean() - 1
+        # Cross interactions
+        df["tlt_x_vix"] = df["tlt_ret5"] * df["vix"]
+        df["tlt_x_dd"] = df["tlt_ret5"] * drawdown_arr
     return df

@@ -27,8 +27,8 @@ PROB_CASH = 0.5
 PROB_FULL = 0.85
 
 # ── Data ──────────────────────────────────────────────────
-qqq, vix, spread = load_data(START, END)
-df = build_features(qqq, vix, spread)
+qqq, vix, spread, tlt = load_data(START, END)
+df = build_features(qqq, vix, spread, tlt)
 
 target, _ = build_realtime_target(qqq.values, DD_EXIT, DD_REENTER)
 df["target"] = target
