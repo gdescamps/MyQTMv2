@@ -9,11 +9,15 @@ from pathlib import Path
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 
 
-def load_data(start="2006-01-01", end="2026-05-31"):
+def load_data(start="2006-01-01", end="2026-05-31", spread_lag=2):
     qqq = pd.read_parquet(DATA_DIR / "QQQ.parquet")["close"]
     vix = pd.read_parquet(DATA_DIR / "vix_ohlc.parquet")["close"]
     spread = pd.read_parquet(DATA_DIR / "fred_baa_spread.parquet")["baa_spread"]
     tlt = pd.read_parquet(DATA_DIR / "TLT.parquet")["close"]
+
+    # Shift spread by J+2 to reflect FRED publication delay
+    if spread_lag > 0:
+        spread = spread.shift(spread_lag)
 
     qqq = qqq.loc[start:end].dropna()
     vix = vix.loc[start:end].dropna()
