@@ -16,7 +16,8 @@ Usage:
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent / "multietfs_strategy"))
+sys.path.insert(0, str(Path(__file__).parent / "src" / "etfs_strategy"))
+sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 COMMANDS = {
     "train":           "train_smart_money",
