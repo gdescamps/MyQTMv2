@@ -1,8 +1,15 @@
 """
 QQQ Crisis-Avoidance Strategy — Walk-Forward XGBoost with continuous allocation.
 
-Usage: python run_qqq_strategy.py
+Usage: python -m src.qqq_strategy.run
+       python src/qqq_strategy/run.py
 """
+
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ROOT))
 
 from src.qqq_strategy.data import load_data, build_features, build_realtime_target
 from src.qqq_strategy.backtest import walk_forward, compute_equity, plot_results
@@ -54,5 +61,5 @@ bh_eq, bin_eq, cont_eq, alloc = compute_equity(
 
 plot_results(
     wf_dates, bh_eq, bin_eq, cont_eq, alloc, MAX_LEVERAGE,
-    save_path="src/qqq_strategy/backtest.png",
+    save_path=str(ROOT / "outputs" / "qqq_strategy" / "backtest.png"),
 )

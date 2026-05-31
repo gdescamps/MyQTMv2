@@ -1540,3 +1540,12 @@ supprimer la partie robot.py et app.py et la partie docker, setup_cron.sh,
 renommer 1_setup.sh 1_setup_interpreter.sh
 
 
+--------------------------------------------
+
+dans src/qqq_strategy
+quel est le source qui a generé : 
+src/qqq_strategy/xgb_wf_vs_qqq.png
+
+
+deplacer run_qqq_strategy.py
+dans 
