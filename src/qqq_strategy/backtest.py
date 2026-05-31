@@ -2,10 +2,15 @@
 Walk-forward XGBoost backtest with continuous allocation 0-150%.
 """
 
+import hashlib
+import json
 import numpy as np
 import xgboost as xgb
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+from pathlib import Path
+
+CACHE_DIR = Path(__file__).resolve().parent.parent.parent / "outputs" / "qqq_strategy"
 
 
 def sigmoid(x):
@@ -78,16 +83,62 @@ def select_features_stable(X, y, feature_cols, block_size=21, embargo_rows=5,
     return selected_idx, selected_names
 
 
+def _cache_key(X, y, feature_cols, xgb_params, feat_select, feat_power, feat_top_n,
+               min_train, step, embargo, temperature):
+    """Compute a hash of all inputs that affect walk-forward results."""
+    h = hashlib.sha256()
+    h.update(X.tobytes())
+    h.update(y.tobytes())
+    h.update(json.dumps(sorted(feature_cols)).encode())
+    h.update(json.dumps(xgb_params, sort_keys=True).encode())
+    h.update(f"{feat_select}_{feat_power}_{feat_top_n}".encode())
+    h.update(f"{min_train}_{step}_{embargo}_{temperature}".encode())
+    return h.hexdigest()[:16]
+
+
+def _detect_device():
+    """Try GPU, fallback to CPU."""
+    try:
+        m = xgb.XGBClassifier(device="cuda", n_estimators=1, verbosity=0)
+        m.fit(np.zeros((10, 2)), np.zeros(10, dtype=int), verbose=False)
+        return "cuda"
+    except Exception:
+        return "cpu"
+
+
 def walk_forward(X, y, feature_cols, min_train=504, step=21, embargo=21,
                  temperature=3.0, xgb_params=None, feat_select=True,
-                 feat_top_n=None, feat_power=1.7):
+                 feat_top_n=None, feat_power=1.7, use_cache=True):
     if xgb_params is None:
+        device = _detect_device()
+        print(f"XGBoost device: {device}")
         xgb_params = dict(
             n_estimators=300, max_depth=4, learning_rate=0.03,
             subsample=0.7, colsample_bytree=0.7, min_child_weight=20,
             reg_alpha=1.0, reg_lambda=5.0, gamma=1.0,
             random_state=42, eval_metric="logloss",
+            device=device,
         )
+
+    # Check cache
+    if use_cache:
+        cache_hash = _cache_key(X, y, feature_cols, xgb_params, feat_select,
+                                feat_power, feat_top_n, min_train, step,
+                                embargo, temperature)
+        cache_path = CACHE_DIR / f"wf_cache_{cache_hash}.npz"
+        if cache_path.exists():
+            cached = np.load(cache_path, allow_pickle=True)
+            print(f"Walk-forward loaded from cache ({cache_path.name})")
+            wf_pred = cached["wf_pred"]
+            wf_proba = cached["wf_proba"]
+            feat_names = list(cached["feat_names"])
+            # Print top features from cached importances
+            imp = cached["importances"]
+            top_idx = np.argsort(imp)[-20:][::-1]
+            print(f"\nTop 20 features (cached):")
+            for idx in top_idx:
+                print(f"  {feat_names[idx]:30s} {imp[idx]:.4f}")
+            return wf_pred, wf_proba, None
 
     N = len(X)
     wf_pred = np.full(N, -1, dtype=int)
@@ -154,6 +205,14 @@ def walk_forward(X, y, feature_cols, min_train=504, step=21, embargo=21,
     print(f"\nTop 20 features (last model):")
     for idx in top_idx:
         print(f"  {last_feat_names[idx]:30s} {imp[idx]:.4f}")
+
+    # Save cache
+    if use_cache:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        np.savez(cache_path, wf_pred=wf_pred, wf_proba=wf_proba,
+                 feat_names=np.array(last_feat_names),
+                 importances=imp)
+        print(f"Cache saved: {cache_path.name}")
 
     return wf_pred, wf_proba, last_model
 
@@ -382,4 +441,75 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
     if save_path:
         plt.savefig(save_path, dpi=150)
         print(f"\nSaved: {save_path}")
+    plt.show()
+
+
+def plot_recent(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
+                days=21, save_path=None):
+    """Plot last N trading days: daily QQQ return, allocation, and probability."""
+    import pandas as pd
+
+    # Slice last N days
+    n = min(days, len(wf_dates))
+    dates = wf_dates[-n:]
+    ret = qqq_ret[-n:]
+    prob = wf_prob[-n:]
+    alloc = np.clip((prob - prob_cash) / (prob_full - prob_cash), 0, 1) * 1.5
+
+    # Cumulative return over period
+    cum_ret = np.cumprod(1 + ret)
+    cum_strat = np.ones(n)
+    for i in range(1, n):
+        cum_strat[i] = cum_strat[i - 1] * (1 + ret[i] * alloc[i])
+
+    # Use integer x-axis for continuous trading days (no weekend gaps)
+    x = np.arange(n)
+    date_labels = [d.strftime("%d %b") for d in dates]
+
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 9), height_ratios=[2, 1, 1],
+                                         sharex=True, gridspec_kw={"hspace": 0.08})
+
+    # Cumulative returns
+    ax1.plot(x, (cum_ret - 1) * 100, label="QQQ", color="tab:blue", linewidth=2)
+    ax1.plot(x, (cum_strat - 1) * 100, label="XGB x1.5", color="tab:red", linewidth=2)
+    ax1.axhline(0, color="gray", linestyle="-", alpha=0.3)
+    ax1.set_ylabel("Rendement cumulé (%)")
+    period_ret_qqq = (cum_ret[-1] - 1) * 100
+    period_ret_strat = (cum_strat[-1] - 1) * 100
+    ax1.set_title(f"Derniers {n} jours ({dates[0].date()} \u2192 {dates[-1].date()})  "
+                  f"QQQ {period_ret_qqq:+.1f}%  XGB {period_ret_strat:+.1f}%")
+    ax1.legend(loc="upper left", fontsize=10)
+    ax1.grid(True, alpha=0.3)
+
+    # Allocation
+    ax2.bar(x, alloc * 100, color="tab:green", alpha=0.6, width=0.8)
+    ax2.axhline(100, color="gray", linestyle="--", alpha=0.5, linewidth=0.8)
+    ax2.axhline(150, color="red", linestyle="--", alpha=0.5, linewidth=0.8)
+    ax2.set_ylabel("Allocation (%)")
+    ax2.set_ylim(-5, 165)
+    ax2.grid(True, alpha=0.3)
+
+    # Probability
+    ax3.plot(x, prob, color="tab:purple", linewidth=2, marker="o", markersize=4)
+    ax3.axhline(prob_cash, color="gray", linestyle="--", alpha=0.5, label=f"Cash ({prob_cash})")
+    ax3.axhline(0.85, color="red", linestyle="--", alpha=0.5, label="Full (0.85)")
+    ax3.fill_between(x, prob_cash, prob, where=prob >= prob_cash,
+                     alpha=0.2, color="tab:green")
+    ax3.fill_between(x, prob_cash, prob, where=prob < prob_cash,
+                     alpha=0.2, color="tab:red")
+    ax3.set_ylabel("P(invested)")
+    ax3.set_xlabel("Date")
+    ax3.set_ylim(0, 1)
+    ax3.legend(loc="lower right", fontsize=9)
+    ax3.grid(True, alpha=0.3)
+
+    # X-axis: show every Nth label to avoid overlap
+    tick_step = max(1, n // 15)
+    ax3.set_xticks(x[::tick_step])
+    ax3.set_xticklabels([date_labels[i] for i in range(0, n, tick_step)], rotation=45)
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=150)
+        print(f"Saved: {save_path}")
     plt.show()

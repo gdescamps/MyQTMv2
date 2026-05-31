@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
 from src.qqq_strategy.data import load_data, build_features, build_realtime_target
-from src.qqq_strategy.backtest import walk_forward, plot_results
+from src.qqq_strategy.backtest import walk_forward, plot_results, plot_recent
 
 # ── Config ────────────────────────────────────────────────
 START = "2000-01-01"
@@ -50,9 +50,17 @@ wf_dates = df.index[pred_mask]
 wf_prob = wf_proba[pred_mask]
 qqq_ret = qqq.pct_change().fillna(0).loc[df.index].values[pred_mask]
 
+OUT = ROOT / "outputs" / "qqq_strategy"
+
 # ── Plot (3 leverages + Bourso fees + 5y tax projection) ─
 plot_results(
     wf_dates, qqq_ret, wf_prob,
     prob_cash=PROB_CASH, prob_full=PROB_FULL,
-    save_path=str(ROOT / "outputs" / "qqq_strategy" / "backtest.png"),
+    save_path=str(OUT / "backtest.png"),
 )
+
+# ── Zoom dernière année + dernier mois ───────────────────
+plot_recent(wf_dates, qqq_ret, wf_prob, PROB_CASH, PROB_FULL,
+            days=252, save_path=str(OUT / "backtest_1y.png"))
+plot_recent(wf_dates, qqq_ret, wf_prob, PROB_CASH, PROB_FULL,
+            days=21, save_path=str(OUT / "backtest_1m.png"))
