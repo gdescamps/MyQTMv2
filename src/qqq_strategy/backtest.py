@@ -60,20 +60,12 @@ def walk_forward(X, y, feature_cols, min_train=504, step=21, embargo=21,
     return wf_pred, wf_proba, last_model
 
 
-def compute_equity(qqq_ret, pred, proba, max_leverage=1.5,
+def compute_equity(qqq_ret, proba, max_leverage=1.5,
                    prob_cash=0.5, prob_full=0.85):
     N = len(qqq_ret)
 
     # Buy & Hold
     bh_eq = np.cumprod(1 + qqq_ret)
-
-    # Binary x1
-    bin_eq = np.ones(N)
-    for i in range(1, N):
-        if pred[i]:
-            bin_eq[i] = bin_eq[i - 1] * (1 + qqq_ret[i])
-        else:
-            bin_eq[i] = bin_eq[i - 1]
 
     # Continuous allocation
     alloc = np.clip((proba - prob_cash) / (prob_full - prob_cash), 0, 1) * max_leverage
@@ -81,7 +73,7 @@ def compute_equity(qqq_ret, pred, proba, max_leverage=1.5,
     for i in range(1, N):
         cont_eq[i] = cont_eq[i - 1] * (1 + qqq_ret[i] * alloc[i])
 
-    return bh_eq, bin_eq, cont_eq, alloc
+    return bh_eq, cont_eq, alloc
 
 
 def compute_metrics(eq, years):
@@ -90,18 +82,16 @@ def compute_metrics(eq, years):
     return cagr, dd
 
 
-def plot_results(wf_dates, bh_eq, bin_eq, cont_eq, alloc, max_leverage,
+def plot_results(wf_dates, bh_eq, cont_eq, alloc, max_leverage,
                  save_path=None):
     years = (wf_dates[-1] - wf_dates[0]).days / 365.25
     bh_cagr, bh_dd = compute_metrics(bh_eq, years)
-    bin_cagr, bin_dd = compute_metrics(bin_eq, years)
     cont_cagr, cont_dd = compute_metrics(cont_eq, years)
 
     print(f"\n{'='*70}")
     print(f"Periode: {wf_dates[0].date()} -> {wf_dates[-1].date()} ({years:.1f} ans)")
     print(f"{'':35s} {'CAGR':>8s} {'Total':>8s} {'MaxDD':>8s}")
     print(f"{'QQQ Buy & Hold':35s} {bh_cagr*100:7.1f}% {bh_eq[-1]:7.1f}x {bh_dd*100:7.1f}%")
-    print(f"{'XGBoost WF binary x1':35s} {bin_cagr*100:7.1f}% {bin_eq[-1]:7.1f}x {bin_dd*100:7.1f}%")
     print(f"{'XGBoost WF continuous 0-150%':35s} {cont_cagr*100:7.1f}% {cont_eq[-1]:7.1f}x {cont_dd*100:7.1f}%")
     print(f"Alloc mean: {alloc.mean()*100:.0f}%  median: {np.median(alloc)*100:.0f}%  "
           f"at 0%: {(alloc==0).sum()}j  at 150%: {(alloc>=max_leverage-0.01).sum()}j")
@@ -112,9 +102,6 @@ def plot_results(wf_dates, bh_eq, bin_eq, cont_eq, alloc, max_leverage,
     ax1.semilogy(wf_dates, bh_eq,
                  label=f"QQQ Buy & Hold (CAGR {bh_cagr*100:.1f}%, DD {bh_dd*100:.1f}%)",
                  color="tab:blue", linewidth=1.5, alpha=0.7)
-    ax1.semilogy(wf_dates, bin_eq,
-                 label=f"XGBoost binary x1 (CAGR {bin_cagr*100:.1f}%, DD {bin_dd*100:.1f}%)",
-                 color="tab:green", linewidth=1.2, alpha=0.5)
     ax1.semilogy(wf_dates, cont_eq,
                  label=f"XGBoost continu 0-{max_leverage*100:.0f}% (CAGR {cont_cagr*100:.1f}%, DD {cont_dd*100:.1f}%)",
                  color="tab:red", linewidth=2)
