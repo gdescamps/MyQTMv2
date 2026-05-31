@@ -6,6 +6,34 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/src/qqq_strategy/run.py",
+            "args": ["QQQ"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "SPY backtest",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/qqq_strategy/run.py",
+            "args": ["SPY"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "EWG (DAX) backtest",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/qqq_strategy/run.py",
+            "args": ["EWG"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "ALL backtests + comparison",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/qqq_strategy/run.py",
+            "args": ["ALL"],
             "console": "integratedTerminal",
             "justMyCode": true
         }

@@ -1,8 +1,9 @@
 """
-QQQ Crisis-Avoidance Strategy — Walk-Forward XGBoost with continuous allocation.
+Crisis-Avoidance Strategy — Walk-Forward XGBoost with continuous allocation.
+Supports QQQ (Nasdaq-100) and SPY (S&P 500).
 
-Usage: python -m src.qqq_strategy.run
-       python src/qqq_strategy/run.py
+Usage: python src/qqq_strategy/run.py [QQQ|SPY|ALL]
+       ALL runs both QQQ and SPY + comparison chart
 """
 
 import sys
@@ -12,7 +13,15 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
 from src.qqq_strategy.data import load_data, build_features, build_realtime_target
-from src.qqq_strategy.backtest import walk_forward, plot_results, plot_recent
+from src.qqq_strategy.backtest import (walk_forward, plot_results, plot_recent,
+                                       plot_comparison, simulate_with_fees)
+
+# Tickers with leveraged ETFs available → x1, x1.5, x2
+# Others → x1 only (no leveraged ETF)
+LEVERAGED_TICKERS = {"QQQ", "SPY"}
+
+def get_leverages(ticker):
+    return [1.0, 1.5, 2.0] if ticker in LEVERAGED_TICKERS else [1.0]
 
 # ── Config ────────────────────────────────────────────────
 START = "2000-01-01"
@@ -25,42 +34,61 @@ TEMPERATURE = 3.0
 PROB_CASH = 0.5
 PROB_FULL = 0.85
 
-# ── Data ──────────────────────────────────────────────────
-qqq, vix, spread, tlt = load_data(START, END)
-df = build_features(qqq, vix, spread, tlt)
+arg = sys.argv[1].upper() if len(sys.argv) > 1 else "ALL"
+ALL_TICKERS = ["QQQ", "SPY", "EWG", "ACWI", "GLD", "XLE", "ITA", "EWZ", "DBC", "BTC-USD"]
+TICKERS = ALL_TICKERS if arg == "ALL" else [arg]
 
-target, _ = build_realtime_target(qqq.values, DD_EXIT, DD_REENTER)
-df["target"] = target
-df = df.dropna()
 
-feature_cols = [c for c in df.columns if c != "target"]
-X = df[feature_cols].values
-y = df["target"].values
-print(f"Features: {len(feature_cols)} cols, {len(df)} rows")
+def run_ticker(ticker):
+    prefix = ticker.lower().replace("-", "_")
+    print(f"\n{'='*70}")
+    print(f"=== {ticker} Crisis-Avoidance Strategy ===")
+    print(f"{'='*70}\n")
 
-# ── Walk-Forward ──────────────────────────────────────────
-wf_pred, wf_proba, model = walk_forward(
-    X, y, feature_cols,
-    min_train=MIN_TRAIN, step=STEP, temperature=TEMPERATURE,
-)
+    price, vix, spread, tlt = load_data(ticker, START, END)
+    df = build_features(price, vix, spread, tlt, prefix=prefix)
 
-# ── Filter to prediction period ──────────────────────────
-pred_mask = wf_pred >= 0
-wf_dates = df.index[pred_mask]
-wf_prob = wf_proba[pred_mask]
-qqq_ret = qqq.pct_change().fillna(0).loc[df.index].values[pred_mask]
+    target, _ = build_realtime_target(price.values, DD_EXIT, DD_REENTER)
+    df["target"] = target
+    df = df.dropna()
 
-OUT = ROOT / "outputs" / "qqq_strategy"
+    feature_cols = [c for c in df.columns if c != "target"]
+    X = df[feature_cols].values
+    y = df["target"].values
+    print(f"Features: {len(feature_cols)} cols, {len(df)} rows")
 
-# ── Plot (3 leverages + Bourso fees + 5y tax projection) ─
-plot_results(
-    wf_dates, qqq_ret, wf_prob,
-    prob_cash=PROB_CASH, prob_full=PROB_FULL,
-    save_path=str(OUT / "backtest.png"),
-)
+    wf_pred, wf_proba, model = walk_forward(
+        X, y, feature_cols,
+        min_train=MIN_TRAIN, step=STEP, temperature=TEMPERATURE,
+    )
 
-# ── Zoom dernière année + dernier mois ───────────────────
-plot_recent(wf_dates, qqq_ret, wf_prob, PROB_CASH, PROB_FULL,
-            days=252, save_path=str(OUT / "backtest_1y.png"))
-plot_recent(wf_dates, qqq_ret, wf_prob, PROB_CASH, PROB_FULL,
-            days=21, save_path=str(OUT / "backtest_1m.png"))
+    pred_mask = wf_pred >= 0
+    wf_dates = df.index[pred_mask]
+    wf_prob = wf_proba[pred_mask]
+    price_ret = price.pct_change().fillna(0).loc[df.index].values[pred_mask]
+
+    OUT = ROOT / "outputs" / f"{prefix}_strategy"
+    OUT.mkdir(parents=True, exist_ok=True)
+
+    levs = get_leverages(ticker)
+    plot_results(wf_dates, price_ret, wf_prob, PROB_CASH, PROB_FULL,
+                 save_path=str(OUT / "backtest.png"), ticker=ticker, leverages=levs)
+    plot_recent(wf_dates, price_ret, wf_prob, PROB_CASH, PROB_FULL,
+                days=252, save_path=str(OUT / "backtest_1y.png"), ticker=ticker, leverages=levs)
+    plot_recent(wf_dates, price_ret, wf_prob, PROB_CASH, PROB_FULL,
+                days=21, save_path=str(OUT / "backtest_1m.png"), ticker=ticker, leverages=levs)
+
+    return wf_dates, price_ret, wf_prob, get_leverages(ticker)
+
+
+# ── Run ───────────────────────────────────────────────────
+results = {}
+for t in TICKERS:
+    results[t] = run_ticker(t)
+
+# ── Comparison chart (if multiple tickers) ────────────────
+if len(TICKERS) > 1:
+    OUT = ROOT / "outputs" / "comparison"
+    OUT.mkdir(parents=True, exist_ok=True)
+    plot_comparison(results, PROB_CASH, PROB_FULL,
+                    save_path=str(OUT / "comparison.png"))

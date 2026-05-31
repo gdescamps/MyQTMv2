@@ -22,8 +22,8 @@ DATA_DIR.mkdir(exist_ok=True)
 START_DATE = "2000-01-01"
 DELAY = 0.2
 
-# Tickers needed for QQQ strategy
-TICKERS = ["QQQ", "TLT"]
+# Tickers needed for strategies
+TICKERS = ["QQQ", "SPY", "EWG", "ACWI", "GLD", "XLE", "ITA", "EWZ", "DBC", "BTC-USD", "TLT"]
 
 # VIX OHLCV (^VIX on Yahoo Finance)
 VIX_TICKER = "^VIX"

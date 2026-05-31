@@ -45,6 +45,13 @@ def select_features_stable(X, y, feature_cols, block_size=21, embargo_rows=5,
         train_mask = (block_id != period) & not_embargoed
         train_idx = np.where(train_mask)[0]
 
+        train_classes = np.unique(y[train_idx])
+        if len(train_classes) < 2:
+            importances[period] = np.zeros(X.shape[1])
+            if verbose:
+                print(f"  Period {period}: train={len(train_idx)} rows  SKIPPED (single class)")
+            continue
+
         model = xgb.XGBClassifier(**xgb_params)
         model.fit(X[train_idx], y[train_idx], verbose=False)
         importances[period] = model.feature_importances_
@@ -176,6 +183,15 @@ def walk_forward(X, y, feature_cols, min_train=504, step=21, embargo=21,
             X_train = X[train_idx]
             X_test = X[test_idx]
 
+        # Skip if only one class in training data
+        train_classes = np.unique(y[train_idx])
+        if len(train_classes) < 2:
+            wf_proba[test_idx] = 1.0 if train_classes[0] == 1 else 0.0
+            wf_pred[test_idx] = train_classes[0]
+            n_steps += 1
+            t = test_end
+            continue
+
         model = xgb.XGBClassifier(**xgb_params)
         model.fit(X_train, y[train_idx], verbose=False)
 
@@ -282,16 +298,17 @@ def simulate_with_fees(qqq_ret, wf_prob, max_lev, prob_cash=0.5, prob_full=0.85,
 
 def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
                  pea_init=150_000, cto_init=100_000, proj_years=5,
-                 save_path=None):
+                 save_path=None, ticker="QQQ", leverages=None):
     import pandas as pd
     from matplotlib.gridspec import GridSpec
+
+    if leverages is None:
+        leverages = [1.0, 1.5, 2.0]
 
     years = (wf_dates[-1] - wf_dates[0]).days / 365.25
     N = len(qqq_ret)
     bh_eq = np.cumprod(1 + qqq_ret)
     bh_cagr, bh_dd = compute_metrics(bh_eq, years)
-
-    leverages = [1.0, 1.5, 2.0]
     colors = {1.0: "tab:orange", 1.5: "tab:red", 2.0: "darkred"}
 
     idx_10y = np.where(wf_dates >= wf_dates[-1] - pd.DateOffset(years=10))[0][0]
@@ -310,14 +327,14 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
     print(f"\n{'='*70}")
     print(f"Periode: {wf_dates[0].date()} -> {wf_dates[-1].date()} ({years:.1f} ans)")
     print(f"{'':35s} {'CAGR':>8s} {'Total':>8s} {'MaxDD':>8s}")
-    print(f"{'QQQ Buy & Hold':35s} {bh_cagr*100:7.1f}% {bh_eq[-1]:7.1f}x {bh_dd*100:7.1f}%")
+    print(f"{ticker + ' Buy & Hold':35s} {bh_cagr*100:7.1f}% {bh_eq[-1]:7.1f}x {bh_dd*100:7.1f}%")
     for lev in leverages:
         r = results[lev]
         lbl = f"XGB x{lev:.1f} net Bourso"
         print(f"{lbl:35s} {r['n_cagr']*100:7.1f}% "
               f"{r['eq_n'][-1]:7.1f}x {r['n_dd']*100:7.1f}%")
     print(f"\nDernieres 10 ans ({wf_dates[idx_10y].date()} -> {wf_dates[-1].date()}):")
-    print(f"{'QQQ Buy & Hold':35s} {bh_c10*100:7.1f}%         {bh_d10*100:7.1f}%")
+    print(f"{ticker + ' Buy & Hold':35s} {bh_c10*100:7.1f}%         {bh_d10*100:7.1f}%")
     for lev in leverages:
         r = results[lev]
         lbl = f"XGB x{lev:.1f} net Bourso"
@@ -356,7 +373,7 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
 
     # Equity curves
     ax1.semilogy(wf_dates, bh_eq,
-                 label=f"QQQ Buy & Hold ({bh_cagr*100:.1f}%, DD {bh_dd*100:.1f}%)",
+                 label=f"{ticker} Buy & Hold ({bh_cagr*100:.1f}%, DD {bh_dd*100:.1f}%)",
                  color="tab:blue", linewidth=1.5, alpha=0.6)
     for lev in leverages:
         r = results[lev]
@@ -370,27 +387,31 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
     for lev in leverages:
         r = results[lev]
         annot += f"x{lev:.1f} {r['n_c10']*100:.1f}%/an DD {r['n_d10']*100:.0f}%\n"
-    y_mid = np.sqrt(results[1.5]["eq_n"].max() * results[1.5]["eq_n"].min())
+    mid_lev = leverages[len(leverages) // 2]
+    y_mid = np.sqrt(results[mid_lev]["eq_n"].max() * results[mid_lev]["eq_n"].min())
     ax1.annotate(annot.strip(), xy=(wf_dates[idx_10y], y_mid), fontsize=8,
                  color="gray", ha="right", va="center",
                  bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8))
 
     ax1.set_ylabel("Equity (log scale)")
-    ax1.set_title("XGBoost WF Strict Feature Selection — net frais Boursorama PEA (PUST+LQQ)")
+    ax1.set_title(f"{ticker} — XGBoost WF Strict Feature Selection — net frais Boursorama PEA")
     ax1.legend(loc="upper left", fontsize=9)
     ax1.grid(True, alpha=0.3)
     plt.setp(ax1.get_xticklabels(), visible=False)
 
     # Allocation
-    for lev in [2.0, 1.5, 1.0]:
+    for lev in sorted(leverages, reverse=True):
         ax2.fill_between(wf_dates, 0, results[lev]["al_c"] * 100,
                          alpha=0.2, color=colors[lev], label=f"x{lev:.1f}")
+    max_alloc = max(leverages) * 100
     ax2.axhline(100, color="gray", linestyle="--", alpha=0.5, linewidth=0.8)
-    ax2.axhline(150, color="tab:red", linestyle="--", alpha=0.3, linewidth=0.8)
-    ax2.axhline(200, color="darkred", linestyle="--", alpha=0.3, linewidth=0.8)
+    if max(leverages) >= 1.5:
+        ax2.axhline(150, color="tab:red", linestyle="--", alpha=0.3, linewidth=0.8)
+    if max(leverages) >= 2.0:
+        ax2.axhline(200, color="darkred", linestyle="--", alpha=0.3, linewidth=0.8)
     ax2.set_ylabel("Allocation (%)")
     ax2.set_xlabel("Date")
-    ax2.set_ylim(-5, 215)
+    ax2.set_ylim(-5, max_alloc + 15)
     ax2.legend(loc="lower right", fontsize=8)
     ax2.grid(True, alpha=0.3)
     ax2.xaxis.set_major_locator(mdates.YearLocator(2))
@@ -445,10 +466,11 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
 
 
 def plot_recent(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
-                days=21, save_path=None):
-    """Plot last N trading days with 3 leverages, fees, and allocation."""
+                days=21, save_path=None, ticker="QQQ", leverages=None):
+    """Plot last N trading days with leverages, fees, and allocation."""
 
-    leverages = [1.0, 1.5, 2.0]
+    if leverages is None:
+        leverages = [1.0, 1.5, 2.0]
     colors = {1.0: "tab:orange", 1.5: "tab:red", 2.0: "darkred"}
 
     # Slice last N days
@@ -468,9 +490,9 @@ def plot_recent(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
                                          sharex=True, gridspec_kw={"hspace": 0.08})
 
     # B&H curve
-    ax1.plot(x, (cum_bh - 1) * 100, label="QQQ B&H", color="tab:blue", linewidth=2)
+    ax1.plot(x, (cum_bh - 1) * 100, label=f"{ticker} B&H", color="tab:blue", linewidth=2)
 
-    title_parts = [f"QQQ {(cum_bh[-1]-1)*100:+.1f}%"]
+    title_parts = [f"{ticker} {(cum_bh[-1]-1)*100:+.1f}%"]
 
     for lev in leverages:
         # Simulate with fees on this slice
@@ -497,11 +519,14 @@ def plot_recent(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
     ax1.legend(loc="upper left", fontsize=9)
     ax1.grid(True, alpha=0.3)
 
+    max_alloc = max(leverages) * 100
     ax2.axhline(100, color="gray", linestyle="--", alpha=0.5, linewidth=0.8)
-    ax2.axhline(150, color="tab:red", linestyle="--", alpha=0.3, linewidth=0.8)
-    ax2.axhline(200, color="darkred", linestyle="--", alpha=0.3, linewidth=0.8)
+    if max(leverages) >= 1.5:
+        ax2.axhline(150, color="tab:red", linestyle="--", alpha=0.3, linewidth=0.8)
+    if max(leverages) >= 2.0:
+        ax2.axhline(200, color="darkred", linestyle="--", alpha=0.3, linewidth=0.8)
     ax2.set_ylabel("Allocation (%)")
-    ax2.set_ylim(-5, 215)
+    ax2.set_ylim(-5, max_alloc + 15)
     ax2.legend(loc="lower right", fontsize=8)
     ax2.grid(True, alpha=0.3)
 
@@ -527,4 +552,60 @@ def plot_recent(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
     if save_path:
         plt.savefig(save_path, dpi=150)
         print(f"Saved: {save_path}")
+    plt.show()
+
+
+def plot_comparison(results, prob_cash=0.5, prob_full=0.85, save_path=None):
+    """Compare multiple tickers on same chart with x1.5 leverage."""
+    import pandas as pd
+    import matplotlib.cm as cm
+
+    tickers = list(results.keys())
+    n_tickers = len(tickers)
+    cmap = cm.get_cmap("tab10")
+    styles = ["-", "--", ":"]
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 10), height_ratios=[3, 1],
+                                    sharex=True, gridspec_kw={"hspace": 0.08})
+
+    for i, ticker in enumerate(tickers):
+        res = results[ticker]
+        wf_dates, price_ret, wf_prob = res[0], res[1], res[2]
+        ticker_levs = res[3] if len(res) > 3 else [1.0, 1.5, 2.0]
+        lev = max(ticker_levs)  # best available leverage
+        years = (wf_dates[-1] - wf_dates[0]).days / 365.25
+        color = cmap(i)
+        ls = styles[i % len(styles)]
+
+        # Best leverage with fees
+        eq_n, al_c, _ = simulate_with_fees(price_ret, wf_prob, lev, prob_cash, prob_full)
+        n_cagr = eq_n[-1] ** (1 / years) - 1
+        n_dd = ((eq_n - np.maximum.accumulate(eq_n)) / np.maximum.accumulate(eq_n)).min()
+        ax1.semilogy(wf_dates, eq_n,
+                     label=f"{ticker} x{lev:.1f} ({n_cagr*100:.1f}%, DD {n_dd*100:.1f}%)",
+                     color=color, linewidth=2.5, linestyle=ls)
+
+        ax2.fill_between(wf_dates, 0, al_c * 100, alpha=0.15, color=color,
+                         label=f"{ticker} x{lev:.1f}")
+
+    title_tickers = " vs ".join(tickers)
+    ax1.set_ylabel("Equity (log scale)")
+    ax1.set_title(f"{title_tickers} — XGBoost WF net frais Boursorama PEA")
+    ax1.legend(loc="upper left", fontsize=8, ncol=2)
+    ax1.grid(True, alpha=0.3)
+
+    ax2.axhline(100, color="gray", linestyle="--", alpha=0.5, linewidth=0.8)
+    ax2.axhline(150, color="gray", linestyle="--", alpha=0.3, linewidth=0.8)
+    ax2.set_ylabel("Allocation (%)")
+    ax2.set_xlabel("Date")
+    ax2.set_ylim(-5, 165)
+    ax2.legend(loc="lower right", fontsize=9)
+    ax2.grid(True, alpha=0.3)
+    ax2.xaxis.set_major_locator(mdates.YearLocator(2))
+    ax2.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=150)
+        print(f"\nSaved: {save_path}")
     plt.show()
