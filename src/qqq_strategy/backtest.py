@@ -446,51 +446,67 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
 
 def plot_recent(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
                 days=21, save_path=None):
-    """Plot last N trading days: daily QQQ return, allocation, and probability."""
-    import pandas as pd
+    """Plot last N trading days with 3 leverages, fees, and allocation."""
+
+    leverages = [1.0, 1.5, 2.0]
+    colors = {1.0: "tab:orange", 1.5: "tab:red", 2.0: "darkred"}
 
     # Slice last N days
     n = min(days, len(wf_dates))
     dates = wf_dates[-n:]
     ret = qqq_ret[-n:]
     prob = wf_prob[-n:]
-    alloc = np.clip((prob - prob_cash) / (prob_full - prob_cash), 0, 1) * 1.5
 
-    # Cumulative return over period
-    cum_ret = np.cumprod(1 + ret)
-    cum_strat = np.ones(n)
-    for i in range(1, n):
-        cum_strat[i] = cum_strat[i - 1] * (1 + ret[i] * alloc[i])
+    # Buy & hold
+    cum_bh = np.cumprod(1 + ret)
 
-    # Use integer x-axis for continuous trading days (no weekend gaps)
+    # Use integer x-axis (no weekend gaps)
     x = np.arange(n)
     date_labels = [d.strftime("%d %b") for d in dates]
 
     fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 9), height_ratios=[2, 1, 1],
                                          sharex=True, gridspec_kw={"hspace": 0.08})
 
-    # Cumulative returns
-    ax1.plot(x, (cum_ret - 1) * 100, label="QQQ", color="tab:blue", linewidth=2)
-    ax1.plot(x, (cum_strat - 1) * 100, label="XGB x1.5", color="tab:red", linewidth=2)
+    # B&H curve
+    ax1.plot(x, (cum_bh - 1) * 100, label="QQQ B&H", color="tab:blue", linewidth=2)
+
+    title_parts = [f"QQQ {(cum_bh[-1]-1)*100:+.1f}%"]
+
+    for lev in leverages:
+        # Simulate with fees on this slice
+        eq_n, al_c, _ = simulate_with_fees(ret, prob, lev, prob_cash, prob_full)
+        period_ret = (eq_n[-1] - 1) * 100
+
+        ax1.plot(x, (eq_n - 1) * 100,
+                 label=f"XGB x{lev:.1f} net ({period_ret:+.1f}%)",
+                 color=colors[lev], linewidth=2)
+        title_parts.append(f"x{lev:.1f} {period_ret:+.1f}%")
+
+        # Allocation on ax2 (stacked fill, most visible = x2 behind)
+        if lev == 2.0:
+            ax2.fill_between(x, 0, al_c * 100, alpha=0.15, color=colors[lev], label=f"x{lev:.1f}")
+        elif lev == 1.5:
+            ax2.fill_between(x, 0, al_c * 100, alpha=0.25, color=colors[lev], label=f"x{lev:.1f}")
+        else:
+            ax2.fill_between(x, 0, al_c * 100, alpha=0.35, color=colors[lev], label=f"x{lev:.1f}")
+
     ax1.axhline(0, color="gray", linestyle="-", alpha=0.3)
     ax1.set_ylabel("Rendement cumulé (%)")
-    period_ret_qqq = (cum_ret[-1] - 1) * 100
-    period_ret_strat = (cum_strat[-1] - 1) * 100
-    ax1.set_title(f"Derniers {n} jours ({dates[0].date()} \u2192 {dates[-1].date()})  "
-                  f"QQQ {period_ret_qqq:+.1f}%  XGB {period_ret_strat:+.1f}%")
-    ax1.legend(loc="upper left", fontsize=10)
+    ax1.set_title(f"Derniers {n}j ({dates[0].date()} \u2192 {dates[-1].date()})  "
+                  + "  ".join(title_parts))
+    ax1.legend(loc="upper left", fontsize=9)
     ax1.grid(True, alpha=0.3)
 
-    # Allocation
-    ax2.bar(x, alloc * 100, color="tab:green", alpha=0.6, width=0.8)
     ax2.axhline(100, color="gray", linestyle="--", alpha=0.5, linewidth=0.8)
-    ax2.axhline(150, color="red", linestyle="--", alpha=0.5, linewidth=0.8)
+    ax2.axhline(150, color="tab:red", linestyle="--", alpha=0.3, linewidth=0.8)
+    ax2.axhline(200, color="darkred", linestyle="--", alpha=0.3, linewidth=0.8)
     ax2.set_ylabel("Allocation (%)")
-    ax2.set_ylim(-5, 165)
+    ax2.set_ylim(-5, 215)
+    ax2.legend(loc="lower right", fontsize=8)
     ax2.grid(True, alpha=0.3)
 
     # Probability
-    ax3.plot(x, prob, color="tab:purple", linewidth=2, marker="o", markersize=4)
+    ax3.plot(x, prob, color="tab:purple", linewidth=2, marker="o", markersize=3)
     ax3.axhline(prob_cash, color="gray", linestyle="--", alpha=0.5, label=f"Cash ({prob_cash})")
     ax3.axhline(0.85, color="red", linestyle="--", alpha=0.5, label="Full (0.85)")
     ax3.fill_between(x, prob_cash, prob, where=prob >= prob_cash,
@@ -503,7 +519,6 @@ def plot_recent(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
     ax3.legend(loc="lower right", fontsize=9)
     ax3.grid(True, alpha=0.3)
 
-    # X-axis: show every Nth label to avoid overlap
     tick_step = max(1, n // 15)
     ax3.set_xticks(x[::tick_step])
     ax3.set_xticklabels([date_labels[i] for i in range(0, n, tick_step)], rotation=45)
