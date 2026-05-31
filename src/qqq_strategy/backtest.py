@@ -12,8 +12,75 @@ def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
 
+def select_features_stable(X, y, feature_cols, block_size=21, embargo_rows=5,
+                           n_periods=3, mean_std_power=1.7, top_n=None,
+                           xgb_params=None, verbose=True):
+    """Select features with stable importance across interlaced periods.
+
+    Splits data into n_periods interlaced blocks, trains on (n-1) periods,
+    measures feature importance, keeps features with high mean/std^power.
+    """
+    if xgb_params is None:
+        xgb_params = dict(
+            n_estimators=300, max_depth=4, learning_rate=0.03,
+            subsample=0.7, colsample_bytree=0.7, min_child_weight=20,
+            reg_alpha=1.0, reg_lambda=5.0, gamma=1.0,
+            random_state=42, eval_metric="logloss",
+        )
+
+    N = len(X)
+    row_pos = np.arange(N)
+    block_idx = row_pos // block_size
+    block_id = block_idx % n_periods
+    pos_in_block = row_pos % block_size
+    not_embargoed = (pos_in_block >= embargo_rows) & (pos_in_block < block_size - embargo_rows)
+
+    importances = {}
+    for period in range(n_periods):
+        train_mask = (block_id != period) & not_embargoed
+        train_idx = np.where(train_mask)[0]
+
+        model = xgb.XGBClassifier(**xgb_params)
+        model.fit(X[train_idx], y[train_idx], verbose=False)
+        importances[period] = model.feature_importances_
+
+        top_idx = np.argsort(importances[period])[-5:][::-1]
+        if verbose:
+            print(f"  Period {period}: train={len(train_idx)} rows  "
+                  f"top5={[feature_cols[i] for i in top_idx]}")
+
+    # Stability: mean / std^power
+    imp_arr = np.array([importances[p] for p in range(n_periods)])  # (n_periods, n_features)
+    mean_imp = imp_arr.mean(axis=0)
+    std_imp = imp_arr.std(axis=0)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        stability = np.where(std_imp > 0, mean_imp / (std_imp ** mean_std_power), 0)
+    stability = np.where(mean_imp > 0, stability, 0)
+
+    # Rank and select
+    ranked_idx = np.argsort(stability)[::-1]
+    n_nonzero = np.sum(stability > 0)
+    if top_n is None:
+        top_n = n_nonzero
+    n_selected = min(top_n, n_nonzero)
+    selected_idx = ranked_idx[:n_selected]
+
+    if verbose:
+        print(f"\n  Feature selection: {n_selected}/{len(feature_cols)} features kept "
+              f"(mean/std^{mean_std_power})")
+        for i, idx in enumerate(selected_idx[:20]):
+            print(f"    {feature_cols[idx]:30s}  mean={mean_imp[idx]:.4f}  "
+                  f"std={std_imp[idx]:.4f}  stab={stability[idx]:.1f}")
+        if n_selected > 20:
+            print(f"    ... ({n_selected - 20} more)")
+
+    selected_names = [feature_cols[i] for i in selected_idx]
+    return selected_idx, selected_names
+
+
 def walk_forward(X, y, feature_cols, min_train=504, step=21, embargo=21,
-                 temperature=3.0, xgb_params=None):
+                 temperature=3.0, xgb_params=None, feat_select=True,
+                 feat_top_n=None, feat_power=1.7):
     if xgb_params is None:
         xgb_params = dict(
             n_estimators=300, max_depth=4, learning_rate=0.03,
@@ -26,6 +93,8 @@ def walk_forward(X, y, feature_cols, min_train=504, step=21, embargo=21,
     wf_pred = np.full(N, -1, dtype=int)
     wf_proba = np.full(N, np.nan)
     last_model = None
+    last_feat_names = list(feature_cols)
+    n_steps = 0
 
     t = min_train
     while t < N:
@@ -38,24 +107,53 @@ def walk_forward(X, y, feature_cols, min_train=504, step=21, embargo=21,
             t = test_end
             continue
 
-        model = xgb.XGBClassifier(**xgb_params)
-        model.fit(X[train_idx], y[train_idx], verbose=False)
+        # Per-step feature selection on train data only
+        if feat_select and len(train_idx) >= min_train * 1.5:
+            sel_idx, sel_names = select_features_stable(
+                X[train_idx], y[train_idx], feature_cols,
+                mean_std_power=feat_power, top_n=feat_top_n,
+                xgb_params=xgb_params, verbose=False,
+            )
+            if len(sel_idx) >= 5:
+                X_train = X[train_idx][:, sel_idx]
+                X_test = X[test_idx][:, sel_idx]
+                last_feat_names = sel_names
+            else:
+                X_train = X[train_idx]
+                X_test = X[test_idx]
+        else:
+            X_train = X[train_idx]
+            X_test = X[test_idx]
 
-        dtest = xgb.DMatrix(X[test_idx])
+        model = xgb.XGBClassifier(**xgb_params)
+        model.fit(X_train, y[train_idx], verbose=False)
+
+        dtest = xgb.DMatrix(X_test)
         raw_logits = model.get_booster().predict(dtest, output_margin=True)
         smooth_proba = sigmoid(raw_logits / temperature)
 
         wf_proba[test_idx] = smooth_proba
         wf_pred[test_idx] = (smooth_proba >= 0.5).astype(int)
         last_model = model
+        n_steps += 1
+
+        if feat_select and n_steps % 50 == 1:
+            n_feat = len(last_feat_names)
+            print(f"  Step {n_steps}: t={t} train={len(train_idx)} "
+                  f"features={n_feat}/{len(feature_cols)}")
+
         t = test_end
 
-    # Top features
+    if feat_select:
+        print(f"\nWalk-forward: {n_steps} steps, last feature set: "
+              f"{len(last_feat_names)}/{len(feature_cols)}")
+
+    # Top features (last model)
     imp = last_model.feature_importances_
     top_idx = np.argsort(imp)[-20:][::-1]
     print(f"\nTop 20 features (last model):")
     for idx in top_idx:
-        print(f"  {feature_cols[idx]:30s} {imp[idx]:.4f}")
+        print(f"  {last_feat_names[idx]:30s} {imp[idx]:.4f}")
 
     return wf_pred, wf_proba, last_model
 
