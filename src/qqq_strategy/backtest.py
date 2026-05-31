@@ -99,12 +99,37 @@ def plot_results(wf_dates, bh_eq, cont_eq, alloc, max_leverage,
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 9), height_ratios=[3, 1],
                                     sharex=True, gridspec_kw={"hspace": 0.08})
 
+    # Last 10 years metrics
+    import pandas as pd
+    cutoff_10y = wf_dates[-1] - pd.DateOffset(years=10)
+    mask_10y = wf_dates >= cutoff_10y
+    idx_10y = np.where(mask_10y)[0][0]
+    bh_10y = bh_eq[idx_10y:] / bh_eq[idx_10y]
+    cont_10y = cont_eq[idx_10y:] / cont_eq[idx_10y]
+    years_10 = (wf_dates[-1] - wf_dates[idx_10y]).days / 365.25
+    bh_cagr_10, bh_dd_10 = compute_metrics(bh_10y, years_10)
+    cont_cagr_10, cont_dd_10 = compute_metrics(cont_10y, years_10)
+
+    print(f"\nDernieres 10 ans ({wf_dates[idx_10y].date()} -> {wf_dates[-1].date()}):")
+    print(f"{'QQQ Buy & Hold':35s} {bh_cagr_10*100:7.1f}% {bh_10y[-1]:7.1f}x {bh_dd_10*100:7.1f}%")
+    print(f"{'XGBoost WF continuous 0-150%':35s} {cont_cagr_10*100:7.1f}% {cont_10y[-1]:7.1f}x {cont_dd_10*100:7.1f}%")
+
     ax1.semilogy(wf_dates, bh_eq,
                  label=f"QQQ Buy & Hold (CAGR {bh_cagr*100:.1f}%, DD {bh_dd*100:.1f}%)",
                  color="tab:blue", linewidth=1.5, alpha=0.7)
     ax1.semilogy(wf_dates, cont_eq,
                  label=f"XGBoost continu 0-{max_leverage*100:.0f}% (CAGR {cont_cagr*100:.1f}%, DD {cont_dd*100:.1f}%)",
                  color="tab:red", linewidth=2)
+
+    # 10y vertical line + annotation
+    ax1.axvline(wf_dates[idx_10y], color="gray", linestyle=":", alpha=0.5)
+    y_mid = np.sqrt(cont_eq.max() * cont_eq.min())
+    ax1.annotate(
+        f"10 ans\nB&H {bh_cagr_10*100:.1f}%/an\nXGB {cont_cagr_10*100:.1f}%/an",
+        xy=(wf_dates[idx_10y], y_mid), fontsize=9, color="gray",
+        ha="right", va="center",
+        bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8),
+    )
 
     ax1.set_ylabel("Equity (log scale)")
     ax1.set_title("XGBoost Walk-Forward: allocation continue 0-150% selon P(invested)")
