@@ -125,7 +125,7 @@ def plot_results(wf_dates, bh_eq, cont_eq, alloc, max_leverage,
     ax1.axvline(wf_dates[idx_10y], color="gray", linestyle=":", alpha=0.5)
     y_mid = np.sqrt(cont_eq.max() * cont_eq.min())
     ax1.annotate(
-        f"10 ans\nB&H {bh_cagr_10*100:.1f}%/an\nXGB {cont_cagr_10*100:.1f}%/an",
+        f"10 ans\nB&H {bh_cagr_10*100:.1f}%/an  DD {bh_dd_10*100:.0f}%\nXGB {cont_cagr_10*100:.1f}%/an  DD {cont_dd_10*100:.0f}%",
         xy=(wf_dates[idx_10y], y_mid), fontsize=9, color="gray",
         ha="right", va="center",
         bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8),
