@@ -2,62 +2,43 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "feature_engineering",
+            "name": "QQQ backtest",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/feature_engineering.py",
+            "program": "${workspaceFolder}/src/qqq_strategy/run.py",
             "console": "integratedTerminal",
             "justMyCode": true
         },
         {
-            "name": "train",
+            "name": "ETFs feature_engineering",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/train.py",
+            "program": "${workspaceFolder}/src/etfs_strategy/feature_engineering.py",
             "console": "integratedTerminal",
             "justMyCode": true
         },
         {
-            "name": "backtest",
+            "name": "ETFs train",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/backtest.py",
+            "program": "${workspaceFolder}/src/etfs_strategy/train_smart_money.py",
             "console": "integratedTerminal",
             "justMyCode": true
         },
         {
-            "name": "backtest --robustness",
+            "name": "ETFs backtest",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/backtest.py",
+            "program": "${workspaceFolder}/src/etfs_strategy/backtest.py",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "ETFs backtest --robustness",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/etfs_strategy/backtest.py",
             "args": ["--robustness"],
-            "console": "integratedTerminal",
-            "justMyCode": true
-        },
-        {
-            "name": "dashboard",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/app.py",
-            "args": ["--port", "8080"],
-            "console": "integratedTerminal",
-            "justMyCode": true
-        },
-        {
-            "name": "robot --allocation",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/robot.py",
-            "args": ["--allocation"],
-            "console": "integratedTerminal",
-            "justMyCode": true
-        },
-        {
-            "name": "robot --dry-run",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/robot.py",
-            "args": ["--dry-run"],
             "console": "integratedTerminal",
             "justMyCode": true
         }
