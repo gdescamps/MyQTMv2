@@ -298,7 +298,7 @@ def simulate_with_fees(qqq_ret, wf_prob, max_lev, prob_cash=0.5, prob_full=0.85,
 
 def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
                  pea_init=150_000, cto_init=100_000, proj_years=5,
-                 save_path=None, ticker="QQQ", leverages=None):
+                 save_path=None, ticker="QQQ", leverages=None, oracle_labels=None):
     import pandas as pd
     from matplotlib.gridspec import GridSpec
 
@@ -323,11 +323,26 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
         results[lev] = dict(eq_n=eq_n, al_c=al_c, sc=sc,
                             n_cagr=n_cagr, n_dd=n_dd, n_c10=n_c10, n_d10=n_d10)
 
+    # Oracle (perfect label) equity
+    oracle = None
+    if oracle_labels is not None:
+        oracle_eq = np.ones(N)
+        for i in range(1, N):
+            oracle_eq[i] = oracle_eq[i - 1] * (1 + qqq_ret[i] * oracle_labels[i])
+        oracle_cagr, oracle_dd = compute_metrics(oracle_eq, years)
+        oracle_c10, oracle_d10 = compute_metrics(
+            oracle_eq[idx_10y:] / oracle_eq[idx_10y], y10)
+        oracle = dict(eq=oracle_eq, cagr=oracle_cagr, dd=oracle_dd,
+                      c10=oracle_c10, d10=oracle_d10)
+
     # Print summary
     print(f"\n{'='*70}")
     print(f"Periode: {wf_dates[0].date()} -> {wf_dates[-1].date()} ({years:.1f} ans)")
     print(f"{'':35s} {'CAGR':>8s} {'Total':>8s} {'MaxDD':>8s}")
     print(f"{ticker + ' Buy & Hold':35s} {bh_cagr*100:7.1f}% {bh_eq[-1]:7.1f}x {bh_dd*100:7.1f}%")
+    if oracle:
+        print(f"{'Oracle (perfect label)':35s} {oracle['cagr']*100:7.1f}% "
+              f"{oracle['eq'][-1]:7.1f}x {oracle['dd']*100:7.1f}%")
     for lev in leverages:
         r = results[lev]
         lbl = f"XGB x{lev:.1f} net Bourso"
@@ -335,6 +350,8 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
               f"{r['eq_n'][-1]:7.1f}x {r['n_dd']*100:7.1f}%")
     print(f"\nDernieres 10 ans ({wf_dates[idx_10y].date()} -> {wf_dates[-1].date()}):")
     print(f"{ticker + ' Buy & Hold':35s} {bh_c10*100:7.1f}%         {bh_d10*100:7.1f}%")
+    if oracle:
+        print(f"{'Oracle (perfect label)':35s} {oracle['c10']*100:7.1f}%         {oracle['d10']*100:7.1f}%")
     for lev in leverages:
         r = results[lev]
         lbl = f"XGB x{lev:.1f} net Bourso"
@@ -375,6 +392,10 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
     ax1.semilogy(wf_dates, bh_eq,
                  label=f"{ticker} Buy & Hold ({bh_cagr*100:.1f}%, DD {bh_dd*100:.1f}%)",
                  color="tab:blue", linewidth=1.5, alpha=0.6)
+    if oracle:
+        ax1.semilogy(wf_dates, oracle["eq"],
+                     label=f"Oracle label ({oracle['cagr']*100:.1f}%, DD {oracle['dd']*100:.1f}%)",
+                     color="tab:green", linewidth=1.5, linestyle="--", alpha=0.7)
     for lev in leverages:
         r = results[lev]
         ax1.semilogy(wf_dates, r["eq_n"],

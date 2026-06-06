@@ -33,6 +33,7 @@ STEP = 21
 TEMPERATURE = 3.0
 PROB_CASH = 0.5
 PROB_FULL = 0.85
+LOOKAHEAD = 6  # days of future info in label (must be < embargo=21)
 
 arg = sys.argv[1].upper() if len(sys.argv) > 1 else "ALL"
 ALL_TICKERS = ["QQQ", "ACWI", "GLD", "BTC-USD"]
@@ -48,7 +49,7 @@ def run_ticker(ticker):
     price, vix, spread, tlt = load_data(ticker, START, END)
     df = build_features(price, vix, spread, tlt, prefix=prefix)
 
-    target, _ = build_realtime_target(price.values, DD_EXIT, DD_REENTER)
+    target, _ = build_realtime_target(price.values, DD_EXIT, DD_REENTER, lookahead=LOOKAHEAD)
     df["target"] = target
     df = df.dropna()
 
@@ -71,8 +72,10 @@ def run_ticker(ticker):
     OUT.mkdir(parents=True, exist_ok=True)
 
     levs = get_leverages(ticker)
+    target_labels = y[pred_mask]
     plot_results(wf_dates, price_ret, wf_prob, PROB_CASH, PROB_FULL,
-                 save_path=str(OUT / "backtest.png"), ticker=ticker, leverages=levs)
+                 save_path=str(OUT / "backtest.png"), ticker=ticker, leverages=levs,
+                 oracle_labels=target_labels)
     plot_recent(wf_dates, price_ret, wf_prob, PROB_CASH, PROB_FULL,
                 days=252, save_path=str(OUT / "backtest_1y.png"), ticker=ticker, leverages=levs)
     plot_recent(wf_dates, price_ret, wf_prob, PROB_CASH, PROB_FULL,
