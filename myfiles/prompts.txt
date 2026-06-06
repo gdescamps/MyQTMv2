@@ -1519,7 +1519,7 @@ donc montrer 3 courbes nasdaq, oracle, model overfit
 --------------------------------------------
 
 deplacer les sources de la Strategy Nasdaq 
-vers ./qqq_strategy
+vers ./risk_off_strategy
 lancer le code commun a la racine du repo
 
 
@@ -1529,7 +1529,7 @@ lancer le code commun a la racine du repo
 
 refactoriser les source via cette arborescense
 src/(commun dource)
-src/qqq_strategy
+src/risk_off_strategy
 src/etfs_strategy (multietfs_strategy)
 
 
@@ -1542,10 +1542,80 @@ renommer 1_setup.sh 1_setup_interpreter.sh
 
 --------------------------------------------
 
-dans src/qqq_strategy
+dans src/risk_off_strategy
 quel est le source qui a generé : 
-src/qqq_strategy/xgb_wf_vs_qqq.png
+src/risk_off_strategy/xgb_wf_vs_qqq.png
 
 
-deplacer run_qqq_strategy.py
-dans 
+--------------------------------------------
+
+Est-ce que tu peux réexpliquer la stratégie ?
+src/risk_off_strategy/backtest.py
+Au niveau de la gestion des intervalles d'entraînement, de early stop, de backtest en walk forward, K fold.
+
+En gros le modèle agit comme un stop loss dès qu'on dépasse au moins 10% du drawdown on coupe l'investissement jusqu'à ce que l'ETF retrouve une tendance haussière.
+
+
+--------------------------------------------
+
+
+Je cherche un ETF éligible PEA qui pourrait monter pendant la période de crise du Nasdaq.
+
+Est-ce qu'il y a un candidat d'ETF éligible PEA ou au pire, compte-titres ?
+
+Si je veux utiliser une stratégie à deux ETF, principalement Nasdaq la plupart du temps et un autre ETF en cas de crise.
+
+Je pense alors il y a peut-être mieux
+
+--------------------------------------------
+
+faire une simulation a 5 ans avec les perf sur les 10 derniere années 
+150keuros en pea 
+et 100keuros en cto 
+donner le montant net d'impot a 5ans
+integrer cette simulation a droite du graphique
+
+
+Sur la droite, tu peux faire une simulation avec levier x1, x 1,5, x 2.
+
+peux tu afficher uniquement les courbes avec frais et faire 3 backtest levier x1, x1.5, x2.
+
+afficher les performance a 10y avec les 3 leviers 
+
+On est d'accord qu'à 5 ans, pour la fiscalité du PEA tu comptes 18% de d'impôts.
+Et que tu prends pour le compte-titres 30% par an pour la flat tax.
+
+
+--------------------------------------------
+
+on utilise quel source de donnée au final ?
+
+supprimer complement 
+src/etfs_strategy 
+ne garder que 
+src/risk_off_strategy 
+
+faire le menage dans les données 
+ne garder que les donnée necessaire  
+et les script necessaire pour telecharger les données 
+src/download_ishares_xls.py
+src/download_macro_data.py
+src/download_ohlcv.py
+verifier qu'on a les meme resultat apres le cleanup
+
+--------------------------------------------
+
+Est-ce que tu peux utiliser le GPU pour faire l'apprentissage XGBoost et voir si ça accélère l'apprentissage ?
+
+Est-ce que tu peux cacher les prédictions pour éviter de refaire l'apprentissage si les features n'ont pas changé, si par exemple on travaille le graphique ?
+
+
+faire la strtegie avec l'etf Bitcoin
+
+comment je peux passer ce depot pour le connecter sur mon compte 
+boursorama 
+https://github.com/azerpas/bourso-api#get-your-accounts
+
+
+--------------------------------------------
+

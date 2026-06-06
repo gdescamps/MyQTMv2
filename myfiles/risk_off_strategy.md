@@ -208,12 +208,12 @@ La crise 2022 a été causée par les hausses de taux, mais le VIX et le BAA spr
 src/
 ├── download_ohlcv.py        # Télécharge QQQ, TLT, VIX via yfinance
 ├── download_macro_data.py   # Télécharge BAA spread via FRED
-└── qqq_strategy/
+└── risk_off_strategy/
     ├── run.py               # Point d'entrée, configuration
     ├── data.py              # Chargement données, features, target
     └── backtest.py          # Walk-forward, feature selection, equity, graphiques
 
-outputs/qqq_strategy/
+outputs/risk_off_strategy/
 └── backtest.png             # 3 leviers + frais Bourso + projection fiscale 5 ans
 
 data/
@@ -226,7 +226,7 @@ data/
 ## Lancer le backtest
 
 ```bash
-python3 src/qqq_strategy/run.py
+python3 src/risk_off_strategy/run.py
 ```
 
 Ou via VSCode : configuration "QQQ backtest" dans `.vscode/launch.json`.
