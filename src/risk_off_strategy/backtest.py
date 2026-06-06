@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from pathlib import Path
 
-CACHE_DIR = Path(__file__).resolve().parent.parent.parent / "outputs" / "qqq_strategy"
+CACHE_DIR = Path(__file__).resolve().parent.parent.parent / "outputs" / "risk_off_strategy"
 
 
 def sigmoid(x):

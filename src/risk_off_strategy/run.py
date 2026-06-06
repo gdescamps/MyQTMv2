@@ -2,7 +2,7 @@
 Crisis-Avoidance Strategy — Walk-Forward XGBoost with continuous allocation.
 Supports QQQ (Nasdaq-100) and SPY (S&P 500).
 
-Usage: python src/qqq_strategy/run.py [QQQ|SPY|ALL]
+Usage: python src/risk_off_strategy/run.py [QQQ|SPY|ALL]
        ALL runs both QQQ and SPY + comparison chart
 """
 
@@ -12,9 +12,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
-from src.qqq_strategy.data import load_data, build_features, build_realtime_target
-from src.qqq_strategy.backtest import (walk_forward, plot_results, plot_recent,
-                                       plot_comparison, simulate_with_fees)
+from src.risk_off_strategy.data import load_data, build_features, build_realtime_target
+from src.risk_off_strategy.backtest import (walk_forward, plot_results, plot_recent,
+                                            plot_comparison, simulate_with_fees)
 
 # Tickers with leveraged ETFs available → x1, x1.5, x2
 # Others → x1 only (no leveraged ETF)
@@ -35,7 +35,7 @@ PROB_CASH = 0.5
 PROB_FULL = 0.85
 
 arg = sys.argv[1].upper() if len(sys.argv) > 1 else "ALL"
-ALL_TICKERS = ["QQQ", "SPY", "EWG", "ACWI", "GLD", "XLE", "ITA", "EWZ", "DBC", "BTC-USD"]
+ALL_TICKERS = ["QQQ", "ACWI", "GLD", "BTC-USD"]
 TICKERS = ALL_TICKERS if arg == "ALL" else [arg]
 
 
