@@ -49,7 +49,8 @@ def run_ticker(ticker):
     price, vix, spread, tlt = load_data(ticker, START, END)
     df = build_features(price, vix, spread, tlt, prefix=prefix)
 
-    target, _ = build_realtime_target(price.values, DD_EXIT, DD_REENTER, lookahead=LOOKAHEAD)
+    target, _ = build_realtime_target(price.values, DD_EXIT, DD_REENTER, lookahead=LOOKAHEAD,
+                                      reenter_from_bottom=0.05)
     df["target"] = target
     df = df.dropna()
 

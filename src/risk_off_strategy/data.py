@@ -29,12 +29,16 @@ def load_data(ticker="QQQ", start="2006-01-01", end="2026-05-31", spread_lag=2):
     return price.loc[common], vix.loc[common], spread.loc[common], tlt.loc[common]
 
 
-def build_realtime_target(prices, dd_exit=-0.10, dd_reenter=-0.05, lookahead=0):
+def build_realtime_target(prices, dd_exit=-0.10, dd_reenter=-0.05, lookahead=0,
+                          reenter_from_bottom=None):
     """Build binary target from drawdown state machine.
 
     lookahead: number of future days used to compute the state at time t.
     Label at t = state machine result at t+lookahead.
     With embargo >= lookahead in walk-forward, there is no data leakage.
+
+    reenter_from_bottom: if set (e.g. 0.10), re-enter when price recovers
+    this fraction from the lowest point since exit, instead of using dd_reenter.
     """
     n = len(prices)
     running_max = np.maximum.accumulate(prices)
@@ -43,11 +47,19 @@ def build_realtime_target(prices, dd_exit=-0.10, dd_reenter=-0.05, lookahead=0):
     # Run state machine on full price series
     full_target = np.ones(n, dtype=int)
     invested = True
+    crisis_low = 0.0
     for i in range(n):
         if invested and drawdown_arr[i] < dd_exit:
             invested = False
-        elif not invested and drawdown_arr[i] > dd_reenter:
-            invested = True
+            crisis_low = prices[i]
+        elif not invested:
+            crisis_low = min(crisis_low, prices[i])
+            if reenter_from_bottom is not None:
+                if prices[i] >= crisis_low * (1 + reenter_from_bottom):
+                    invested = True
+            else:
+                if drawdown_arr[i] > dd_reenter:
+                    invested = True
         full_target[i] = 1 if invested else 0
 
     if lookahead > 0:
