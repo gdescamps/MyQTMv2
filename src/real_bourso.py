@@ -49,6 +49,7 @@ LOOKAHEAD = 6
 LOG_DIR = ROOT / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 TRADE_LOG = LOG_DIR / "trades.jsonl"
+OVERRIDE_FILE = LOG_DIR / "emergency_off.json"
 
 
 # ── Bourso CLI wrapper ────────────────────────────────────
@@ -113,6 +114,15 @@ def place_order(side, quantity, password, dry_run=True):
 
 
 # ── Model inference ───────────────────────────────────────
+def is_emergency_off():
+    """Check if emergency override is active."""
+    if OVERRIDE_FILE.exists():
+        with open(OVERRIDE_FILE) as f:
+            data = json.load(f)
+        return data.get("active", False)
+    return False
+
+
 def run_inference():
     """Download latest data, run model, return allocation probability."""
     from src.risk_off_strategy.data import load_data, build_features, build_realtime_target
@@ -246,6 +256,14 @@ def main():
 
     # 3. Run inference
     prob, alloc, model_date = run_inference()
+
+    # 3b. Emergency override
+    if is_emergency_off():
+        print(f"\n{'!'*60}")
+        print(f"  EMERGENCY OFF ACTIVE — allocation forcee a 0%")
+        print(f"  Desactiver via la webapp pour reprendre le model")
+        print(f"{'!'*60}")
+        alloc = 0.0
 
     # 4. Compute orders
     if args.equity <= 0:

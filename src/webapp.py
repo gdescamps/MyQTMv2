@@ -40,28 +40,31 @@ PE_CHART = PE_OUT / "ndx_top5_pe_daily.png"
 PE_DIR = ROOT / "data" / "pe"
 
 
-def load_ndx_top20():
-    """Load top 20 NDX constituents with latest PE and interpolated daily PE."""
+def load_ndx_top(n=20):
+    """Load top N NDX constituents with latest PE and PE date."""
     constituents_file = PE_DIR / "ndx_constituents.json"
     if not constituents_file.exists():
-        return []
+        return [], None
 
     with open(constituents_file) as f:
         top = json.load(f)
 
     results = []
-    for t in top[:20]:
+    pe_date = None
+    for t in top[:n]:
         sym = t["symbol"]
         qfile = PE_DIR / f"{sym}_quarterly.json"
         pe = None
-        last_price_at_q = None
+        q_date = None
         if qfile.exists():
             with open(qfile) as f:
                 quarters = json.load(f)
             if quarters:
-                latest = quarters[0]  # most recent first
+                latest = quarters[0]
                 pe = latest.get("peRatio")
-                last_price_at_q = latest.get("marketCap")  # for reference
+                q_date = latest.get("date")
+                if q_date and (pe_date is None or q_date > pe_date):
+                    pe_date = q_date
 
         results.append({
             "symbol": sym,
@@ -70,7 +73,16 @@ def load_ndx_top20():
             "pe": pe,
         })
 
-    return results
+    # Interpolation date = last date in pe_top5_daily.parquet
+    interp_date = None
+    daily_file = PE_DIR / "pe_top5_daily.parquet"
+    if daily_file.exists():
+        import pandas as pd
+        pe_daily = pd.read_parquet(daily_file)
+        if len(pe_daily) > 0:
+            interp_date = str(pe_daily.index[-1].date())
+
+    return results, pe_date, interp_date
 
 
 def load_trades():
@@ -230,6 +242,40 @@ ui.add_head_html(f"""
         font-weight: 700;
         color: #eee;
     }}
+    .sidebar-emergency {{
+        padding: 16px 20px;
+        text-align: center;
+        flex-shrink: 0;
+    }}
+    .emergency-btn {{
+        width: 100%;
+        padding: 12px;
+        border: none;
+        border-radius: 8px;
+        font-weight: 700;
+        font-size: 0.85rem;
+        letter-spacing: 0.08em;
+        cursor: pointer;
+        transition: all 0.2s;
+    }}
+    .emergency-btn:hover {{
+        transform: scale(1.03);
+    }}
+    .emergency-btn.off {{
+        background: #c62828;
+        color: white;
+        box-shadow: 0 0 12px rgba(198, 40, 40, 0.5);
+    }}
+    .emergency-btn.on {{
+        background: #2e7d32;
+        color: white;
+        box-shadow: 0 0 12px rgba(46, 125, 50, 0.5);
+    }}
+    .emergency-status {{
+        margin-top: 8px;
+        font-size: 0.7rem;
+        letter-spacing: 0.05em;
+    }}
     .sidebar-footer {{
         padding: 16px 20px;
         font-size: 0.65rem;
@@ -294,6 +340,25 @@ ui.add_head_html(f"""
 """)
 
 
+# ── Emergency override ────────────────────────────────────
+
+OVERRIDE_FILE = ROOT / "logs" / "emergency_off.json"
+
+
+def is_emergency_off():
+    if OVERRIDE_FILE.exists():
+        with open(OVERRIDE_FILE) as f:
+            data = json.load(f)
+        return data.get("active", False)
+    return False
+
+
+def set_emergency_off(active):
+    OVERRIDE_FILE.parent.mkdir(exist_ok=True)
+    with open(OVERRIDE_FILE, "w") as f:
+        json.dump({"active": active, "timestamp": datetime.now().isoformat()}, f)
+
+
 # ── Page layout ───────────────────────────────────────────
 
 trades = load_trades()
@@ -326,6 +391,50 @@ with ui.element("div").classes("layout"):
                 with ui.element("div").classes("sidebar-metric"):
                     ui.html(f'<span class="label">{label}</span>')
                     ui.html(f'<span class="value {extra_class}">{value}</span>')
+        # Emergency OFF button
+        with ui.element("div").classes("sidebar-emergency"):
+            emergency_active = is_emergency_off()
+
+            status_label = ui.label(
+                "EMERGENCY OFF" if emergency_active else "MODEL ACTIVE"
+            ).classes("emergency-status").style(
+                f"color: {'#ef5350' if emergency_active else '#4caf50'}"
+            )
+
+            def toggle_emergency():
+                if not is_emergency_off():
+                    # Activate emergency — show confirmation dialog
+                    with ui.dialog() as dlg, ui.card():
+                        ui.label("Desallocation d'urgence").style("font-weight: 700; font-size: 1.1rem")
+                        ui.label("Cela va forcer l'allocation a 0% et vendre toutes les positions.").style("color: #666")
+                        ui.label("Confirmer ?").style("font-weight: 600; margin-top: 8px")
+                        with ui.row().classes("gap-4 mt-4"):
+                            def confirm():
+                                set_emergency_off(True)
+                                btn.classes("on", remove="off")
+                                btn.text = "REACTIVER LE MODEL"
+                                status_label.text = "EMERGENCY OFF"
+                                status_label.style("color: #ef5350")
+                                dlg.close()
+                                ui.notify("Emergency OFF active — allocation forcee a 0%", type="warning")
+                            ui.button("CONFIRMER", on_click=confirm).props("color=red")
+                            ui.button("Annuler", on_click=dlg.close).props("flat")
+                    dlg.open()
+                else:
+                    # Deactivate emergency — back to model
+                    set_emergency_off(False)
+                    btn.classes("off", remove="on")
+                    btn.text = "EMERGENCY OFF"
+                    status_label.text = "MODEL ACTIVE"
+                    status_label.style("color: #4caf50")
+                    ui.notify("Model reactif — le model reprend le controle demain matin", type="positive")
+
+            btn = ui.button(
+                "REACTIVER LE MODEL" if emergency_active else "EMERGENCY OFF",
+                on_click=toggle_emergency,
+            )
+            btn.classes(f"emergency-btn {'on' if emergency_active else 'off'}")
+
         with ui.element("div").classes("sidebar-footer"):
             ui.html(f'{datetime.now().strftime("%d %b %Y &nbsp; %H:%M")}')
 
@@ -336,7 +445,8 @@ with ui.element("div").classes("layout"):
             tab_full = ui.tab("Backtest")
             tab_1y = ui.tab("1 Year")
             tab_1m = ui.tab("1 Month")
-            tab_ndx = ui.tab("NASDAQ-100")
+            tab_ndx5 = ui.tab("NDX Top 5")
+            tab_ndx20 = ui.tab("NDX Top 20")
             tab_trades = ui.tab("Trades")
             tab_alloc = ui.tab("Allocations")
 
@@ -368,121 +478,103 @@ with ui.element("div").classes("layout"):
                     if BACKTEST_1M.exists():
                         ui.image("/img/backtest_1m").classes("w-full rounded-lg shadow-lg")
 
-            # ── NASDAQ-100 ──
-            with ui.tab_panel(tab_ndx):
+            # ── NASDAQ-100 Top 5 & Top 20 (shared render function) ──
+            def render_ndx_tab(n):
+                ndx_data, pe_date, interp_date = load_ndx_top(n)
+                if not ndx_data:
+                    ui.label("No data. Run: python src/download_pe_qqq_top5.py").classes("text-gray-500")
+                    return
+
+                with ui.row().classes("gap-6"):
+                    ui.label(f"PE trimestriel : {pe_date or '—'}").style("font-size: 0.8rem; color: #999")
+                    ui.label(f"Interpolation : {interp_date or '—'}").style("font-size: 0.8rem; color: #999")
+
+                labels = [d["symbol"] for d in ndx_data]
+                caps = [d["mktCap"] / 1e9 for d in ndx_data]
+                pes = [d["pe"] if d["pe"] and d["pe"] > 0 else 0 for d in ndx_data]
+                total_cap = sum(caps)
+
+                def pe_color(pe):
+                    if pe <= 0: return "#999"
+                    if pe < 25: return "#4caf50"
+                    if pe < 35: return "#8bc34a"
+                    if pe < 50: return "#ff9800"
+                    return "#f44336"
+
+                colors = [pe_color(p) for p in pes]
+                hover_text = [
+                    f"{d['name']}<br>${d['mktCap']/1e9:.0f}B<br>PE: {d['pe']:.1f}" if d['pe'] and d['pe'] > 0
+                    else f"{d['name']}<br>${d['mktCap']/1e9:.0f}B<br>PE: N/A"
+                    for d in ndx_data
+                ]
+
+                with ui.row().classes("w-full gap-4"):
+                    fig_cap = go.Figure(go.Pie(
+                        labels=labels, values=caps, textinfo="label+percent",
+                        textposition="inside", hovertext=hover_text, hoverinfo="text",
+                        marker=dict(colors=colors, line=dict(color="#fff", width=1)), hole=0.35,
+                    ))
+                    fig_cap.update_layout(
+                        title=dict(text=f"Market Cap (${total_cap:.0f}B)", x=0.5),
+                        showlegend=False, margin=dict(t=40, b=10, l=10, r=10), height=420,
+                    )
+                    ui.plotly(fig_cap).classes("flex-1")
+
+                    pe_labels = [f"{s}\nPE {p:.0f}" if p > 0 else f"{s}\nN/A"
+                                 for s, p in zip(labels, pes)]
+                    fig_pe = go.Figure(go.Pie(
+                        labels=pe_labels, values=caps, textinfo="label",
+                        textposition="inside", hovertext=hover_text, hoverinfo="text",
+                        marker=dict(colors=colors, line=dict(color="#fff", width=1)), hole=0.35,
+                    ))
+                    valid = [(c, p) for c, p in zip(caps, pes) if p > 0]
+                    w_pe = sum(c * p for c, p in valid) / sum(c for c, p in valid) if valid else 0
+                    fig_pe.update_layout(
+                        title=dict(text=f"PE Ratio (weighted: {w_pe:.1f})", x=0.5),
+                        showlegend=False, margin=dict(t=40, b=10, l=10, r=10), height=420,
+                        annotations=[dict(text=f"{w_pe:.1f}", x=0.5, y=0.5,
+                                          font_size=24, showarrow=False, font_color="#333")],
+                    )
+                    ui.plotly(fig_pe).classes("flex-1")
+
+                with ui.row().classes("gap-4 mt-2"):
+                    for color, lbl in [("#4caf50", "PE < 25"), ("#8bc34a", "PE 25-35"),
+                                       ("#ff9800", "PE 35-50"), ("#f44336", "PE > 50"), ("#999", "N/A")]:
+                        with ui.row().classes("items-center gap-1"):
+                            ui.element("div").style(f"width:12px; height:12px; border-radius:50%; background:{color}")
+                            ui.label(lbl).style("font-size: 0.75rem; color: #666")
+
+                ui.element("div").classes("w-full h-0.5 bg-black mt-4")
+                ndx_columns = [
+                    {"name": "rank", "label": "#", "field": "rank", "align": "right"},
+                    {"name": "symbol", "label": "Ticker", "field": "symbol", "align": "left"},
+                    {"name": "name", "label": "Name", "field": "name", "align": "left"},
+                    {"name": "cap", "label": "Cap ($B)", "field": "cap", "align": "right"},
+                    {"name": "weight", "label": "Weight", "field": "weight", "align": "right"},
+                    {"name": "pe", "label": "PE TTM", "field": "pe", "align": "right"},
+                ]
+                ndx_rows = []
+                for i, d in enumerate(ndx_data, 1):
+                    pe_val = d["pe"]
+                    ndx_rows.append({
+                        "rank": i, "symbol": d["symbol"], "name": d["name"],
+                        "cap": f"{d['mktCap']/1e9:.0f}",
+                        "weight": f"{d['mktCap']/1e9/total_cap*100:.1f}%",
+                        "pe": f"{pe_val:.1f}" if pe_val and pe_val > 0 else "N/A",
+                    })
+                ui.table(columns=ndx_columns, rows=ndx_rows, row_key="rank").classes("w-full")
+
+            with ui.tab_panel(tab_ndx5):
+                with ui.column().classes("tab-content"):
+                    ui.element("div").classes("w-full h-0.5 bg-black")
+                    ui.label("NASDAQ-100 Top 5 — Market Cap & PE").classes("text-base font-semibold")
+                    render_ndx_tab(5)
+
+            with ui.tab_panel(tab_ndx20):
                 with ui.column().classes("tab-content"):
                     ui.element("div").classes("w-full h-0.5 bg-black")
                     ui.label("NASDAQ-100 Top 20 — Market Cap & PE").classes("text-base font-semibold")
-
-                    ndx_data = load_ndx_top20()
-                    if not ndx_data:
-                        ui.label("No data. Run: python src/download_pe_qqq_top5.py").classes("text-gray-500")
-                    else:
-                        labels = [d["symbol"] for d in ndx_data]
-                        caps = [d["mktCap"] / 1e9 for d in ndx_data]
-                        pes = [d["pe"] if d["pe"] and d["pe"] > 0 else 0 for d in ndx_data]
-                        total_cap = sum(caps)
-
-                        # Color by PE level
-                        def pe_color(pe):
-                            if pe <= 0:
-                                return "#999"
-                            if pe < 25:
-                                return "#4caf50"
-                            if pe < 35:
-                                return "#8bc34a"
-                            if pe < 50:
-                                return "#ff9800"
-                            return "#f44336"
-
-                        colors = [pe_color(p) for p in pes]
-
-                        # Custom text for hover
-                        hover_text = [
-                            f"{d['name']}<br>${d['mktCap']/1e9:.0f}B<br>PE: {d['pe']:.1f}" if d['pe'] and d['pe'] > 0
-                            else f"{d['name']}<br>${d['mktCap']/1e9:.0f}B<br>PE: N/A"
-                            for d in ndx_data
-                        ]
-
-                        with ui.row().classes("w-full gap-4"):
-                            # Pie 1: Market Cap
-                            fig_cap = go.Figure(go.Pie(
-                                labels=labels, values=caps,
-                                textinfo="label+percent",
-                                textposition="inside",
-                                hovertext=hover_text,
-                                hoverinfo="text",
-                                marker=dict(colors=colors, line=dict(color="#fff", width=1)),
-                                hole=0.35,
-                            ))
-                            fig_cap.update_layout(
-                                title=dict(text=f"Market Cap (${total_cap:.0f}B)", x=0.5),
-                                showlegend=False,
-                                margin=dict(t=40, b=10, l=10, r=10),
-                                height=420,
-                            )
-                            ui.plotly(fig_cap).classes("flex-1")
-
-                            # Pie 2: PE weighted
-                            # Size = market cap, show PE value
-                            pe_labels = [f"{s}\nPE {p:.0f}" if p > 0 else f"{s}\nN/A"
-                                         for s, p in zip(labels, pes)]
-                            fig_pe = go.Figure(go.Pie(
-                                labels=pe_labels, values=caps,
-                                textinfo="label",
-                                textposition="inside",
-                                hovertext=hover_text,
-                                hoverinfo="text",
-                                marker=dict(colors=colors, line=dict(color="#fff", width=1)),
-                                hole=0.35,
-                            ))
-                            # Weighted PE in center
-                            valid = [(c, p) for c, p in zip(caps, pes) if p > 0]
-                            if valid:
-                                w_pe = sum(c * p for c, p in valid) / sum(c for c, p in valid)
-                            else:
-                                w_pe = 0
-                            fig_pe.update_layout(
-                                title=dict(text=f"PE Ratio (weighted: {w_pe:.1f})", x=0.5),
-                                showlegend=False,
-                                margin=dict(t=40, b=10, l=10, r=10),
-                                height=420,
-                                annotations=[dict(text=f"{w_pe:.1f}", x=0.5, y=0.5,
-                                                  font_size=24, showarrow=False, font_color="#333")],
-                            )
-                            ui.plotly(fig_pe).classes("flex-1")
-
-                        # Legend
-                        with ui.row().classes("gap-4 mt-2"):
-                            for color, label in [("#4caf50", "PE < 25"), ("#8bc34a", "PE 25-35"),
-                                                 ("#ff9800", "PE 35-50"), ("#f44336", "PE > 50"),
-                                                 ("#999", "N/A")]:
-                                with ui.row().classes("items-center gap-1"):
-                                    ui.element("div").style(f"width:12px; height:12px; border-radius:50%; background:{color}")
-                                    ui.label(label).style("font-size: 0.75rem; color: #666")
-
-                        # Table
-                        ui.element("div").classes("w-full h-0.5 bg-black mt-4")
-                        ndx_columns = [
-                            {"name": "rank", "label": "#", "field": "rank", "align": "right"},
-                            {"name": "symbol", "label": "Ticker", "field": "symbol", "align": "left"},
-                            {"name": "name", "label": "Name", "field": "name", "align": "left"},
-                            {"name": "cap", "label": "Cap ($B)", "field": "cap", "align": "right"},
-                            {"name": "weight", "label": "Weight", "field": "weight", "align": "right"},
-                            {"name": "pe", "label": "PE TTM", "field": "pe", "align": "right"},
-                        ]
-                        ndx_rows = []
-                        for i, d in enumerate(ndx_data, 1):
-                            pe_val = d["pe"]
-                            ndx_rows.append({
-                                "rank": i,
-                                "symbol": d["symbol"],
-                                "name": d["name"],
-                                "cap": f"{d['mktCap']/1e9:.0f}",
-                                "weight": f"{d['mktCap']/1e9/total_cap*100:.1f}%",
-                                "pe": f"{pe_val:.1f}" if pe_val and pe_val > 0 else "N/A",
-                            })
-                        ui.table(columns=ndx_columns, rows=ndx_rows, row_key="rank").classes("w-full")
+                    render_ndx_tab(20)
 
             # ── Trades ──
             with ui.tab_panel(tab_trades):
