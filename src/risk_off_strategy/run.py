@@ -23,17 +23,56 @@ LEVERAGED_TICKERS = {"QQQ", "SPY"}
 def get_leverages(ticker):
     return [1.0, 1.5, 2.0] if ticker in LEVERAGED_TICKERS else [1.0]
 
+
+# ── Download fresh data ──────────────────────────────────
+def refresh_data():
+    """Re-download all OHLCV + macro data to get latest prices."""
+    from src.download_ohlcv import TICKERS as OHLCV_TICKERS, VIX_TICKER, VIX_FILENAME, download_ticker
+    from src.download_macro_data import fetch_fred, FRED_SERIES
+    import pandas as pd
+
+    DATA_DIR = ROOT / "data"
+    print("Refreshing market data...")
+
+    # OHLCV tickers + VIX
+    all_downloads = [(t, t) for t in OHLCV_TICKERS] + [(VIX_TICKER, VIX_FILENAME)]
+    for ticker, fname in all_downloads:
+        path = DATA_DIR / f"{fname}.parquet"
+        df = download_ticker(ticker)
+        if df is not None and not df.empty:
+            df.to_parquet(path, engine="pyarrow", compression="snappy")
+            print(f"  {fname:<20s} {len(df)} rows → {df.index[-1].date()}")
+
+    # FRED macro
+    for series_id, label in FRED_SERIES.items():
+        path = DATA_DIR / f"fred_{label}.parquet"
+        if path.exists():
+            path.unlink()
+        fetch_fred(series_id, label)
+
+    # Return last available date across key tickers
+    last_dates = []
+    for t in ["QQQ", "SPY"]:
+        p = DATA_DIR / f"{t}.parquet"
+        if p.exists():
+            last_dates.append(pd.read_parquet(p).index[-1])
+    end_date = max(last_dates).strftime("%Y-%m-%d") if last_dates else "2026-12-31"
+    print(f"Data up to: {end_date}\n")
+    return end_date
+
+
 # ── Config ────────────────────────────────────────────────
 START = "2000-01-01"
-END = "2026-05-31"
 DD_EXIT = -0.10
 DD_REENTER = -0.05
 MIN_TRAIN = 504
 STEP = 21
 TEMPERATURE = 3.0
-PROB_CASH = 0.5
-PROB_FULL = 0.85
+PROB_CASH = 0.70
+PROB_FULL = 0.75
 LOOKAHEAD = 6  # days of future info in label (must be < embargo=21)
+
+END = refresh_data()
 
 arg = sys.argv[1].upper() if len(sys.argv) > 1 else "ALL"
 ALL_TICKERS = ["QQQ", "ACWI", "GLD", "BTC-USD"]
@@ -49,8 +88,7 @@ def run_ticker(ticker):
     price, vix, spread, tlt = load_data(ticker, START, END)
     df = build_features(price, vix, spread, tlt, prefix=prefix)
 
-    target, _ = build_realtime_target(price.values, DD_EXIT, DD_REENTER, lookahead=LOOKAHEAD,
-                                      reenter_from_bottom=0.055)
+    target, _ = build_realtime_target(price.values, DD_EXIT, DD_REENTER, lookahead=LOOKAHEAD)
     df["target"] = target
     df = df.dropna()
 

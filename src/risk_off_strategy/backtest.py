@@ -90,12 +90,10 @@ def select_features_stable(X, y, feature_cols, block_size=21, embargo_rows=5,
     return selected_idx, selected_names
 
 
-def _cache_key(X, y, feature_cols, xgb_params, feat_select, feat_power, feat_top_n,
-               min_train, step, embargo, temperature):
-    """Compute a hash of all inputs that affect walk-forward results."""
+def _config_hash(feature_cols, xgb_params, feat_select, feat_power, feat_top_n,
+                 min_train, step, embargo, temperature):
+    """Hash of walk-forward config (not data). Stable across data updates."""
     h = hashlib.sha256()
-    h.update(X.tobytes())
-    h.update(y.tobytes())
     h.update(json.dumps(sorted(feature_cols)).encode())
     h.update(json.dumps(xgb_params, sort_keys=True).encode())
     h.update(f"{feat_select}_{feat_power}_{feat_top_n}".encode())
@@ -127,32 +125,58 @@ def walk_forward(X, y, feature_cols, min_train=504, step=21, embargo=21,
             device=device,
         )
 
-    # Check cache
-    if use_cache:
-        cache_hash = _cache_key(X, y, feature_cols, xgb_params, feat_select,
-                                feat_power, feat_top_n, min_train, step,
-                                embargo, temperature)
-        cache_path = CACHE_DIR / f"wf_cache_{cache_hash}.npz"
-        if cache_path.exists():
-            cached = np.load(cache_path, allow_pickle=True)
-            print(f"Walk-forward loaded from cache ({cache_path.name})")
-            wf_pred = cached["wf_pred"]
-            wf_proba = cached["wf_proba"]
-            feat_names = list(cached["feat_names"])
-            # Print top features from cached importances
-            imp = cached["importances"]
-            top_idx = np.argsort(imp)[-20:][::-1]
-            print(f"\nTop 20 features (cached):")
-            for idx in top_idx:
-                print(f"  {feat_names[idx]:30s} {imp[idx]:.4f}")
-            return wf_pred, wf_proba, None
-
     N = len(X)
     wf_pred = np.full(N, -1, dtype=int)
     wf_proba = np.full(N, np.nan)
     last_model = None
     last_feat_names = list(feature_cols)
+    resume_t = min_train  # where to start computing
+
+    # ── Incremental cache: load previous results and resume ──
+    cache_path = None
+    if use_cache:
+        cfg_hash = _config_hash(feature_cols, xgb_params, feat_select,
+                                feat_power, feat_top_n, min_train, step,
+                                embargo, temperature)
+        cache_path = CACHE_DIR / f"wf_incr_{cfg_hash}.npz"
+        if cache_path.exists():
+            cached = np.load(cache_path, allow_pickle=True)
+            cached_N = int(cached["N"])
+            cached_pred = cached["wf_pred"]
+            cached_proba = cached["wf_proba"]
+            last_feat_names = list(cached["feat_names"])
+
+            if cached_N == N:
+                # Data unchanged → full cache hit
+                print(f"Walk-forward loaded from cache ({cache_path.name}, {N} rows)")
+                imp = cached["importances"]
+                top_idx = np.argsort(imp)[-20:][::-1]
+                print(f"\nTop 20 features (cached):")
+                for idx in top_idx:
+                    print(f"  {last_feat_names[idx]:30s} {imp[idx]:.4f}")
+                return cached_pred, cached_proba, None
+
+            elif cached_N < N:
+                # Data grew → reuse old predictions, resume from last computed step
+                wf_pred[:cached_N] = cached_pred[:cached_N]
+                wf_proba[:cached_N] = cached_proba[:cached_N]
+                # Find resume point: last step boundary that was computed
+                resume_t = cached_N  # start computing from where old data ended
+                # Align to step boundary
+                t = min_train
+                while t + step <= cached_N:
+                    t += step
+                resume_t = t
+                n_old = (cached_N - min_train) // step
+                n_new = (N - cached_N + step - 1) // step
+                print(f"Incremental cache: {cached_N}→{N} rows (+{N - cached_N}), "
+                      f"reusing {n_old} steps, computing ~{n_new} new steps")
+            else:
+                # Data shrank (shouldn't happen) → recompute all
+                print(f"Cache data size mismatch ({cached_N}>{N}), recomputing...")
+
     n_steps = 0
+    n_cached = 0
 
     t = min_train
     while t < N:
@@ -162,6 +186,12 @@ def walk_forward(X, y, feature_cols, min_train=504, step=21, embargo=21,
         test_idx = np.arange(t, test_end)
 
         if len(train_idx) < min_train:
+            t = test_end
+            continue
+
+        # Skip steps already in cache
+        if t < resume_t and not np.isnan(wf_proba[t]):
+            n_cached += 1
             t = test_end
             continue
 
@@ -211,24 +241,32 @@ def walk_forward(X, y, feature_cols, min_train=504, step=21, embargo=21,
 
         t = test_end
 
+    total_steps = n_cached + n_steps
     if feat_select:
-        print(f"\nWalk-forward: {n_steps} steps, last feature set: "
-              f"{len(last_feat_names)}/{len(feature_cols)}")
+        print(f"\nWalk-forward: {total_steps} steps total "
+              f"({n_cached} cached, {n_steps} computed), "
+              f"last feature set: {len(last_feat_names)}/{len(feature_cols)}")
 
-    # Top features (last model)
-    imp = last_model.feature_importances_
+    # Top features (last model or cached)
+    if last_model is not None:
+        imp = last_model.feature_importances_
+    elif cache_path and cache_path.exists():
+        imp = np.load(cache_path, allow_pickle=True)["importances"]
+    else:
+        imp = np.zeros(len(last_feat_names))
+
     top_idx = np.argsort(imp)[-20:][::-1]
-    print(f"\nTop 20 features (last model):")
+    print(f"\nTop 20 features:")
     for idx in top_idx:
         print(f"  {last_feat_names[idx]:30s} {imp[idx]:.4f}")
 
-    # Save cache
+    # Save incremental cache
     if use_cache:
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         np.savez(cache_path, wf_pred=wf_pred, wf_proba=wf_proba,
                  feat_names=np.array(last_feat_names),
-                 importances=imp)
-        print(f"Cache saved: {cache_path.name}")
+                 importances=imp, N=N)
+        print(f"Cache saved: {cache_path.name} ({N} rows)")
 
     return wf_pred, wf_proba, last_model
 
