@@ -1,16 +1,17 @@
 """
-Download OHLCV data via yfinance for QQQ strategy tickers.
+Download OHLCV data via yfinance.
 
-Output: ./data/{ticker}.parquet
-  - Columns: open, high, low, close, volume
-  - Date-indexed, sorted ascending
-
-Resumes automatically: skips tickers whose .parquet already exists.
+Two groups:
+  - RISK_OFF: tickers needed for the risk-off strategy (QQQ, SPY, ACWI + VIX, TLT)
+  - EXTRA: other tickers for exploration (GLD, BTC-USD, etc.)
 
 Usage:
-    python src/download_ohlcv.py
+    python src/download_ohlcv.py            # risk-off only
+    python src/download_ohlcv.py --all      # risk-off + extra
+    python src/download_ohlcv.py --extra    # extra only
 """
 
+import sys
 import time
 import pandas as pd
 import yfinance as yf
@@ -22,12 +23,13 @@ DATA_DIR.mkdir(exist_ok=True)
 START_DATE = "2000-01-01"
 DELAY = 0.2
 
-# Tickers needed for strategies
-TICKERS = ["QQQ", "SPY", "EWG", "ACWI", "GLD", "XLE", "ITA", "EWZ", "DBC", "BTC-USD", "TLT"]
-
-# VIX OHLCV (^VIX on Yahoo Finance)
+# Risk-off strategy: equity indices + features
+RISK_OFF_TICKERS = ["QQQ", "SPY", "ACWI", "TLT"]
 VIX_TICKER = "^VIX"
 VIX_FILENAME = "vix_ohlc"
+
+# Extra tickers for exploration / other strategies
+EXTRA_TICKERS = ["GLD", "BTC-USD", "EWG", "XLE", "ITA", "EWZ", "DBC", "EEM", "GC=F", "^NDX"]
 
 
 def download_ticker(ticker: str) -> pd.DataFrame | None:
@@ -51,11 +53,11 @@ def download_ticker(ticker: str) -> pd.DataFrame | None:
     return df.sort_index()
 
 
-def fetch_and_save(ticker: str, filename: str = None) -> None:
+def fetch_and_save(ticker: str, filename: str = None, force: bool = False) -> None:
     fname = filename or ticker
     path = DATA_DIR / f"{fname}.parquet"
 
-    if path.exists():
+    if path.exists() and not force:
         rows = pd.read_parquet(path).shape[0]
         print(f"  SKIP  {fname:<20} already {rows} rows")
         return
@@ -72,15 +74,35 @@ def fetch_and_save(ticker: str, filename: str = None) -> None:
     print(f"{len(df)} rows  [{df.index[0].date()} → {df.index[-1].date()}]")
 
 
+def download_risk_off(force=False):
+    """Download tickers needed for the risk-off strategy."""
+    print("Downloading risk-off strategy data\n")
+    for ticker in RISK_OFF_TICKERS:
+        fetch_and_save(ticker, force=force)
+    fetch_and_save(VIX_TICKER, VIX_FILENAME, force=force)
+    print()
+
+
+def download_extra(force=False):
+    """Download extra tickers for exploration."""
+    print("Downloading extra tickers\n")
+    for ticker in EXTRA_TICKERS:
+        fetch_and_save(ticker, force=force)
+    print()
+
+
 def main():
-    print("Downloading OHLCV data for QQQ strategy\n")
+    arg = sys.argv[1] if len(sys.argv) > 1 else ""
 
-    for ticker in TICKERS:
-        fetch_and_save(ticker)
+    if arg == "--all":
+        download_risk_off()
+        download_extra()
+    elif arg == "--extra":
+        download_extra()
+    else:
+        download_risk_off()
 
-    fetch_and_save(VIX_TICKER, VIX_FILENAME)
-
-    print(f"\nAll data in: {DATA_DIR}")
+    print(f"All data in: {DATA_DIR}")
 
 
 if __name__ == "__main__":

@@ -26,22 +26,15 @@ def get_leverages(ticker):
 
 # ── Download fresh data ──────────────────────────────────
 def refresh_data():
-    """Re-download all OHLCV + macro data to get latest prices."""
-    from src.download_ohlcv import TICKERS as OHLCV_TICKERS, VIX_TICKER, VIX_FILENAME, download_ticker
+    """Re-download risk-off OHLCV + macro data to get latest prices."""
+    from src.download_ohlcv import download_risk_off, RISK_OFF_TICKERS
     from src.download_macro_data import fetch_fred, FRED_SERIES
     import pandas as pd
 
     DATA_DIR = ROOT / "data"
-    print("Refreshing market data...")
 
-    # OHLCV tickers + VIX
-    all_downloads = [(t, t) for t in OHLCV_TICKERS] + [(VIX_TICKER, VIX_FILENAME)]
-    for ticker, fname in all_downloads:
-        path = DATA_DIR / f"{fname}.parquet"
-        df = download_ticker(ticker)
-        if df is not None and not df.empty:
-            df.to_parquet(path, engine="pyarrow", compression="snappy")
-            print(f"  {fname:<20s} {len(df)} rows → {df.index[-1].date()}")
+    # OHLCV: risk-off tickers + VIX
+    download_risk_off(force=True)
 
     # FRED macro
     for series_id, label in FRED_SERIES.items():
@@ -50,9 +43,9 @@ def refresh_data():
             path.unlink()
         fetch_fred(series_id, label)
 
-    # Return last available date across key tickers
+    # Return last available date
     last_dates = []
-    for t in ["QQQ", "SPY"]:
+    for t in RISK_OFF_TICKERS:
         p = DATA_DIR / f"{t}.parquet"
         if p.exists():
             last_dates.append(pd.read_parquet(p).index[-1])
@@ -75,7 +68,7 @@ LOOKAHEAD = 6  # days of future info in label (must be < embargo=21)
 END = refresh_data()
 
 arg = sys.argv[1].upper() if len(sys.argv) > 1 else "ALL"
-ALL_TICKERS = ["QQQ", "ACWI", "GLD", "BTC-USD"]
+ALL_TICKERS = ["QQQ", "SPY", "ACWI"]
 TICKERS = ALL_TICKERS if arg == "ALL" else [arg]
 
 

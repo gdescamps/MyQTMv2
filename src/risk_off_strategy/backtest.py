@@ -420,7 +420,7 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
 
     # ── Load PE daily ──
     try:
-        from src.download_pe_top5 import load_pe_daily
+        from src.download_pe_qqq_top5 import load_pe_daily
         pe_daily = load_pe_daily()
     except Exception:
         pe_daily = None
@@ -580,7 +580,7 @@ def plot_recent(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
 
     # Load PE daily
     try:
-        from src.download_pe_top5 import load_pe_daily
+        from src.download_pe_qqq_top5 import load_pe_daily
         pe_daily = load_pe_daily()
     except Exception:
         pe_daily = None

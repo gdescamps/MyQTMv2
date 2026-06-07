@@ -4,7 +4,7 @@ Download & interpolate daily cap-weighted PE for the top-5 NASDAQ-100 constituen
 Downloads quarterly key-metrics (PE + market cap) from FMP API,
 interpolates daily using price, saves to data/pe/.
 
-Usage:  python src/download_pe_top5.py
+Usage:  python src/download_pe_qqq_top5.py
 """
 
 import json, os, time
