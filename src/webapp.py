@@ -129,13 +129,76 @@ ui.add_head_html(f"""
         height: 100vh;
         width: 100%;
     }}
-    .presentation-panel {{
-        flex: 0 0 20%;
+    .sidebar {{
+        flex: 0 0 240px;
         height: 100%;
+        background: #1a1a1a;
+        color: #ddd;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }}
+    .sidebar-photo {{
+        width: 100%;
+        height: 200px;
         background-image: url('/assets/{SIDEBAR_IMAGE.name}');
         background-size: cover;
-        background-position: top;
-        background-repeat: no-repeat;
+        background-position: top center;
+        flex-shrink: 0;
+    }}
+    .sidebar-title {{
+        padding: 20px 20px 8px;
+        text-align: center;
+    }}
+    .sidebar-title h2 {{
+        margin: 0;
+        font-size: 1.1rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #ccc;
+    }}
+    .sidebar-title .sub {{
+        font-size: 0.7rem;
+        color: #777;
+        margin-top: 4px;
+        letter-spacing: 0.05em;
+    }}
+    .sidebar-divider {{
+        width: 40px;
+        height: 2px;
+        background: #555;
+        margin: 12px auto;
+    }}
+    .sidebar-metrics {{
+        padding: 0 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        flex: 1;
+    }}
+    .sidebar-metric {{
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+    }}
+    .sidebar-metric .label {{
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #888;
+    }}
+    .sidebar-metric .value {{
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: #eee;
+    }}
+    .sidebar-footer {{
+        padding: 16px 20px;
+        font-size: 0.65rem;
+        color: #555;
+        text-align: center;
+        flex-shrink: 0;
     }}
     .content-panel {{
         flex: 1;
@@ -148,55 +211,8 @@ ui.add_head_html(f"""
         overflow: hidden;
         box-sizing: border-box;
     }}
-    .header-bar {{
-        background: #111;
-        color: white;
-        padding: 14px 28px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex-shrink: 0;
-    }}
-    .header-title {{
-        font-size: 1.2rem;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-    }}
-    .header-sub {{
-        font-size: 0.8rem;
-        color: #aaa;
-    }}
-    .metrics-row {{
-        display: flex;
-        gap: 12px;
-        padding: 16px 24px;
-        flex-shrink: 0;
-        background: #fafafa;
-        border-bottom: 1px solid #eee;
-    }}
-    .metric-card {{
-        flex: 1;
-        background: white;
-        border-radius: 10px;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-        padding: 12px 16px;
-        text-align: center;
-    }}
-    .metric-value {{
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: #111;
-    }}
-    .metric-label {{
-        font-size: 0.72rem;
-        color: #999;
-        margin-top: 2px;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }}
-    .gain-positive {{ color: #1f8f4c; }}
-    .gain-negative {{ color: #c0392b; }}
+    .gain-positive {{ color: #4caf50; }}
+    .gain-negative {{ color: #ef5350; }}
     .custom-tabs .q-tab__label {{
         font-size: clamp(0.72rem, 0.5vw + 0.45rem, 0.95rem);
         font-weight: 600;
@@ -235,9 +251,7 @@ ui.add_head_html(f"""
     }}
     @media (max-width: 768px) {{
         .layout {{ flex-direction: column; }}
-        .presentation-panel {{ display: none; }}
-        .metrics-row {{ flex-wrap: wrap; padding: 10px 12px; gap: 8px; }}
-        .metric-card {{ min-width: 45%; }}
+        .sidebar {{ display: none; }}
     }}
 </style>
 """)
@@ -249,55 +263,42 @@ trades = load_trades()
 portfolio = compute_portfolio_history(trades)
 last_trade = trades[-1] if trades else {}
 
+current_alloc = last_trade.get("target_alloc", 0)
+current_prob = last_trade.get("probability", 0)
+current_price = last_trade.get("etf_price", 0)
+model_date = last_trade.get("model_date", "--")
+n_exec = sum(1 for t in trades if t.get("executed"))
+
 with ui.element("div").classes("layout"):
-    # Sidebar
-    ui.element("div").classes("presentation-panel").props("aria-hidden=true")
+    # ── Sidebar ──
+    with ui.element("div").classes("sidebar"):
+        ui.element("div").classes("sidebar-photo")
+        with ui.element("div").classes("sidebar-title"):
+            ui.html("<h2>Risk-Off</h2>")
+            ui.html('<div class="sub">QQQ / PUST — Boursorama PEA</div>')
+        ui.element("div").classes("sidebar-divider")
+        with ui.element("div").classes("sidebar-metrics"):
+            alloc_color = "gain-positive" if current_alloc >= 0.5 else "gain-negative"
+            for label, value, extra_class in [
+                ("Allocation", f"{current_alloc*100:.0f}%", alloc_color),
+                ("Probability", f"{current_prob:.3f}", ""),
+                ("PUST", f"{current_price:.2f} EUR", ""),
+                ("Trades", f"{n_exec}", ""),
+                ("Model", model_date, "mono"),
+            ]:
+                with ui.element("div").classes("sidebar-metric"):
+                    ui.html(f'<span class="label">{label}</span>')
+                    ui.html(f'<span class="value {extra_class}">{value}</span>')
+        with ui.element("div").classes("sidebar-footer"):
+            ui.html(f'{datetime.now().strftime("%d %b %Y &nbsp; %H:%M")}')
 
-    # Content
+    # ── Content ──
     with ui.column().classes("content-panel"):
-
-        # Header bar
-        with ui.element("div").classes("header-bar"):
-            with ui.column().style("gap: 0"):
-                ui.label("Risk-Off Strategy").classes("header-title")
-                ui.label("QQQ / PUST — Boursorama PEA").classes("header-sub")
-            ui.label(f"{datetime.now().strftime('%d %b %Y  %H:%M')}").classes("header-sub")
-
-        # Metrics
-        with ui.element("div").classes("metrics-row"):
-            current_alloc = last_trade.get("target_alloc", 0)
-            current_prob = last_trade.get("probability", 0)
-            current_price = last_trade.get("etf_price", 0)
-            model_date = last_trade.get("model_date", "--")
-            n_exec = sum(1 for t in trades if t.get("executed"))
-
-            with ui.element("div").classes("metric-card"):
-                color = "gain-positive" if current_alloc >= 0.5 else "gain-negative"
-                ui.label(f"{current_alloc*100:.0f}%").classes(f"metric-value {color}")
-                ui.label("Allocation").classes("metric-label")
-
-            with ui.element("div").classes("metric-card"):
-                ui.label(f"{current_prob:.3f}").classes("metric-value")
-                ui.label("Probability").classes("metric-label")
-
-            with ui.element("div").classes("metric-card"):
-                ui.label(f"{current_price:.2f}").classes("metric-value")
-                ui.label("PUST (EUR)").classes("metric-label")
-
-            with ui.element("div").classes("metric-card"):
-                ui.label(f"{n_exec}").classes("metric-value")
-                ui.label("Trades").classes("metric-label")
-
-            with ui.element("div").classes("metric-card"):
-                ui.label(model_date).classes("metric-value mono").style("font-size: 1rem")
-                ui.label("Model date").classes("metric-label")
-
         # Tabs
         with ui.tabs().classes("w-full custom-tabs").props("dense") as tabs:
             tab_full = ui.tab("Backtest")
             tab_1y = ui.tab("1 Year")
             tab_1m = ui.tab("1 Month")
-            tab_pe = ui.tab("PE Top 5")
             tab_trades = ui.tab("Trades")
             tab_alloc = ui.tab("Allocations")
 
@@ -328,14 +329,6 @@ with ui.element("div").classes("layout"):
                     ui.label("Last 21 Trading Days").classes("text-base font-semibold")
                     if BACKTEST_1M.exists():
                         ui.image("/img/backtest_1m").classes("w-full rounded-lg shadow-lg")
-
-            # ── PE ──
-            with ui.tab_panel(tab_pe):
-                with ui.column().classes("tab-content"):
-                    ui.element("div").classes("w-full h-0.5 bg-black")
-                    ui.label("NASDAQ-100 PE Top 5 (Daily Interpolated)").classes("text-base font-semibold")
-                    if PE_CHART and PE_CHART.exists():
-                        ui.image("/img/pe_chart").classes("w-full rounded-lg shadow-lg")
 
             # ── Trades ──
             with ui.tab_panel(tab_trades):

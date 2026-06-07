@@ -18,6 +18,14 @@
             "args": ["ALL"],
             "console": "integratedTerminal",
             "justMyCode": true
+        },
+        {
+            "name": "Webapp Risk-Off",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/webapp.py",
+            "console": "integratedTerminal",
+            "justMyCode": true
         }
     ]
 }
