@@ -380,22 +380,36 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
               f"CTO {cto_val/1000:.0f}k = {(pea_n+cto_val)/1000:.0f}k net  "
               f"(impots {(pea_t+cto_t)/1000:.0f}k)")
 
+    # ── Load PE daily ──
+    try:
+        from src.download_pe_top5 import load_pe_daily
+        pe_daily = load_pe_daily()
+    except Exception:
+        pe_daily = None
+
     # ── Plot ──
-    fig = plt.figure(figsize=(18, 9))
-    gs = GridSpec(2, 2, width_ratios=[3, 1.2], height_ratios=[3, 1],
+    has_pe = pe_daily is not None and len(pe_daily) > 0
+    n_left_rows = 3 if has_pe else 2
+    h_ratios = [3, 1, 1] if has_pe else [3, 1]
+    fig = plt.figure(figsize=(18, 11 if has_pe else 9))
+    gs = GridSpec(n_left_rows, 2, width_ratios=[3, 1.2], height_ratios=h_ratios,
                   hspace=0.08, wspace=0.15)
     ax1 = fig.add_subplot(gs[0, 0])
     ax2 = fig.add_subplot(gs[1, 0], sharex=ax1)
+    ax_pe = fig.add_subplot(gs[2, 0], sharex=ax1) if has_pe else None
     ax3 = fig.add_subplot(gs[:, 1])
 
     # Equity curves
     ax1.semilogy(wf_dates, bh_eq,
                  label=f"{ticker} Buy & Hold ({bh_cagr*100:.1f}%, DD {bh_dd*100:.1f}%)",
                  color="tab:blue", linewidth=1.5, alpha=0.6)
-    if oracle:
-        ax1.semilogy(wf_dates, oracle["eq"],
-                     label=f"Oracle label ({oracle['cagr']*100:.1f}%, DD {oracle['dd']*100:.1f}%)",
-                     color="tab:green", linewidth=1.5, linestyle="--", alpha=0.7)
+    # Shade crisis periods (label=0) on equity and allocation charts
+    if oracle_labels is not None:
+        crisis = oracle_labels == 0
+        crisis_axes = [ax1, ax2] + ([ax_pe] if ax_pe else [])
+        for ax in crisis_axes:
+            ax.fill_between(wf_dates, 0, 1, where=crisis,
+                            color="red", alpha=0.08, transform=ax.get_xaxis_transform())
     for lev in leverages:
         r = results[lev]
         ax1.semilogy(wf_dates, r["eq_n"],
@@ -431,12 +445,31 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
     if max(leverages) >= 2.0:
         ax2.axhline(200, color="darkred", linestyle="--", alpha=0.3, linewidth=0.8)
     ax2.set_ylabel("Allocation (%)")
-    ax2.set_xlabel("Date")
     ax2.set_ylim(-5, max_alloc + 15)
     ax2.legend(loc="lower right", fontsize=8)
     ax2.grid(True, alpha=0.3)
-    ax2.xaxis.set_major_locator(mdates.YearLocator(2))
-    ax2.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+    if ax_pe:
+        plt.setp(ax2.get_xticklabels(), visible=False)
+    else:
+        ax2.set_xlabel("Date")
+        ax2.xaxis.set_major_locator(mdates.YearLocator(2))
+        ax2.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+
+    # PE Top 5 panel
+    if ax_pe is not None and pe_daily is not None:
+        pe_masked = pe_daily.reindex(wf_dates)
+        pe_masked = pe_masked.ffill()
+        ax_pe.plot(wf_dates, pe_masked.values, color="darkblue", lw=1.2,
+                   label="PE Top 5 (daily)")
+        ax_pe.axhline(20, color="green", ls=":", alpha=0.5, lw=1)
+        ax_pe.axhline(35, color="orange", ls=":", alpha=0.5, lw=1)
+        ax_pe.axhline(50, color="red", ls=":", alpha=0.5, lw=1)
+        ax_pe.set_ylabel("PE Top 5")
+        ax_pe.set_xlabel("Date")
+        ax_pe.legend(loc="upper left", fontsize=8)
+        ax_pe.grid(True, alpha=0.3)
+        ax_pe.xaxis.set_major_locator(mdates.YearLocator(2))
+        ax_pe.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
 
     # 5y projection
     ax3.set_title(f"Projection {proj_years} ans net d'impot\n"
@@ -507,8 +540,21 @@ def plot_recent(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
     x = np.arange(n)
     date_labels = [d.strftime("%d %b") for d in dates]
 
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 9), height_ratios=[2, 1, 1],
-                                         sharex=True, gridspec_kw={"hspace": 0.08})
+    # Load PE daily
+    try:
+        from src.download_pe_top5 import load_pe_daily
+        pe_daily = load_pe_daily()
+    except Exception:
+        pe_daily = None
+    has_pe = pe_daily is not None and len(pe_daily) > 0
+
+    n_rows = 4 if has_pe else 3
+    h_ratios = [2, 1, 1, 1] if has_pe else [2, 1, 1]
+    fig, axes = plt.subplots(n_rows, 1, figsize=(14, 11 if has_pe else 9),
+                             height_ratios=h_ratios, sharex=True,
+                             gridspec_kw={"hspace": 0.08})
+    ax1, ax2, ax3 = axes[0], axes[1], axes[2]
+    ax_pe = axes[3] if has_pe else None
 
     # B&H curve
     ax1.plot(x, (cum_bh - 1) * 100, label=f"{ticker} B&H", color="tab:blue", linewidth=2)
@@ -560,14 +606,27 @@ def plot_recent(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
     ax3.fill_between(x, prob_cash, prob, where=prob < prob_cash,
                      alpha=0.2, color="tab:red")
     ax3.set_ylabel("P(invested)")
-    ax3.set_xlabel("Date")
     ax3.set_ylim(0, 1)
     ax3.legend(loc="lower right", fontsize=9)
     ax3.grid(True, alpha=0.3)
 
+    # PE Top 5 panel
+    if ax_pe is not None and pe_daily is not None:
+        import pandas as pd
+        pe_slice = pe_daily.reindex(dates).ffill()
+        ax_pe.plot(x, pe_slice.values, color="darkblue", lw=1.5, label="PE Top 5")
+        ax_pe.axhline(20, color="green", ls=":", alpha=0.5, lw=1)
+        ax_pe.axhline(35, color="orange", ls=":", alpha=0.5, lw=1)
+        ax_pe.axhline(50, color="red", ls=":", alpha=0.5, lw=1)
+        ax_pe.set_ylabel("PE Top 5")
+        ax_pe.legend(loc="upper left", fontsize=8)
+        ax_pe.grid(True, alpha=0.3)
+
+    last_ax = ax_pe if ax_pe is not None else ax3
+    last_ax.set_xlabel("Date")
     tick_step = max(1, n // 15)
-    ax3.set_xticks(x[::tick_step])
-    ax3.set_xticklabels([date_labels[i] for i in range(0, n, tick_step)], rotation=45)
+    last_ax.set_xticks(x[::tick_step])
+    last_ax.set_xticklabels([date_labels[i] for i in range(0, n, tick_step)], rotation=45)
 
     plt.tight_layout()
     if save_path:
