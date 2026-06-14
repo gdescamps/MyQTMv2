@@ -335,7 +335,7 @@ def simulate_with_fees(qqq_ret, wf_prob, max_lev, prob_cash=0.5, prob_full=0.85,
 
 
 def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
-                 pea_init=150_000, cto_init=100_000, proj_years=5,
+                 pea_init=120_000, cto_init=50_000, proj_years=5,
                  save_path=None, ticker="QQQ", leverages=None, oracle_labels=None):
     import pandas as pd
     from matplotlib.gridspec import GridSpec
