@@ -38,10 +38,7 @@ def refresh_data():
 
     # FRED macro
     for series_id, label in FRED_SERIES.items():
-        path = DATA_DIR / f"fred_{label}.parquet"
-        if path.exists():
-            path.unlink()
-        fetch_fred(series_id, label)
+        fetch_fred(series_id, label, force=True)
 
     # Return last available date
     last_dates = []

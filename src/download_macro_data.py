@@ -31,13 +31,15 @@ FRED_SERIES = {
 }
 
 
-def fetch_fred(series_id: str, label: str) -> None:
+def fetch_fred(series_id: str, label: str, force: bool = False) -> None:
     if not FRED_KEY:
         print("  [SKIP] FRED_API_KEY not set — add it to .env")
         return
 
     fname = DATA_DIR / f"fred_{label}.parquet"
-    if fname.exists():
+    revised_path = DATA_DIR / f"fred_{label}_revised.parquet"
+
+    if fname.exists() and not force:
         rows = pd.read_parquet(fname).shape[0]
         print(f"  SKIP  fred_{label:<15} (already {rows} rows)")
         return
@@ -60,17 +62,32 @@ def fetch_fred(series_id: str, label: str) -> None:
 
     obs = data.get("observations", [])
     if not obs:
-        print(f"[EMPTY]")
+        print("[EMPTY]")
         return
 
-    df = pd.DataFrame(obs)[["date", "value"]]
-    df["date"] = pd.to_datetime(df["date"])
-    df = df.set_index("date")
-    df["value"] = pd.to_numeric(df["value"], errors="coerce")
-    df = df.dropna().rename(columns={"value": label})
+    df_fresh = pd.DataFrame(obs)[["date", "value"]]
+    df_fresh["date"] = pd.to_datetime(df_fresh["date"])
+    df_fresh = df_fresh.set_index("date")
+    df_fresh["value"] = pd.to_numeric(df_fresh["value"], errors="coerce")
+    df_fresh = df_fresh.dropna().rename(columns={"value": label})
 
-    df.to_parquet(fname, engine="pyarrow", compression="snappy")
-    print(f"{len(df)} rows  [{df.index[0].date()} → {df.index[-1].date()}]")
+    # Always save full revised version for comparison
+    df_fresh.to_parquet(revised_path, engine="pyarrow", compression="snappy")
+
+    if fname.exists():
+        # Incremental: keep existing rows (point-in-time), only append new dates
+        df_old = pd.read_parquet(fname)
+        new_dates = df_fresh.index.difference(df_old.index)
+        if len(new_dates) > 0:
+            df_merged = pd.concat([df_old, df_fresh.loc[new_dates]]).sort_index()
+            df_merged.to_parquet(fname, engine="pyarrow", compression="snappy")
+            print(f"{len(df_merged)} rows (+{len(new_dates)} new)  "
+                  f"[{df_merged.index[0].date()} → {df_merged.index[-1].date()}]")
+        else:
+            print(f"{len(df_old)} rows (up to date)")
+    else:
+        df_fresh.to_parquet(fname, engine="pyarrow", compression="snappy")
+        print(f"{len(df_fresh)} rows  [{df_fresh.index[0].date()} → {df_fresh.index[-1].date()}]")
 
 
 def main():

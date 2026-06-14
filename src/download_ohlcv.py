@@ -56,6 +56,7 @@ def download_ticker(ticker: str) -> pd.DataFrame | None:
 def fetch_and_save(ticker: str, filename: str = None, force: bool = False) -> None:
     fname = filename or ticker
     path = DATA_DIR / f"{fname}.parquet"
+    revised_path = DATA_DIR / f"{fname}_revised.parquet"
 
     if path.exists() and not force:
         rows = pd.read_parquet(path).shape[0]
@@ -63,15 +64,30 @@ def fetch_and_save(ticker: str, filename: str = None, force: bool = False) -> No
         return
 
     print(f"  ..    {fname:<20} fetching...", end=" ", flush=True)
-    df = download_ticker(ticker)
+    df_fresh = download_ticker(ticker)
     time.sleep(DELAY)
 
-    if df is None or df.empty:
+    if df_fresh is None or df_fresh.empty:
         print("EMPTY")
         return
 
-    df.to_parquet(path, engine="pyarrow", compression="snappy")
-    print(f"{len(df)} rows  [{df.index[0].date()} → {df.index[-1].date()}]")
+    # Always save full revised version for comparison
+    df_fresh.to_parquet(revised_path, engine="pyarrow", compression="snappy")
+
+    if path.exists():
+        # Incremental: keep existing rows (point-in-time), only append new dates
+        df_old = pd.read_parquet(path)
+        new_dates = df_fresh.index.difference(df_old.index)
+        if len(new_dates) > 0:
+            df_merged = pd.concat([df_old, df_fresh.loc[new_dates]]).sort_index()
+            df_merged.to_parquet(path, engine="pyarrow", compression="snappy")
+            print(f"{len(df_merged)} rows (+{len(new_dates)} new)  "
+                  f"[{df_merged.index[0].date()} → {df_merged.index[-1].date()}]")
+        else:
+            print(f"{len(df_old)} rows (up to date)")
+    else:
+        df_fresh.to_parquet(path, engine="pyarrow", compression="snappy")
+        print(f"{len(df_fresh)} rows  [{df_fresh.index[0].date()} → {df_fresh.index[-1].date()}]")
 
 
 def download_risk_off(force=False):
