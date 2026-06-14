@@ -1619,3 +1619,96 @@ https://github.com/azerpas/bourso-api#get-your-accounts
 
 --------------------------------------------
 
+deplacer le script 
+src/pe/calc_ndx_pe.py
+
+ici 
+src/download_pe_top5.py
+
+
+afficher le pe top 5 interpole dans le backtest de qqq
+
+--------------------------------------------
+
+installer et tester
+git@github.com:azerpas/bourso-api.git
+pour le relier a mon compte bourso 
+
+--------------------------------------------
+
+ecrire un script python
+src/real_bourso.py
+
+pour le passage d'ordre reel sur boursorama via bourso cli 
+
+faire le passage d'ordre sur l'etf nasdaq x1 compatible pea
+
+Le matin, l'ouverture du marché. Paris Euronext
+
+Donc, vers 9h du matin.
+
+Le matin vers 8h, commençaient à télécharger les clôtures US.
+Basé le l'inference de la proba d'allocation sur les clôtures US.
+Et à l'ouverture à 9h, appliquer la location sur le compte.
+En tenant compte d'une variation de moins 20% pour éviter limiter les frais.
+Pas de limitation a l'achat puisque l'achat etf est gratuit.
+
+
+ INFO bourso_cli: Welcome to BoursoBank CLI 👋
+ INFO bourso_cli: ℹ️ - Version 0.5.3. Make sure you're running the latest version: https://github.com/azerpas/bourso-api
+
+ INFO bourso_cli: We'll try to log you in with your customer id: 70967054
+ INFO bourso_cli: If you want to change it, run `bourso config --username <customer_id>`
+
+ INFO bourso_cli: We'll need your password to log you in. It will not be stored anywhere and will be asked everytime you run a command. The password will be hidden while typing.
+Enter your password: 
+ INFO bourso_api::client: 🔓 You are now logged in with user: 2fd785cade53ab8
+ INFO bourso_cli: Login successful ✅
+ INFO bourso_cli: Found 3 accounts
+    Account {
+        id: "e0aeafb04e60bdbe140479e499fd79d2",
+        name: "ORD (DE) DESCAMPS",
+        balance: 0,
+        bank_name: "BoursoBank",
+        kind: Trading,
+    },
+
+en t'inspirant de dashboard
+créer une webapp pour 
+montrer 
+le backtest actuellisé 
+et les allocation reel sur boursorama
+
+gerer le fait qu'on peut transfer de fond du le compte 
+trading et le lendemain allouer le cash dispo 
+en fonction du % d'allocation generee par le model
+indépendament des frais lorsqu'on ajout des fonds
+
+en t'inspirant de dashboard 
+ecrire une webapp src/webapp.py 
+nicegui avec le meme charte graphique que dashboard
+
+presenter les backtests full, 1y, 1m 
+
+et les allocations sur bourso 
+
+l'historique d'allocation reelle sur bourso en 100 % et reel
+et les gains normalisé en % et reel en euros
+
+montrer les capital ajouté et realloué 
+
+
+inspire toi de 
+dashboard/3_build.sh
+dashboard/4_run.sh
+dashboard/5_kill.sh
+dashboard/Dockerfile
+
+pour gerer la webapp bourso 
+de la meme facon a
+crée les script a la racine de MyQTMv2
+
+
+-----------------------------------------------
+
+
