@@ -482,6 +482,8 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
     for lev in leverages:
         r = results[lev]
         annot += f"x{lev:.1f} {r['n_c10']*100:.1f}%/an DD {r['n_d10']*100:.0f}%\n"
+    if panx_results is not None:
+        annot += f"PANX x1.0 {panx_results['cagr']*100:.1f}%/an DD {panx_results['dd']*100:.0f}%\n"
     mid_lev = leverages[len(leverages) // 2]
     y_mid = np.sqrt(results[mid_lev]["eq_n"].max() * results[mid_lev]["eq_n"].min())
     ax1.annotate(annot.strip(), xy=(wf_dates[idx_recent], y_mid), fontsize=8,
