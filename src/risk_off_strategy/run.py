@@ -118,7 +118,7 @@ def run_ticker(ticker):
     bt_results = plot_results(wf_dates, price_ret, wf_prob, PROB_CASH, PROB_FULL,
                               save_path=str(OUT / "backtest.png"), ticker=ticker, leverages=levs,
                               oracle_labels=target_labels, panx_ret=panx_ret_arr)
-    plot_projection(bt_results, levs, proj_years=7, save_path=str(OUT / "projection.png"))
+    plot_projection(bt_results, levs, save_path=str(OUT / "projection.png"))
     plot_recent(wf_dates, price_ret, wf_prob, PROB_CASH, PROB_FULL,
                 days=252, save_path=str(OUT / "backtest_1y.png"), ticker=ticker, leverages=levs)
     plot_recent(wf_dates, price_ret, wf_prob, PROB_CASH, PROB_FULL,
