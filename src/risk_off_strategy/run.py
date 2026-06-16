@@ -14,14 +14,15 @@ sys.path.insert(0, str(ROOT))
 
 from src.risk_off_strategy.data import load_data, build_features, build_realtime_target
 from src.risk_off_strategy.backtest import (walk_forward, plot_results, plot_recent,
-                                            plot_comparison, simulate_with_fees)
+                                            plot_comparison, simulate_with_fees,
+                                            plot_projection)
 
 # Tickers with leveraged ETFs available → x1, x1.5, x2
 # Others → x1 only (no leveraged ETF)
 LEVERAGED_TICKERS = {"QQQ", "SPY"}
 
 def get_leverages(ticker):
-    return [1.0, 1.5, 2.0] if ticker in LEVERAGED_TICKERS else [1.0]
+    return [1.0, 1.5, 1.75, 2.0] if ticker in LEVERAGED_TICKERS else [1.0]
 
 
 # ── Download fresh data ──────────────────────────────────
@@ -102,9 +103,10 @@ def run_ticker(ticker):
 
     levs = get_leverages(ticker)
     target_labels = y[pred_mask]
-    plot_results(wf_dates, price_ret, wf_prob, PROB_CASH, PROB_FULL,
-                 save_path=str(OUT / "backtest.png"), ticker=ticker, leverages=levs,
-                 oracle_labels=target_labels)
+    bt_results = plot_results(wf_dates, price_ret, wf_prob, PROB_CASH, PROB_FULL,
+                              save_path=str(OUT / "backtest.png"), ticker=ticker, leverages=levs,
+                              oracle_labels=target_labels)
+    plot_projection(bt_results, levs, save_path=str(OUT / "projection.png"))
     plot_recent(wf_dates, price_ret, wf_prob, PROB_CASH, PROB_FULL,
                 days=252, save_path=str(OUT / "backtest_1y.png"), ticker=ticker, leverages=levs)
     plot_recent(wf_dates, price_ret, wf_prob, PROB_CASH, PROB_FULL,
