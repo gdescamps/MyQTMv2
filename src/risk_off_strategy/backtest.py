@@ -402,15 +402,6 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
         lbl = f"XGB x{lev:.1f} net Bourso"
         print(f"{lbl:35s} {r['n_cagr']*100:7.1f}% "
               f"{r['eq_n'][-1]:7.1f}x {r['n_dd']*100:7.1f}%")
-    print(f"\nDepuis PANX ({wf_dates[idx_recent].date()} -> {wf_dates[-1].date()}, {y_recent:.1f} ans):")
-    print(f"{ticker + ' Buy & Hold':35s} {bh_cr*100:7.1f}%         {bh_dr*100:7.1f}%")
-    if oracle:
-        print(f"{'Oracle (perfect label)':35s} {oracle['c10']*100:7.1f}%         {oracle['d10']*100:7.1f}%")
-    for lev in leverages:
-        r = results[lev]
-        lbl = f"XGB x{lev:.1f} net Bourso"
-        print(f"{lbl:35s} {r['n_c10']*100:7.1f}%         {r['n_d10']*100:7.1f}%")
-
     # ── PANX execution (CC signal → PANX open) ──
     panx_results = None
     if panx_ret is not None:
@@ -428,8 +419,18 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
             panx_cagr, panx_dd = compute_metrics(panx_eq_s, panx_years)
             panx_results = dict(eq=panx_eq_s, start_idx=panx_start_idx,
                                 dates=panx_dates_s, cagr=panx_cagr, dd=panx_dd)
-            print(f"\n{'PEA: CC signal -> PANX open x1.0':35s} {panx_cagr*100:7.1f}%         {panx_dd*100:7.1f}%"
-                  f"  ({panx_dates_s[0].date()} -> {panx_dates_s[-1].date()})")
+
+    print(f"\nDepuis PANX ({wf_dates[idx_recent].date()} -> {wf_dates[-1].date()}, {y_recent:.1f} ans):")
+    print(f"{'':35s} {'CAGR':>8s} {'MaxDD':>8s}")
+    print(f"{ticker + ' Buy & Hold':35s} {bh_cr*100:7.1f}%   {bh_dr*100:7.1f}%")
+    if oracle:
+        print(f"{'Oracle (perfect label)':35s} {oracle['c10']*100:7.1f}%   {oracle['d10']*100:7.1f}%")
+    for lev in leverages:
+        r = results[lev]
+        lbl = f"XGB x{lev:.1f} net Bourso"
+        print(f"{lbl:35s} {r['n_c10']*100:7.1f}%   {r['n_d10']*100:7.1f}%")
+    if panx_results is not None:
+        print(f"{'PEA: CC -> PANX open x1.0':35s} {panx_results['cagr']*100:7.1f}%   {panx_results['dd']*100:7.1f}%")
 
     # ── Load PE daily ──
     try:
