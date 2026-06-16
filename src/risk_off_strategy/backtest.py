@@ -92,13 +92,18 @@ def select_features_stable(X, y, feature_cols, block_size=21, embargo_rows=5,
 
 
 def _config_hash(feature_cols, xgb_params, feat_select, feat_power, feat_top_n,
-                 min_train, step, embargo, temperature):
-    """Hash of walk-forward config (not data). Stable across data updates."""
+                 min_train, step, embargo, temperature, X=None):
+    """Hash of walk-forward config + data fingerprint. Stable across data updates."""
     h = hashlib.sha256()
     h.update(json.dumps(sorted(feature_cols)).encode())
     h.update(json.dumps(xgb_params, sort_keys=True).encode())
     h.update(f"{feat_select}_{feat_power}_{feat_top_n}".encode())
     h.update(f"{min_train}_{step}_{embargo}_{temperature}".encode())
+    if X is not None:
+        # Fingerprint: first row + last row + shape to distinguish data sources
+        h.update(f"{X.shape}".encode())
+        h.update(X[0].tobytes())
+        h.update(X[min(100, len(X)-1)].tobytes())
     return h.hexdigest()[:16]
 
 
@@ -141,7 +146,7 @@ def walk_forward(X, y, feature_cols, min_train=504, step=21, embargo=21,
     if use_cache:
         cfg_hash = _config_hash(feature_cols, xgb_params, feat_select,
                                 feat_power, feat_top_n, min_train, step,
-                                embargo, temperature)
+                                embargo, temperature, X=X)
         cache_path = CACHE_DIR / f"wf_incr_{cfg_hash}.npz"
         if cache_path.exists():
             cached = np.load(cache_path, allow_pickle=True)
@@ -339,7 +344,8 @@ def simulate_with_fees(qqq_ret, wf_prob, max_lev, prob_cash=0.5, prob_full=0.85,
 
 
 def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
-                 save_path=None, ticker="QQQ", leverages=None, oracle_labels=None):
+                 save_path=None, ticker="QQQ", leverages=None, oracle_labels=None,
+                 panx_ret=None):
     import pandas as pd
 
     if leverages is None:
@@ -397,6 +403,26 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
         lbl = f"XGB x{lev:.1f} net Bourso"
         print(f"{lbl:35s} {r['n_c10']*100:7.1f}%         {r['n_d10']*100:7.1f}%")
 
+    # ── PANX execution (CC signal → PANX open) ──
+    panx_results = None
+    if panx_ret is not None:
+        # Find first date with real PANX data (non-zero return after first few days)
+        nonzero = np.where(panx_ret != 0)[0]
+        if len(nonzero) > 0:
+            panx_start_idx = max(0, nonzero[0] - 1)
+            # Run simulation only on the PANX-available slice
+            panx_ret_slice = panx_ret[panx_start_idx:]
+            prob_slice = wf_prob[panx_start_idx:]
+            panx_eq_s, panx_alloc_s, _ = simulate_with_fees(
+                panx_ret_slice, prob_slice, 1.0, prob_cash, prob_full)
+            panx_dates_s = wf_dates[panx_start_idx:]
+            panx_years = (panx_dates_s[-1] - panx_dates_s[0]).days / 365.25
+            panx_cagr, panx_dd = compute_metrics(panx_eq_s, panx_years)
+            panx_results = dict(eq=panx_eq_s, start_idx=panx_start_idx,
+                                dates=panx_dates_s, cagr=panx_cagr, dd=panx_dd)
+            print(f"\n{'PEA: CC signal -> PANX open x1.0':35s} {panx_cagr*100:7.1f}%         {panx_dd*100:7.1f}%"
+                  f"  ({panx_dates_s[0].date()} -> {panx_dates_s[-1].date()})")
+
     # ── Load PE daily ──
     try:
         from src.download_pe_qqq_top5 import load_pe_daily
@@ -431,6 +457,16 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
                      label=f"XGB x{lev:.1f} net Bourso ({r['n_cagr']*100:.1f}%, "
                            f"DD {r['n_dd']*100:.1f}%)",
                      color=colors[lev], linewidth=2)
+
+    # PANX execution curve (normalized to QQQ B&H at PANX start)
+    if panx_results is not None:
+        pr = panx_results
+        si = pr["start_idx"]
+        scale = bh_eq[si]
+        panx_eq_norm = pr["eq"] / pr["eq"][0] * scale
+        ax1.semilogy(pr["dates"], panx_eq_norm,
+                     label=f"PEA PANX open x1.0 ({pr['cagr']*100:.1f}%, DD {pr['dd']*100:.1f}%)",
+                     color="tab:green", linewidth=1.5, linestyle="--")
 
     ax1.axvline(wf_dates[idx_10y], color="gray", linestyle=":", alpha=0.5)
     annot = f"10 ans\nB&H {bh_c10*100:.1f}%/an DD {bh_d10*100:.0f}%\n"

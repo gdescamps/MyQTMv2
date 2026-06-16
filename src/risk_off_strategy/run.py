@@ -7,6 +7,7 @@ Usage: python src/risk_off_strategy/run.py [QQQ|SPY|ALL]
 """
 
 import sys
+import numpy as np
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -98,6 +99,17 @@ def run_ticker(ticker):
     wf_prob = wf_proba[pred_mask]
     price_ret = price.pct_change().fillna(0).loc[df.index].values[pred_mask]
 
+    # Load PANX for PEA execution comparison
+    import pandas as pd
+    panx_path = ROOT / "data" / "PANX.parquet"
+    panx_ret_arr = None
+    if panx_path.exists():
+        panx_open = pd.read_parquet(panx_path)["open"]
+        panx_open_ret = panx_open.pct_change().fillna(0)
+        panx_ret_aligned = panx_open_ret.reindex(wf_dates).values
+        # NaN for dates before PANX exists → set to 0 (no position)
+        panx_ret_arr = np.where(np.isnan(panx_ret_aligned), 0.0, panx_ret_aligned)
+
     OUT = ROOT / "outputs" / f"{prefix}_strategy"
     OUT.mkdir(parents=True, exist_ok=True)
 
@@ -105,7 +117,7 @@ def run_ticker(ticker):
     target_labels = y[pred_mask]
     bt_results = plot_results(wf_dates, price_ret, wf_prob, PROB_CASH, PROB_FULL,
                               save_path=str(OUT / "backtest.png"), ticker=ticker, leverages=levs,
-                              oracle_labels=target_labels)
+                              oracle_labels=target_labels, panx_ret=panx_ret_arr)
     plot_projection(bt_results, levs, save_path=str(OUT / "projection.png"))
     plot_recent(wf_dates, price_ret, wf_prob, PROB_CASH, PROB_FULL,
                 days=252, save_path=str(OUT / "backtest_1y.png"), ticker=ticker, leverages=levs)
