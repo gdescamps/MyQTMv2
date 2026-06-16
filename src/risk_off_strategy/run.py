@@ -27,11 +27,18 @@ def get_leverages(ticker):
 
 
 # ── Download fresh data ──────────────────────────────────
+US_CLOSE_HOUR = 22  # US market close in Paris time (22h00 = 16h00 ET)
+
+
 def refresh_data():
-    """Re-download risk-off OHLCV + macro data to get latest prices."""
+    """Re-download risk-off OHLCV + macro data to get latest prices.
+
+    If run before US close (22h Paris), excludes today's incomplete bar.
+    """
     from src.download_ohlcv import download_risk_off, RISK_OFF_TICKERS
     from src.download_macro_data import fetch_fred, FRED_SERIES
     import pandas as pd
+    from datetime import datetime, timezone, timedelta
 
     DATA_DIR = ROOT / "data"
 
@@ -42,13 +49,26 @@ def refresh_data():
     for series_id, label in FRED_SERIES.items():
         fetch_fred(series_id, label, force=True)
 
-    # Return last available date
+    # Check if US market is still open
+    paris_tz = timezone(timedelta(hours=2))  # CEST (summer)
+    now_paris = datetime.now(paris_tz)
+    today = pd.Timestamp(now_paris.date())
+    before_close = now_paris.hour < US_CLOSE_HOUR and today.weekday() < 5
+
+    # Return last available date, excluding today if before US close
     last_dates = []
     for t in RISK_OFF_TICKERS:
         p = DATA_DIR / f"{t}.parquet"
         if p.exists():
-            last_dates.append(pd.read_parquet(p).index[-1])
+            df = pd.read_parquet(p)
+            if before_close:
+                df = df[df.index < today]
+            if len(df) > 0:
+                last_dates.append(df.index[-1])
+
     end_date = max(last_dates).strftime("%Y-%m-%d") if last_dates else "2026-12-31"
+    if before_close:
+        print(f"Before US close ({now_paris.strftime('%H:%M')} Paris) — excluding today")
     print(f"Data up to: {end_date}\n")
     return end_date
 
