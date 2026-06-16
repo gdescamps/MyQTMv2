@@ -412,25 +412,30 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
             # Run simulation only on the PANX-available slice
             panx_ret_slice = panx_ret[panx_start_idx:]
             prob_slice = wf_prob[panx_start_idx:]
-            panx_eq_s, panx_alloc_s, _ = simulate_with_fees(
-                panx_ret_slice, prob_slice, 1.0, prob_cash, prob_full)
             panx_dates_s = wf_dates[panx_start_idx:]
             panx_years = (panx_dates_s[-1] - panx_dates_s[0]).days / 365.25
-            panx_cagr, panx_dd = compute_metrics(panx_eq_s, panx_years)
-            panx_results = dict(eq=panx_eq_s, start_idx=panx_start_idx,
-                                dates=panx_dates_s, cagr=panx_cagr, dd=panx_dd)
+            panx_results = {"start_idx": panx_start_idx, "dates": panx_dates_s}
+            for lev in leverages:
+                eq_p, al_p, _ = simulate_with_fees(
+                    panx_ret_slice, prob_slice, lev, prob_cash, prob_full)
+                p_cagr, p_dd = compute_metrics(eq_p, panx_years)
+                panx_results[lev] = dict(eq=eq_p, cagr=p_cagr, dd=p_dd)
+            # Keep x1.0 equity for the chart overlay
+            panx_results["eq"] = panx_results[1.0]["eq"]
+            panx_results["cagr"] = panx_results[1.0]["cagr"]
+            panx_results["dd"] = panx_results[1.0]["dd"]
 
     print(f"\nDepuis PANX ({wf_dates[idx_recent].date()} -> {wf_dates[-1].date()}, {y_recent:.1f} ans):")
-    print(f"{'':35s} {'CAGR':>8s} {'MaxDD':>8s}")
-    print(f"{ticker + ' Buy & Hold':35s} {bh_cr*100:7.1f}%   {bh_dr*100:7.1f}%")
-    if oracle:
-        print(f"{'Oracle (perfect label)':35s} {oracle['c10']*100:7.1f}%   {oracle['d10']*100:7.1f}%")
+    print(f"{'':35s} {'CAGR QQQ':>10s} {'DD QQQ':>8s} {'CAGR PANX':>11s} {'DD PANX':>9s}")
+    print(f"{ticker + ' Buy & Hold':35s} {bh_cr*100:9.1f}%  {bh_dr*100:7.1f}%")
     for lev in leverages:
         r = results[lev]
-        lbl = f"XGB x{lev:.1f} net Bourso"
-        print(f"{lbl:35s} {r['n_c10']*100:7.1f}%   {r['n_d10']*100:7.1f}%")
-    if panx_results is not None:
-        print(f"{'PEA: CC -> PANX open x1.0':35s} {panx_results['cagr']*100:7.1f}%   {panx_results['dd']*100:7.1f}%")
+        lbl = f"XGB x{lev:.1f}"
+        line = f"{lbl:35s} {r['n_c10']*100:9.1f}%  {r['n_d10']*100:7.1f}%"
+        if panx_results and lev in panx_results:
+            pr = panx_results[lev]
+            line += f"  {pr['cagr']*100:9.1f}%  {pr['dd']*100:7.1f}%"
+        print(line)
 
     # ── Load PE daily ──
     try:
@@ -545,10 +550,9 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
 
 
 def plot_projection(results, leverages, capital=170_000, proj_years=7, save_path=None):
-    """CTO vs PEA projection side by side per leverage."""
+    """CTO (QQQ) vs PEA (PANX) projection side by side per leverage."""
     TAX_PEA, TAX_CTO = 0.172, 0.30
     panx_info = results.get("panx")
-    panx_cagr = panx_info["cagr"] if panx_info else None
 
     def _proj_pea(cagr_brut, init, years):
         gross = init * (1 + cagr_brut) ** years
@@ -566,27 +570,22 @@ def plot_projection(results, leverages, capital=170_000, proj_years=7, save_path
         return val, total_tax
 
     fig, ax = plt.subplots(figsize=(14, 7))
-    levs_with_panx = leverages + (["panx"] if panx_cagr else [])
-    x = np.arange(len(levs_with_panx))
+    x = np.arange(len(leverages))
     bw = 0.35
-
     max_val = 0
-    for i, lev in enumerate(levs_with_panx):
-        if lev == "panx":
-            cagr_brut = panx_cagr
-            label_lev = "PANX x1.0"
-        else:
-            cagr_brut = results[lev]["n_c10"]
-            label_lev = f"x{lev:.1f}"
 
-        # CTO (left bar)
-        cto_net, cto_tax = _proj_cto(cagr_brut, capital, proj_years)
+    for i, lev in enumerate(leverages):
+        cagr_qqq = results[lev]["n_c10"]
+        cagr_panx = panx_info[lev]["cagr"] if panx_info and lev in panx_info else cagr_qqq
+
+        # CTO QQQ (left bar)
+        cto_net, cto_tax = _proj_cto(cagr_qqq, capital, proj_years)
         pos_cto = i - 0.5 * bw
         ax.bar(pos_cto, capital / 1000, bw, color="tab:orange", alpha=0.3,
                label="Capital" if i == 0 else "")
         ax.bar(pos_cto, (cto_net - capital) / 1000, bw, bottom=capital / 1000,
                color="tab:orange", alpha=0.7,
-               label="CTO gains nets" if i == 0 else "")
+               label="CTO QQQ gains nets" if i == 0 else "")
         ax.bar(pos_cto, cto_tax / 1000, bw, bottom=cto_net / 1000,
                color="red", alpha=0.3, hatch="///",
                label="Impots" if i == 0 else "")
@@ -594,14 +593,14 @@ def plot_projection(results, leverages, capital=170_000, proj_years=7, save_path
                 f"CTO\n{cto_net/1000:.0f}k\u20ac",
                 ha="center", va="bottom", fontsize=8, fontweight="bold")
 
-        # PEA (right bar)
-        pea_net, pea_tax = _proj_pea(cagr_brut, capital, proj_years)
+        # PEA PANX (right bar)
+        pea_net, pea_tax = _proj_pea(cagr_panx, capital, proj_years)
         pos_pea = i + 0.5 * bw
         ax.bar(pos_pea, capital / 1000, bw, color="tab:blue", alpha=0.3,
                label="" if i > 0 else "")
         ax.bar(pos_pea, (pea_net - capital) / 1000, bw, bottom=capital / 1000,
                color="tab:blue", alpha=0.7,
-               label="PEA gains nets" if i == 0 else "")
+               label="PEA PANX gains nets" if i == 0 else "")
         ax.bar(pos_pea, pea_tax / 1000, bw, bottom=pea_net / 1000,
                color="red", alpha=0.3, hatch="///", label="")
         ax.text(pos_pea, (pea_net + pea_tax) / 1000 + 15,
@@ -611,22 +610,20 @@ def plot_projection(results, leverages, capital=170_000, proj_years=7, save_path
 
         max_val = max(max_val, cto_net + cto_tax, pea_net + pea_tax)
 
-        # Print
-        print(f"  {label_lev} CAGR {cagr_brut*100:.1f}% proj {proj_years}y: "
-              f"CTO {cto_net/1000:.0f}k (impots {cto_tax/1000:.0f}k) | "
-              f"PEA {pea_net/1000:.0f}k (impots {pea_tax/1000:.0f}k)")
+        print(f"  x{lev:.1f} proj {proj_years}y: "
+              f"CTO QQQ {cto_net/1000:.0f}k (CAGR {cagr_qqq*100:.1f}%, impots {cto_tax/1000:.0f}k) | "
+              f"PEA PANX {pea_net/1000:.0f}k (CAGR {cagr_panx*100:.1f}%, impots {pea_tax/1000:.0f}k)")
 
     ax.set_xticks(x)
     xlabels = []
-    for lev in levs_with_panx:
-        if lev == "panx":
-            xlabels.append(f"PANX x1.0\nCAGR {panx_cagr*100:.1f}%")
-        else:
-            xlabels.append(f"x{lev:.1f}\nCAGR {results[lev]['n_c10']*100:.1f}%")
-    ax.set_xticklabels(xlabels, fontsize=10)
+    for lev in leverages:
+        cq = results[lev]["n_c10"]
+        cp = panx_info[lev]["cagr"] if panx_info and lev in panx_info else cq
+        xlabels.append(f"x{lev:.1f}\nQQQ {cq*100:.0f}% | PANX {cp*100:.0f}%")
+    ax.set_xticklabels(xlabels, fontsize=9)
     ax.set_ylabel("Montant (k\u20ac)")
     ax.set_title(f"Projection {proj_years} ans — {capital/1000:.0f}k\u20ac — "
-                 f"CTO 30%/an vs PEA 17.2% sortie",
+                 f"CTO QQQ (30%/an) vs PEA PANX (17.2% sortie)",
                  fontsize=12)
     ax.legend(loc="upper left", fontsize=9)
     ax.grid(True, alpha=0.3, axis="y")
