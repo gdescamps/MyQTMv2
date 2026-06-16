@@ -10,7 +10,7 @@ from pathlib import Path
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 
 
-def load_data(ticker="QQQ", start="2006-01-01", end="2026-05-31", spread_lag=2):
+def load_data(ticker="QQQ", start="2006-01-01", end="2026-05-31", spread_lag=3):
     price = pd.read_parquet(DATA_DIR / f"{ticker}.parquet")["close"]
     vix = pd.read_parquet(DATA_DIR / "vix_ohlc.parquet")["close"]
     spread = pd.read_parquet(DATA_DIR / "fred_baa_spread.parquet")["baa_spread"]
@@ -25,7 +25,11 @@ def load_data(ticker="QQQ", start="2006-01-01", end="2026-05-31", spread_lag=2):
     spread = spread.loc[start:end].dropna()
     tlt = tlt.loc[start:end].dropna()
 
-    common = price.index.intersection(vix.index).intersection(spread.index).intersection(tlt.index)
+    # Forward-fill spread/tlt to cover days where FRED/TLT data lags behind price
+    common_base = price.index.intersection(vix.index)
+    spread = spread.reindex(common_base).ffill()
+    tlt = tlt.reindex(common_base).ffill()
+    common = common_base[spread.notna() & tlt.notna()]
     return price.loc[common], vix.loc[common], spread.loc[common], tlt.loc[common]
 
 

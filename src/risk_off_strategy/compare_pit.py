@@ -33,7 +33,7 @@ PROB_FULL = 0.75
 LOOKAHEAD = 6
 
 
-def load_pair(ticker="QQQ", start=START, end="2026-12-31", spread_lag=2):
+def load_pair(ticker="QQQ", start=START, end="2026-12-31", spread_lag=3):
     """Load both point-in-time and revised data. Returns (pit, revised) tuples."""
 
     def _load(suffix=""):
@@ -48,8 +48,11 @@ def load_pair(ticker="QQQ", start=START, end="2026-12-31", spread_lag=2):
         vix = vix.loc[start:end].dropna()
         spread = spread.loc[start:end].dropna()
         tlt = tlt.loc[start:end].dropna()
-        common = price.index.intersection(vix.index).intersection(
-            spread.index).intersection(tlt.index)
+        # Forward-fill spread/tlt to cover days where FRED/TLT data lags behind price
+        common_base = price.index.intersection(vix.index)
+        spread = spread.reindex(common_base).ffill()
+        tlt = tlt.reindex(common_base).ffill()
+        common = common_base[spread.notna() & tlt.notna()]
         return price.loc[common], vix.loc[common], spread.loc[common], tlt.loc[common]
 
     pit = _load("")
