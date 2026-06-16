@@ -539,110 +539,100 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
         plt.savefig(save_path, dpi=150)
         print(f"\nSaved: {save_path}")
     plt.show()
+    if panx_results is not None:
+        results["panx"] = panx_results
     return results
 
 
-def plot_projection(results, leverages, pea_init=120_000, cto_init=50_000,
-                    pea_inject=180_000, cto_inject=140_000,
-                    inject_year=1.0, proj_years=5, save_path=None):
-    """PEA+CTO projection: with and without cash injection, side by side."""
+def plot_projection(results, leverages, capital=170_000, proj_years=7, save_path=None):
+    """CTO vs PEA projection side by side per leverage."""
     TAX_PEA, TAX_CTO = 0.172, 0.30
+    panx_info = results.get("panx")
+    panx_cagr = panx_info["cagr"] if panx_info else None
 
-    def _compute(lev, pea_inj, cto_inj):
-        c = results[lev]["n_c10"]
-        # PEA
-        pea_g = pea_init * (1 + c) ** proj_years
-        if pea_inj > 0:
-            pea_g += pea_inj * (1 + c) ** (proj_years - inject_year)
-        pea_cost = pea_init + pea_inj
-        pea_t = (pea_g - pea_cost) * TAX_PEA
-        pea_n = pea_g - pea_t
-        # CTO
-        inject_y = int(inject_year) + 1
-        cto_val, cto_t, cto_cost = cto_init, 0, cto_init
-        for y in range(proj_years):
-            if cto_inj > 0 and y == inject_y:
-                cto_val += cto_inj
-                cto_cost += cto_inj
-            gain = cto_val * c
+    def _proj_pea(cagr_brut, init, years):
+        gross = init * (1 + cagr_brut) ** years
+        tax = max(0, gross - init) * TAX_PEA
+        return gross - tax, tax
+
+    def _proj_cto(cagr_brut, init, years):
+        val = init
+        total_tax = 0
+        for _ in range(years):
+            gain = val * cagr_brut
             tax = gain * TAX_CTO
-            cto_t += tax
-            cto_val += gain - tax
-        return dict(cagr=c, pea_cost=pea_cost, pea_n=pea_n, pea_t=pea_t,
-                    cto_cost=cto_cost, cto_n=cto_val, cto_t=cto_t,
-                    total_n=pea_n + cto_val, total_t=pea_t + cto_t,
-                    total_g=pea_g + cto_val + cto_t)
+            total_tax += tax
+            val += gain - tax
+        return val, total_tax
 
-    scenarios = [
-        ("Sans injection", 0, 0),
-        (f"+{pea_inject/1000:.0f}k PEA +{cto_inject/1000:.0f}k CTO @ {inject_year}a",
-         pea_inject, cto_inject),
-    ]
-
-    fig, ax = plt.subplots(figsize=(12, 7))
-    x = np.arange(len(leverages))
+    fig, ax = plt.subplots(figsize=(14, 7))
+    levs_with_panx = leverages + (["panx"] if panx_cagr else [])
+    x = np.arange(len(levs_with_panx))
     bw = 0.35
 
-    for si, (label, p_inj, c_inj) in enumerate(scenarios):
-        for i, lev in enumerate(leverages):
-            d = _compute(lev, p_inj, c_inj)
-            pea_gn = d["pea_n"] - d["pea_cost"]
-            cto_gn = d["cto_n"] - d["cto_cost"]
-            pos = i + (si - 0.5) * bw
+    max_val = 0
+    for i, lev in enumerate(levs_with_panx):
+        if lev == "panx":
+            cagr_brut = panx_cagr
+            label_lev = "PANX x1.0"
+        else:
+            cagr_brut = results[lev]["n_c10"]
+            label_lev = f"x{lev:.1f}"
 
-            ax.bar(pos, d["pea_cost"] / 1000, bw, color="tab:blue", alpha=0.3,
-                   label="PEA capital" if i == 0 and si == 0 else "")
-            ax.bar(pos, pea_gn / 1000, bw, bottom=d["pea_cost"] / 1000,
-                   color="tab:blue", alpha=0.7,
-                   label="PEA gains nets" if i == 0 and si == 0 else "")
+        # CTO (left bar)
+        cto_net, cto_tax = _proj_cto(cagr_brut, capital, proj_years)
+        pos_cto = i - 0.5 * bw
+        ax.bar(pos_cto, capital / 1000, bw, color="tab:orange", alpha=0.3,
+               label="Capital" if i == 0 else "")
+        ax.bar(pos_cto, (cto_net - capital) / 1000, bw, bottom=capital / 1000,
+               color="tab:orange", alpha=0.7,
+               label="CTO gains nets" if i == 0 else "")
+        ax.bar(pos_cto, cto_tax / 1000, bw, bottom=cto_net / 1000,
+               color="red", alpha=0.3, hatch="///",
+               label="Impots" if i == 0 else "")
+        ax.text(pos_cto, (cto_net + cto_tax) / 1000 + 15,
+                f"CTO\n{cto_net/1000:.0f}k\u20ac",
+                ha="center", va="bottom", fontsize=8, fontweight="bold")
 
-            cto_bot = (d["pea_cost"] + pea_gn) / 1000
-            ax.bar(pos, d["cto_cost"] / 1000, bw, bottom=cto_bot,
-                   color="tab:orange", alpha=0.3,
-                   label="CTO capital" if i == 0 and si == 0 else "")
-            ax.bar(pos, cto_gn / 1000, bw, bottom=cto_bot + d["cto_cost"] / 1000,
-                   color="tab:orange", alpha=0.7,
-                   label="CTO gains nets" if i == 0 and si == 0 else "")
+        # PEA (right bar)
+        pea_net, pea_tax = _proj_pea(cagr_brut, capital, proj_years)
+        pos_pea = i + 0.5 * bw
+        ax.bar(pos_pea, capital / 1000, bw, color="tab:blue", alpha=0.3,
+               label="" if i > 0 else "")
+        ax.bar(pos_pea, (pea_net - capital) / 1000, bw, bottom=capital / 1000,
+               color="tab:blue", alpha=0.7,
+               label="PEA gains nets" if i == 0 else "")
+        ax.bar(pos_pea, pea_tax / 1000, bw, bottom=pea_net / 1000,
+               color="red", alpha=0.3, hatch="///", label="")
+        ax.text(pos_pea, (pea_net + pea_tax) / 1000 + 15,
+                f"PEA\n{pea_net/1000:.0f}k\u20ac",
+                ha="center", va="bottom", fontsize=8, fontweight="bold",
+                color="tab:blue")
 
-            net_top = d["total_n"] / 1000
-            ax.bar(pos, d["total_t"] / 1000, bw, bottom=net_top,
-                   color="red", alpha=0.3, hatch="///",
-                   label="Impots" if i == 0 and si == 0 else "")
-            ax.text(pos, net_top + d["total_t"] / 1000 + 15,
-                    f"{d['total_n']/1000:.0f}k\u20ac",
-                    ha="center", va="bottom", fontsize=9, fontweight="bold")
+        max_val = max(max_val, cto_net + cto_tax, pea_net + pea_tax)
 
-    # Print projection summary
-    for lev in leverages:
-        d = _compute(lev, pea_inject, cto_inject)
-        print(f"  x{lev:.1f} proj {proj_years}y: PEA {d['pea_n']/1000:.0f}k + "
-              f"CTO {d['cto_n']/1000:.0f}k = {d['total_n']/1000:.0f}k net  "
-              f"(impots {d['total_t']/1000:.0f}k)")
+        # Print
+        print(f"  {label_lev} CAGR {cagr_brut*100:.1f}% proj {proj_years}y: "
+              f"CTO {cto_net/1000:.0f}k (impots {cto_tax/1000:.0f}k) | "
+              f"PEA {pea_net/1000:.0f}k (impots {pea_tax/1000:.0f}k)")
 
     ax.set_xticks(x)
-    ax.set_xticklabels([f"x{lev:.1f}\nCAGR {results[lev]['n_c10']*100:.1f}%"
-                         for lev in leverages], fontsize=10)
+    xlabels = []
+    for lev in levs_with_panx:
+        if lev == "panx":
+            xlabels.append(f"PANX x1.0\nCAGR {panx_cagr*100:.1f}%")
+        else:
+            xlabels.append(f"x{lev:.1f}\nCAGR {results[lev]['n_c10']*100:.1f}%")
+    ax.set_xticklabels(xlabels, fontsize=10)
     ax.set_ylabel("Montant (k\u20ac)")
-    ax.set_title(f"Projection {proj_years} ans net d'impot — PEA 17.2% sortie, CTO 30%/an\n"
-                 f"PEA {pea_init/1000:.0f}k\u20ac + CTO {cto_init/1000:.0f}k\u20ac  |  "
-                 f"Injection +{pea_inject/1000:.0f}k PEA +{cto_inject/1000:.0f}k CTO @ {inject_year}a",
-                 fontsize=11)
+    ax.set_title(f"Projection {proj_years} ans — {capital/1000:.0f}k\u20ac — "
+                 f"CTO 30%/an vs PEA 17.2% sortie",
+                 fontsize=12)
     ax.legend(loc="upper left", fontsize=9)
     ax.grid(True, alpha=0.3, axis="y")
+    ax.axhline(capital / 1000, color="gray", linestyle="--", alpha=0.5)
+    ax.set_ylim(0, max_val / 1000 * 1.25)
 
-    for i in range(len(leverages)):
-        ax.text(i - 0.5 * bw, -0.08, "sans", ha="center", fontsize=7, color="gray",
-                transform=ax.get_xaxis_transform())
-        ax.text(i + 0.5 * bw, -0.08, "avec", ha="center", fontsize=7, color="gray",
-                transform=ax.get_xaxis_transform())
-
-    total_with = pea_init + pea_inject + cto_init + cto_inject
-    ax.axhline(total_with / 1000, color="gray", linestyle="--", alpha=0.5)
-    ax.text(-0.4, total_with / 1000, f" Capital avec\n {total_with/1000:.0f}k\u20ac",
-            fontsize=8, color="gray", va="center")
-
-    ax.set_ylim(0, max(_compute(lev, pea_inject, cto_inject)["total_g"]
-                       for lev in leverages) / 1000 * 1.25)
     plt.tight_layout()
     if save_path:
         plt.savefig(save_path, dpi=150)
