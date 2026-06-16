@@ -357,17 +357,25 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
     bh_cagr, bh_dd = compute_metrics(bh_eq, years)
     colors = {1.0: "tab:orange", 1.5: "tab:red", 1.75: "crimson", 2.0: "darkred"}
 
-    idx_10y = np.where(wf_dates >= wf_dates[-1] - pd.DateOffset(years=10))[0][0]
-    y10 = (wf_dates[-1] - wf_dates[idx_10y]).days / 365.25
-    bh_c10, bh_d10 = compute_metrics(bh_eq[idx_10y:] / bh_eq[idx_10y], y10)
+    # Recent period = PANX start if available, else 7 years
+    if panx_ret is not None:
+        nonzero = np.where(panx_ret != 0)[0]
+        if len(nonzero) > 0:
+            idx_recent = max(0, nonzero[0] - 1)
+        else:
+            idx_recent = np.where(wf_dates >= wf_dates[-1] - pd.DateOffset(years=7))[0][0]
+    else:
+        idx_recent = np.where(wf_dates >= wf_dates[-1] - pd.DateOffset(years=7))[0][0]
+    y_recent = (wf_dates[-1] - wf_dates[idx_recent]).days / 365.25
+    bh_cr, bh_dr = compute_metrics(bh_eq[idx_recent:] / bh_eq[idx_recent], y_recent)
 
     results = {}
     for lev in leverages:
         eq_n, al_c, sc = simulate_with_fees(qqq_ret, wf_prob, lev, prob_cash, prob_full)
         n_cagr, n_dd = compute_metrics(eq_n, years)
-        n_c10, n_d10 = compute_metrics(eq_n[idx_10y:] / eq_n[idx_10y], y10)
+        n_cr, n_dr = compute_metrics(eq_n[idx_recent:] / eq_n[idx_recent], y_recent)
         results[lev] = dict(eq_n=eq_n, al_c=al_c, sc=sc,
-                            n_cagr=n_cagr, n_dd=n_dd, n_c10=n_c10, n_d10=n_d10)
+                            n_cagr=n_cagr, n_dd=n_dd, n_c10=n_cr, n_d10=n_dr)
 
     # Oracle (perfect label) equity
     oracle = None
@@ -376,10 +384,10 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
         for i in range(1, N):
             oracle_eq[i] = oracle_eq[i - 1] * (1 + qqq_ret[i] * oracle_labels[i])
         oracle_cagr, oracle_dd = compute_metrics(oracle_eq, years)
-        oracle_c10, oracle_d10 = compute_metrics(
-            oracle_eq[idx_10y:] / oracle_eq[idx_10y], y10)
+        oracle_cr, oracle_dr = compute_metrics(
+            oracle_eq[idx_recent:] / oracle_eq[idx_recent], y_recent)
         oracle = dict(eq=oracle_eq, cagr=oracle_cagr, dd=oracle_dd,
-                      c10=oracle_c10, d10=oracle_d10)
+                      c10=oracle_cr, d10=oracle_dr)
 
     # Print summary
     print(f"\n{'='*70}")
@@ -394,8 +402,8 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
         lbl = f"XGB x{lev:.1f} net Bourso"
         print(f"{lbl:35s} {r['n_cagr']*100:7.1f}% "
               f"{r['eq_n'][-1]:7.1f}x {r['n_dd']*100:7.1f}%")
-    print(f"\nDernieres 10 ans ({wf_dates[idx_10y].date()} -> {wf_dates[-1].date()}):")
-    print(f"{ticker + ' Buy & Hold':35s} {bh_c10*100:7.1f}%         {bh_d10*100:7.1f}%")
+    print(f"\nDepuis PANX ({wf_dates[idx_recent].date()} -> {wf_dates[-1].date()}, {y_recent:.1f} ans):")
+    print(f"{ticker + ' Buy & Hold':35s} {bh_cr*100:7.1f}%         {bh_dr*100:7.1f}%")
     if oracle:
         print(f"{'Oracle (perfect label)':35s} {oracle['c10']*100:7.1f}%         {oracle['d10']*100:7.1f}%")
     for lev in leverages:
@@ -468,14 +476,14 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
                      label=f"PEA PANX open x1.0 ({pr['cagr']*100:.1f}%, DD {pr['dd']*100:.1f}%)",
                      color="tab:green", linewidth=1.5, linestyle="--")
 
-    ax1.axvline(wf_dates[idx_10y], color="gray", linestyle=":", alpha=0.5)
-    annot = f"10 ans\nB&H {bh_c10*100:.1f}%/an DD {bh_d10*100:.0f}%\n"
+    ax1.axvline(wf_dates[idx_recent], color="gray", linestyle=":", alpha=0.5)
+    annot = f"{y_recent:.0f} ans (PANX)\nB&H {bh_cr*100:.1f}%/an DD {bh_dr*100:.0f}%\n"
     for lev in leverages:
         r = results[lev]
         annot += f"x{lev:.1f} {r['n_c10']*100:.1f}%/an DD {r['n_d10']*100:.0f}%\n"
     mid_lev = leverages[len(leverages) // 2]
     y_mid = np.sqrt(results[mid_lev]["eq_n"].max() * results[mid_lev]["eq_n"].min())
-    ax1.annotate(annot.strip(), xy=(wf_dates[idx_10y], y_mid), fontsize=8,
+    ax1.annotate(annot.strip(), xy=(wf_dates[idx_recent], y_mid), fontsize=8,
                  color="gray", ha="right", va="center",
                  bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8))
 
