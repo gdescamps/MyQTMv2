@@ -4,6 +4,7 @@ Walk-forward XGBoost backtest with continuous allocation 0-150%.
 
 import hashlib
 import json
+import os
 import numpy as np
 import xgboost as xgb
 import matplotlib.pyplot as plt
@@ -102,7 +103,10 @@ def _config_hash(feature_cols, xgb_params, feat_select, feat_power, feat_top_n,
 
 
 def _detect_device():
-    """Try GPU, fallback to CPU."""
+    """Try GPU, fallback to CPU. Respects XGBOOST_DEVICE env var."""
+    override = os.environ.get("XGBOOST_DEVICE")
+    if override:
+        return override
     try:
         m = xgb.XGBClassifier(device="cuda", n_estimators=1, verbosity=0)
         m.fit(np.zeros((10, 2)), np.zeros(10, dtype=int), verbose=False)
@@ -335,19 +339,17 @@ def simulate_with_fees(qqq_ret, wf_prob, max_lev, prob_cash=0.5, prob_full=0.85,
 
 
 def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
-                 pea_init=120_000, cto_init=50_000, proj_years=5,
                  save_path=None, ticker="QQQ", leverages=None, oracle_labels=None):
     import pandas as pd
-    from matplotlib.gridspec import GridSpec
 
     if leverages is None:
-        leverages = [1.0, 1.5, 2.0]
+        leverages = [1.0, 1.5, 1.75, 2.0]
 
     years = (wf_dates[-1] - wf_dates[0]).days / 365.25
     N = len(qqq_ret)
     bh_eq = np.cumprod(1 + qqq_ret)
     bh_cagr, bh_dd = compute_metrics(bh_eq, years)
-    colors = {1.0: "tab:orange", 1.5: "tab:red", 2.0: "darkred"}
+    colors = {1.0: "tab:orange", 1.5: "tab:red", 1.75: "crimson", 2.0: "darkred"}
 
     idx_10y = np.where(wf_dates >= wf_dates[-1] - pd.DateOffset(years=10))[0][0]
     y10 = (wf_dates[-1] - wf_dates[idx_10y]).days / 365.25
@@ -395,29 +397,6 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
         lbl = f"XGB x{lev:.1f} net Bourso"
         print(f"{lbl:35s} {r['n_c10']*100:7.1f}%         {r['n_d10']*100:7.1f}%")
 
-    # 5y projection — PEA 17.2% at exit, CTO 30%/year
-    TAX_PEA, TAX_CTO = 0.172, 0.30
-    proj = {}
-    for lev in leverages:
-        c = results[lev]["n_c10"]
-        pea_g = pea_init * (1 + c) ** proj_years
-        pea_t = (pea_g - pea_init) * TAX_PEA
-        pea_n = pea_g - pea_t
-        cto_val, cto_t = cto_init, 0
-        for _ in range(proj_years):
-            gain = cto_val * c
-            tax = gain * TAX_CTO
-            cto_t += tax
-            cto_val += gain - tax
-        proj[lev] = dict(cagr=c, pea_g=pea_g, pea_t=pea_t, pea_n=pea_n,
-                         cto_g=cto_init * (1 + c) ** proj_years,
-                         cto_t=cto_t, cto_n=cto_val,
-                         total_n=pea_n + cto_val, total_t=pea_t + cto_t,
-                         total_g=pea_g + cto_init * (1 + c) ** proj_years)
-        print(f"  x{lev:.1f} proj {proj_years}y: PEA {pea_n/1000:.0f}k + "
-              f"CTO {cto_val/1000:.0f}k = {(pea_n+cto_val)/1000:.0f}k net  "
-              f"(impots {(pea_t+cto_t)/1000:.0f}k)")
-
     # ── Load PE daily ──
     try:
         from src.download_pe_qqq_top5 import load_pe_daily
@@ -427,15 +406,13 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
 
     # ── Plot ──
     has_pe = pe_daily is not None and len(pe_daily) > 0
-    n_left_rows = 3 if has_pe else 2
+    n_rows = 3 if has_pe else 2
     h_ratios = [3, 1, 1] if has_pe else [3, 1]
-    fig = plt.figure(figsize=(18, 11 if has_pe else 9))
-    gs = GridSpec(n_left_rows, 2, width_ratios=[3, 1.2], height_ratios=h_ratios,
-                  hspace=0.08, wspace=0.15)
-    ax1 = fig.add_subplot(gs[0, 0])
-    ax2 = fig.add_subplot(gs[1, 0], sharex=ax1)
-    ax_pe = fig.add_subplot(gs[2, 0], sharex=ax1) if has_pe else None
-    ax3 = fig.add_subplot(gs[:, 1])
+    fig, axes = plt.subplots(n_rows, 1, figsize=(14, 11 if has_pe else 9),
+                             height_ratios=h_ratios, sharex=True)
+    ax1 = axes[0]
+    ax2 = axes[1]
+    ax_pe = axes[2] if has_pe else None
 
     # Equity curves
     ax1.semilogy(wf_dates, bh_eq,
@@ -509,51 +486,120 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
         ax_pe.xaxis.set_major_locator(mdates.YearLocator(2))
         ax_pe.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
 
-    # 5y projection
-    ax3.set_title(f"Projection {proj_years} ans net d'impot\n"
-                  f"PEA 17.2% sortie - CTO 30%/an\n"
-                  f"PEA {pea_init/1000:.0f}k\u20ac + CTO {cto_init/1000:.0f}k\u20ac",
-                  fontsize=10)
-    x = np.arange(len(leverages))
-    bw = 0.5
-    for i, lev in enumerate(leverages):
-        d = proj[lev]
-        pea_gn = d["pea_n"] - pea_init
-        cto_gn = d["cto_n"] - cto_init
-
-        ax3.bar(i, pea_init / 1000, bw, color="tab:blue", alpha=0.3,
-                label="PEA capital" if i == 0 else "")
-        ax3.bar(i, pea_gn / 1000, bw, bottom=pea_init / 1000,
-                color="tab:blue", alpha=0.7, label="PEA gains nets" if i == 0 else "")
-
-        cto_bot = (pea_init + pea_gn) / 1000
-        ax3.bar(i, cto_init / 1000, bw, bottom=cto_bot,
-                color="tab:orange", alpha=0.3, label="CTO capital" if i == 0 else "")
-        ax3.bar(i, cto_gn / 1000, bw, bottom=cto_bot + cto_init / 1000,
-                color="tab:orange", alpha=0.7, label="CTO gains nets" if i == 0 else "")
-
-        net_top = d["total_n"] / 1000
-        ax3.bar(i, d["total_t"] / 1000, bw, bottom=net_top,
-                color="red", alpha=0.3, hatch="///", label="Impots" if i == 0 else "")
-        ax3.text(i, net_top + d["total_t"] / 1000 + 15,
-                 f"Net: {d['total_n']/1000:.0f}k\u20ac\nImpots: {d['total_t']/1000:.0f}k\u20ac",
-                 ha="center", va="bottom", fontsize=9, fontweight="bold")
-
-    ax3.set_xticks(x)
-    ax3.set_xticklabels([f"x{lev:.1f}\nCAGR {proj[lev]['cagr']*100:.1f}%"
-                         for lev in leverages], fontsize=9)
-    ax3.set_ylabel("Montant (k\u20ac)")
-    ax3.legend(loc="upper left", fontsize=8)
-    ax3.grid(True, alpha=0.3, axis="y")
-    ax3.axhline((pea_init + cto_init) / 1000, color="gray", linestyle="--", alpha=0.5)
-    ax3.text(-0.4, (pea_init + cto_init) / 1000, f" Capital\n {(pea_init+cto_init)/1000:.0f}k\u20ac",
-             fontsize=8, color="gray", va="center")
-    ax3.set_ylim(0, max(d["total_g"] for d in proj.values()) / 1000 * 1.25)
-
+    fig.subplots_adjust(hspace=0.08)
     plt.tight_layout()
     if save_path:
         plt.savefig(save_path, dpi=150)
         print(f"\nSaved: {save_path}")
+    plt.show()
+    return results
+
+
+def plot_projection(results, leverages, pea_init=120_000, cto_init=50_000,
+                    pea_inject=180_000, cto_inject=140_000,
+                    inject_year=1.0, proj_years=5, save_path=None):
+    """PEA+CTO projection: with and without cash injection, side by side."""
+    TAX_PEA, TAX_CTO = 0.172, 0.30
+
+    def _compute(lev, pea_inj, cto_inj):
+        c = results[lev]["n_c10"]
+        # PEA
+        pea_g = pea_init * (1 + c) ** proj_years
+        if pea_inj > 0:
+            pea_g += pea_inj * (1 + c) ** (proj_years - inject_year)
+        pea_cost = pea_init + pea_inj
+        pea_t = (pea_g - pea_cost) * TAX_PEA
+        pea_n = pea_g - pea_t
+        # CTO
+        inject_y = int(inject_year) + 1
+        cto_val, cto_t, cto_cost = cto_init, 0, cto_init
+        for y in range(proj_years):
+            if cto_inj > 0 and y == inject_y:
+                cto_val += cto_inj
+                cto_cost += cto_inj
+            gain = cto_val * c
+            tax = gain * TAX_CTO
+            cto_t += tax
+            cto_val += gain - tax
+        return dict(cagr=c, pea_cost=pea_cost, pea_n=pea_n, pea_t=pea_t,
+                    cto_cost=cto_cost, cto_n=cto_val, cto_t=cto_t,
+                    total_n=pea_n + cto_val, total_t=pea_t + cto_t,
+                    total_g=pea_g + cto_val + cto_t)
+
+    scenarios = [
+        ("Sans injection", 0, 0),
+        (f"+{pea_inject/1000:.0f}k PEA +{cto_inject/1000:.0f}k CTO @ {inject_year}a",
+         pea_inject, cto_inject),
+    ]
+
+    fig, ax = plt.subplots(figsize=(12, 7))
+    x = np.arange(len(leverages))
+    bw = 0.35
+
+    for si, (label, p_inj, c_inj) in enumerate(scenarios):
+        for i, lev in enumerate(leverages):
+            d = _compute(lev, p_inj, c_inj)
+            pea_gn = d["pea_n"] - d["pea_cost"]
+            cto_gn = d["cto_n"] - d["cto_cost"]
+            pos = i + (si - 0.5) * bw
+
+            ax.bar(pos, d["pea_cost"] / 1000, bw, color="tab:blue", alpha=0.3,
+                   label="PEA capital" if i == 0 and si == 0 else "")
+            ax.bar(pos, pea_gn / 1000, bw, bottom=d["pea_cost"] / 1000,
+                   color="tab:blue", alpha=0.7,
+                   label="PEA gains nets" if i == 0 and si == 0 else "")
+
+            cto_bot = (d["pea_cost"] + pea_gn) / 1000
+            ax.bar(pos, d["cto_cost"] / 1000, bw, bottom=cto_bot,
+                   color="tab:orange", alpha=0.3,
+                   label="CTO capital" if i == 0 and si == 0 else "")
+            ax.bar(pos, cto_gn / 1000, bw, bottom=cto_bot + d["cto_cost"] / 1000,
+                   color="tab:orange", alpha=0.7,
+                   label="CTO gains nets" if i == 0 and si == 0 else "")
+
+            net_top = d["total_n"] / 1000
+            ax.bar(pos, d["total_t"] / 1000, bw, bottom=net_top,
+                   color="red", alpha=0.3, hatch="///",
+                   label="Impots" if i == 0 and si == 0 else "")
+            ax.text(pos, net_top + d["total_t"] / 1000 + 15,
+                    f"{d['total_n']/1000:.0f}k\u20ac",
+                    ha="center", va="bottom", fontsize=9, fontweight="bold")
+
+    # Print projection summary
+    for lev in leverages:
+        d = _compute(lev, pea_inject, cto_inject)
+        print(f"  x{lev:.1f} proj {proj_years}y: PEA {d['pea_n']/1000:.0f}k + "
+              f"CTO {d['cto_n']/1000:.0f}k = {d['total_n']/1000:.0f}k net  "
+              f"(impots {d['total_t']/1000:.0f}k)")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"x{lev:.1f}\nCAGR {results[lev]['n_c10']*100:.1f}%"
+                         for lev in leverages], fontsize=10)
+    ax.set_ylabel("Montant (k\u20ac)")
+    ax.set_title(f"Projection {proj_years} ans net d'impot — PEA 17.2% sortie, CTO 30%/an\n"
+                 f"PEA {pea_init/1000:.0f}k\u20ac + CTO {cto_init/1000:.0f}k\u20ac  |  "
+                 f"Injection +{pea_inject/1000:.0f}k PEA +{cto_inject/1000:.0f}k CTO @ {inject_year}a",
+                 fontsize=11)
+    ax.legend(loc="upper left", fontsize=9)
+    ax.grid(True, alpha=0.3, axis="y")
+
+    for i in range(len(leverages)):
+        ax.text(i - 0.5 * bw, -0.08, "sans", ha="center", fontsize=7, color="gray",
+                transform=ax.get_xaxis_transform())
+        ax.text(i + 0.5 * bw, -0.08, "avec", ha="center", fontsize=7, color="gray",
+                transform=ax.get_xaxis_transform())
+
+    total_with = pea_init + pea_inject + cto_init + cto_inject
+    ax.axhline(total_with / 1000, color="gray", linestyle="--", alpha=0.5)
+    ax.text(-0.4, total_with / 1000, f" Capital avec\n {total_with/1000:.0f}k\u20ac",
+            fontsize=8, color="gray", va="center")
+
+    ax.set_ylim(0, max(_compute(lev, pea_inject, cto_inject)["total_g"]
+                       for lev in leverages) / 1000 * 1.25)
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=150)
+        print(f"Saved: {save_path}")
     plt.show()
 
 
@@ -563,7 +609,7 @@ def plot_recent(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
 
     if leverages is None:
         leverages = [1.0, 1.5, 2.0]
-    colors = {1.0: "tab:orange", 1.5: "tab:red", 2.0: "darkred"}
+    colors = {1.0: "tab:orange", 1.5: "tab:red", 1.75: "crimson", 2.0: "darkred"}
 
     # Slice last N days
     n = min(days, len(wf_dates))
