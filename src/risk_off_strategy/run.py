@@ -84,7 +84,13 @@ PROB_CASH = 0.70
 PROB_FULL = 0.75
 LOOKAHEAD = 6  # days of future info in label (must be < embargo=21)
 
-END = refresh_data()
+NO_REFRESH = "--no-refresh" in sys.argv
+if NO_REFRESH:
+    sys.argv.remove("--no-refresh")
+    END = "2026-06-16"
+    print(f"Skipping data refresh, using END={END}\n")
+else:
+    END = refresh_data()
 
 arg = sys.argv[1].upper() if len(sys.argv) > 1 else "ALL"
 ALL_TICKERS = ["QQQ", "SPY", "ACWI"]
@@ -119,16 +125,16 @@ def run_ticker(ticker):
     wf_prob = wf_proba[pred_mask]
     price_ret = price.pct_change().fillna(0).loc[df.index].values[pred_mask]
 
-    # Load PANX for PEA execution comparison
+    # Load PUST (Amundi PEA Nasdaq-100) for PEA execution comparison
     import pandas as pd
-    panx_path = ROOT / "data" / "PANX.parquet"
+    pust_path = ROOT / "data" / "PUST.parquet"
     panx_ret_arr = None
-    if panx_path.exists():
-        panx_open = pd.read_parquet(panx_path)["open"]
-        panx_open_ret = panx_open.pct_change().fillna(0)
-        panx_ret_aligned = panx_open_ret.reindex(wf_dates).values
-        # NaN for dates before PANX exists → set to 0 (no position)
-        panx_ret_arr = np.where(np.isnan(panx_ret_aligned), 0.0, panx_ret_aligned)
+    if pust_path.exists():
+        pust_open = pd.read_parquet(pust_path)["open"]
+        pust_open_ret = pust_open.pct_change().fillna(0)
+        pust_ret_aligned = pust_open_ret.reindex(wf_dates).values
+        # NaN for dates before PUST exists → set to 0 (no position)
+        panx_ret_arr = np.where(np.isnan(pust_ret_aligned), 0.0, pust_ret_aligned)
 
     OUT = ROOT / "outputs" / f"{prefix}_strategy"
     OUT.mkdir(parents=True, exist_ok=True)

@@ -357,7 +357,7 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
     bh_cagr, bh_dd = compute_metrics(bh_eq, years)
     colors = {1.0: "tab:orange", 1.5: "tab:red", 1.75: "crimson", 2.0: "darkred"}
 
-    # Recent period = PANX start if available, else 7 years
+    # Recent period = PUST start if available, else 7 years
     if panx_ret is not None:
         nonzero = np.where(panx_ret != 0)[0]
         if len(nonzero) > 0:
@@ -402,14 +402,14 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
         lbl = f"XGB x{lev:.1f} net Bourso"
         print(f"{lbl:35s} {r['n_cagr']*100:7.1f}% "
               f"{r['eq_n'][-1]:7.1f}x {r['n_dd']*100:7.1f}%")
-    # ── PANX execution (CC signal → PANX open) ──
+    # ── PUST execution (CC signal → PUST open) ──
     panx_results = None
     if panx_ret is not None:
-        # Find first date with real PANX data (non-zero return after first few days)
+        # Find first date with real PUST data (non-zero return after first few days)
         nonzero = np.where(panx_ret != 0)[0]
         if len(nonzero) > 0:
             panx_start_idx = max(0, nonzero[0] - 1)
-            # Run simulation only on the PANX-available slice
+            # Run simulation only on the PUST-available slice
             panx_ret_slice = panx_ret[panx_start_idx:]
             prob_slice = wf_prob[panx_start_idx:]
             panx_dates_s = wf_dates[panx_start_idx:]
@@ -425,8 +425,8 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
             panx_results["cagr"] = panx_results[1.0]["cagr"]
             panx_results["dd"] = panx_results[1.0]["dd"]
 
-    print(f"\nDepuis PANX ({wf_dates[idx_recent].date()} -> {wf_dates[-1].date()}, {y_recent:.1f} ans):")
-    print(f"{'':35s} {'CAGR QQQ':>10s} {'DD QQQ':>8s} {'CAGR PANX':>11s} {'DD PANX':>9s}")
+    print(f"\nDepuis PUST ({wf_dates[idx_recent].date()} -> {wf_dates[-1].date()}, {y_recent:.1f} ans):")
+    print(f"{'':35s} {'CAGR QQQ':>10s} {'DD QQQ':>8s} {'CAGR PUST':>11s} {'DD PUST':>9s}")
     print(f"{ticker + ' Buy & Hold':35s} {bh_cr*100:9.1f}%  {bh_dr*100:7.1f}%")
     for lev in leverages:
         r = results[lev]
@@ -472,23 +472,23 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
                            f"DD {r['n_dd']*100:.1f}%)",
                      color=colors[lev], linewidth=2)
 
-    # PANX execution curve (normalized to QQQ B&H at PANX start)
+    # PUST execution curve (normalized to QQQ B&H at PUST start)
     if panx_results is not None:
         pr = panx_results
         si = pr["start_idx"]
         scale = bh_eq[si]
         panx_eq_norm = pr["eq"] / pr["eq"][0] * scale
         ax1.semilogy(pr["dates"], panx_eq_norm,
-                     label=f"PEA PANX open x1.0 ({pr['cagr']*100:.1f}%, DD {pr['dd']*100:.1f}%)",
+                     label=f"PEA PUST open x1.0 ({pr['cagr']*100:.1f}%, DD {pr['dd']*100:.1f}%)",
                      color="tab:green", linewidth=1.5, linestyle="--")
 
     ax1.axvline(wf_dates[idx_recent], color="gray", linestyle=":", alpha=0.5)
-    annot = f"{y_recent:.0f} ans (PANX)\nB&H {bh_cr*100:.1f}%/an DD {bh_dr*100:.0f}%\n"
+    annot = f"{y_recent:.0f} ans (PUST)\nB&H {bh_cr*100:.1f}%/an DD {bh_dr*100:.0f}%\n"
     for lev in leverages:
         r = results[lev]
         annot += f"x{lev:.1f} {r['n_c10']*100:.1f}%/an DD {r['n_d10']*100:.0f}%\n"
     if panx_results is not None:
-        annot += f"PANX x1.0 {panx_results['cagr']*100:.1f}%/an DD {panx_results['dd']*100:.0f}%\n"
+        annot += f"PUST x1.0 {panx_results['cagr']*100:.1f}%/an DD {panx_results['dd']*100:.0f}%\n"
     mid_lev = leverages[len(leverages) // 2]
     y_mid = np.sqrt(results[mid_lev]["eq_n"].max() * results[mid_lev]["eq_n"].min())
     ax1.annotate(annot.strip(), xy=(wf_dates[idx_recent], y_mid), fontsize=8,
@@ -550,7 +550,7 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
 
 
 def plot_projection(results, leverages, capital=150_000, proj_years=5, save_path=None):
-    """PEA PANX projection per leverage."""
+    """PEA PUST projection per leverage."""
     TAX_PEA = 0.172
     panx_info = results.get("panx")
 
@@ -584,7 +584,7 @@ def plot_projection(results, leverages, capital=150_000, proj_years=5, save_path
 
         max_val = max(max_val, pea_net + pea_tax)
 
-        print(f"  x{lev:.1f} PEA PANX proj {proj_years}y: "
+        print(f"  x{lev:.1f} PEA PUST proj {proj_years}y: "
               f"{pea_net/1000:.0f}k net (CAGR {cagr_panx*100:.1f}%, impots {pea_tax/1000:.0f}k)")
 
     ax.set_xticks(x)
@@ -592,7 +592,7 @@ def plot_projection(results, leverages, capital=150_000, proj_years=5, save_path
                         if panx_info and lev in panx_info
                         else f"x{lev:.1f}" for lev in leverages], fontsize=10)
     ax.set_ylabel("Montant (k\u20ac)")
-    ax.set_title(f"Projection PEA PANX — {proj_years} ans — {capital/1000:.0f}k\u20ac — "
+    ax.set_title(f"Projection PEA PUST — {proj_years} ans — {capital/1000:.0f}k\u20ac — "
                  f"Impot 17.2% a la sortie",
                  fontsize=12)
     ax.legend(loc="upper left", fontsize=9)
