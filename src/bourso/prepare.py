@@ -159,12 +159,14 @@ PEA_ACCOUNT_ID = "faab190372918f26c5d2d518fd307d05"
 CTO_ACCOUNT_ID = "e0aeafb04e60bdbe140479e499fd79d2"
 
 SYMBOLS = {
-    "PANX": "1rTPANX",
-    "LQQ": "1rTLQQ",
-    "CW8": "1rTCW8",
-    "PE500": "1rTPE500",
+    "PUST": "1rTPUST",   # Amundi PEA Nasdaq-100 x1 (PEA)
+    "LQQ": "1rTLQQ",     # Amundi Nasdaq-100 2x Leveraged (PEA)
+    "CW8": "1rTCW8",     # Amundi MSCI World
+    "PE500": "1rTPE500",  # Amundi PEA S&P 500
 }
 
 
 if __name__ == "__main__":
-    print_prepare(PEA_ACCOUNT_ID, SYMBOLS["PANX"])
+    for name in ["PUST", "LQQ"]:
+        print_prepare(PEA_ACCOUNT_ID, SYMBOLS[name])
+        print()
