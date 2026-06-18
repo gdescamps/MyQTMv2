@@ -217,12 +217,12 @@ def main():
     # 6. Log
     log_trade({
         "date": str(date.today()),
-        "signal_date": signal["date"],
+        "model_date": signal["date"],
         "probability": signal["probability"],
         "target_alloc": target_alloc,
         "side": side,
         "quantity": quantity,
-        "pust_price": pea_state["pust_price"],
+        "etf_price": pea_state["pust_price"],
         "equity": pea_state["equity"],
         "current_shares": pea_state["pust_shares"],
         "executed": args.execute,
