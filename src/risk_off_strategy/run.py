@@ -6,8 +6,10 @@ Usage: python src/risk_off_strategy/run.py [QQQ|SPY|ALL]
        ALL runs both QQQ and SPY + comparison chart
 """
 
+import json
 import sys
 import numpy as np
+import pandas as pd
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -126,7 +128,6 @@ def run_ticker(ticker):
     price_ret = price.pct_change().fillna(0).loc[df.index].values[pred_mask]
 
     # Load PUST (Amundi PEA Nasdaq-100) for PEA execution comparison
-    import pandas as pd
     pust_path = ROOT / "data" / "PUST.parquet"
     panx_ret_arr = None
     if pust_path.exists():
@@ -149,6 +150,23 @@ def run_ticker(ticker):
                 days=252, save_path=str(OUT / "backtest_1y.png"), ticker=ticker, leverages=levs)
     plot_recent(wf_dates, price_ret, wf_prob, PROB_CASH, PROB_FULL,
                 days=21, save_path=str(OUT / "backtest_1m.png"), ticker=ticker, leverages=levs)
+
+    # Save latest signal to JSON for morning execution
+    last_prob = wf_prob[-1]
+    alloc = float(np.clip((last_prob - PROB_CASH) / (PROB_FULL - PROB_CASH), 0, 1))
+    signal = {
+        "ticker": ticker,
+        "date": str(wf_dates[-1].date()),
+        "probability": float(last_prob),
+        "allocation": alloc,
+        "prob_cash": PROB_CASH,
+        "prob_full": PROB_FULL,
+        "timestamp": pd.Timestamp.now().isoformat(),
+    }
+    signal_path = OUT / "signal.json"
+    with open(signal_path, "w") as f:
+        json.dump(signal, f, indent=2)
+    print(f"Signal saved: {signal_path} (alloc={alloc*100:.0f}%, prob={last_prob:.4f})")
 
     return wf_dates, price_ret, wf_prob, get_leverages(ticker)
 

@@ -1,218 +1,163 @@
 """
-Real trading on Boursorama PEA via bourso-cli.
+Morning PEA execution on BoursoBank — reads signal from evening backtest.
 
-Workflow (daily, Paris time):
-  08:00 — Download US close data, run model inference
-  09:00 — Execute orders at Euronext open
+Workflow:
+  22:30  cron backtest (run.py) → outputs/qqq_strategy/signal.json
+  09:05  this script → reads signal, checks PEA, executes PUST at Euronext open
 
-ETF: PUST (Amundi PEA Nasdaq-100 UCITS ETF, FR0013412269)
-     Symbol on Bourso: 1rTPUST
-
-Fees:
-  - Buy:  0% (free ETF on Bourso PEA)
-  - Sell: 0.5% (Bourso PEA fee)
-  → Only sell if allocation delta >= 20% to limit fees
+ETF: PUST (Amundi PEA Nasdaq-100 UCITS ETF, FR0011871110)
+Leverage: x1 only (no LQQ)
 
 Usage:
-  python src/real_bourso.py                  # dry-run (no orders)
-  python src/real_bourso.py --execute        # live execution
-  python src/real_bourso.py --status         # show current positions
+  python -m src.real_bourso                  # dry-run
+  python -m src.real_bourso --execute        # live execution
 """
 
 import argparse
 import json
-import subprocess
 import sys
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
-
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
-# ── Config ────────────────────────────────────────────────
-BOURSO_CLI = Path.home() / ".local" / "bin" / "bourso-cli"
-CREDENTIALS_FILE = Path.home() / ".bourso" / "credentials.json"  # optional
-
-ETF_SYMBOL = "1rTPUST"       # Amundi PEA Nasdaq-100
-ETF_NAME = "PUST (Nasdaq-100 PEA)"
-PEA_ACCOUNT_ID = "e0aeafb04e60bdbe140479e499fd79d2"  # from bourso-cli accounts
-
-SELL_THRESHOLD = 0.20         # only sell if delta_alloc >= 20%
-PROB_CASH = 0.70
-PROB_FULL = 0.75
-TEMPERATURE = 3.0
-LOOKAHEAD = 6
-
+SIGNAL_PATH = ROOT / "outputs" / "qqq_strategy" / "signal.json"
 LOG_DIR = ROOT / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 TRADE_LOG = LOG_DIR / "trades.jsonl"
 OVERRIDE_FILE = LOG_DIR / "emergency_off.json"
 
-
-# ── Bourso CLI wrapper ────────────────────────────────────
-def _run_bourso(args, password=None):
-    """Run bourso-cli command and return stdout."""
-    cmd = [str(BOURSO_CLI)] + args
-    if CREDENTIALS_FILE.exists():
-        cmd = [str(BOURSO_CLI), "--credentials", str(CREDENTIALS_FILE)] + args
-
-    env = None
-    inp = None
-    if password:
-        inp = password + "\n"
-
-    result = subprocess.run(cmd, capture_output=True, text=True, input=inp, timeout=60)
-    if result.returncode != 0:
-        print(f"[ERROR] bourso-cli failed: {result.stderr}")
-    return result.stdout, result.stderr
+SELL_THRESHOLD = 0.20  # only sell if delta_alloc >= 20% (0.5% fee on sells)
+MAX_SIGNAL_AGE_HOURS = 18  # signal must be < 18h old (evening to morning)
 
 
-def get_etf_price():
-    """Get current ETF price (no login needed)."""
-    stdout, stderr = _run_bourso(["quote", "--symbol", ETF_SYMBOL, "last"])
-    # bourso-cli outputs INFO logs to stderr
-    output = stdout + "\n" + stderr
-    for line in output.split("\n"):
-        if "current:" in line:
-            parts = line.split("current:")[1].split(",")[0].strip()
-            return float(parts)
-    return None
-
-
-def get_accounts(password):
-    """Get trading accounts."""
-    stdout, _ = _run_bourso(["accounts", "--trading", "true"], password=password)
-    return stdout
-
-
-def place_order(side, quantity, password, dry_run=True):
-    """Place buy or sell order."""
-    if quantity <= 0:
+def load_signal():
+    """Load latest signal from backtest output."""
+    if not SIGNAL_PATH.exists():
+        print(f"[ERREUR] Signal introuvable: {SIGNAL_PATH}")
         return None
 
-    action = f"{'BUY' if side == 'buy' else 'SELL'} {quantity} x {ETF_NAME}"
+    with open(SIGNAL_PATH) as f:
+        signal = json.load(f)
+
+    # Check signal freshness
+    ts = datetime.fromisoformat(signal["timestamp"])
+    age = datetime.now() - ts
+    if age > timedelta(hours=MAX_SIGNAL_AGE_HOURS):
+        print(f"[ERREUR] Signal trop ancien: {signal['date']} ({age.total_seconds()/3600:.0f}h)")
+        print(f"  Le backtest du soir a-t-il tourne? Verifier logs/cron_backtest.log")
+        return None
+
+    print(f"Signal du {signal['date']} (age: {age.total_seconds()/3600:.1f}h)")
+    print(f"  Probabilite: {signal['probability']:.4f}")
+    print(f"  Allocation:  {signal['allocation']*100:.0f}%")
+    return signal
+
+
+def get_pea_state():
+    """Get PEA cash and PUST position via bourso-cli prepare."""
+    from src.bourso.prepare import prepare_order, PEA_ACCOUNT_ID, SYMBOLS
+
+    data = prepare_order(PEA_ACCOUNT_ID, SYMBOLS["PUST"])
+    acct = data["account"]
+    sym = data["symbol"]
+
+    state = {
+        "cash": acct["cash"],
+        "stocks": acct["stocks"],
+        "equity": acct["cash"] + acct["stocks"],
+        "pust_price": sym["last_price"],
+        "pust_shares": data["quantity_held"],
+        "pust_value": data["quantity_held"] * sym["last_price"],
+    }
+
+    print(f"\nPEA {acct['name']}:")
+    print(f"  Especes:  {state['cash']:>10.2f} EUR")
+    print(f"  Titres:   {state['stocks']:>10.2f} EUR")
+    print(f"  Total:    {state['equity']:>10.2f} EUR")
+    print(f"  PUST:     {state['pust_shares']} parts @ {state['pust_price']:.2f} EUR")
+    return state
+
+
+def is_emergency_off():
+    """Check if emergency override is active."""
+    if OVERRIDE_FILE.exists():
+        with open(OVERRIDE_FILE) as f:
+            data = json.load(f)
+        if data.get("active", False):
+            print(f"\n{'!'*60}")
+            print(f"  EMERGENCY OFF — allocation forcee a 0%")
+            print(f"  Supprimer {OVERRIDE_FILE} pour reprendre")
+            print(f"{'!'*60}")
+            return True
+    return False
+
+
+def compute_orders(target_alloc, pea_state):
+    """Compute buy/sell orders to reach target allocation."""
+    equity = pea_state["equity"]
+    price = pea_state["pust_price"]
+    current_shares = pea_state["pust_shares"]
+    current_value = current_shares * price
+    current_alloc = current_value / equity if equity > 0 else 0
+
+    target_value = target_alloc * equity
+    delta_value = target_value - current_value
+    delta_alloc = target_alloc - current_alloc
+
+    print(f"\nAllocation:")
+    print(f"  Actuelle: {current_alloc*100:.1f}% ({current_shares} parts, {current_value:.0f} EUR)")
+    print(f"  Cible:    {target_alloc*100:.1f}% ({target_value:.0f} EUR)")
+    print(f"  Delta:    {delta_alloc*100:+.1f}% ({delta_value:+.0f} EUR)")
+
+    if delta_value > price:
+        quantity = int(delta_value / price)
+        # Check cash available
+        if quantity * price > pea_state["cash"]:
+            quantity = int(pea_state["cash"] / price)
+            if quantity <= 0:
+                return None, 0, "Cash insuffisant pour acheter"
+        return "buy", quantity, f"Acheter {quantity} parts (+{delta_alloc*100:.1f}%)"
+
+    elif delta_value < -price and abs(delta_alloc) >= SELL_THRESHOLD:
+        quantity = int(abs(delta_value) / price)
+        quantity = min(quantity, current_shares)
+        fee = quantity * price * 0.005
+        return "sell", quantity, f"Vendre {quantity} parts ({delta_alloc*100:.1f}%, frais ~{fee:.1f} EUR)"
+
+    elif delta_value < -price:
+        return None, 0, f"Vente ignoree: delta {abs(delta_alloc)*100:.1f}% < seuil {SELL_THRESHOLD*100:.0f}%"
+
+    else:
+        return None, 0, "Aucune action (dans la marge d'1 part)"
+
+
+def execute_order(side, quantity, dry_run=True):
+    """Execute order via bourso-cli."""
+    from src.bourso.prepare import PEA_ACCOUNT_ID, SYMBOLS, _run_cli_raw
+
+    action = f"{'ACHAT' if side == 'buy' else 'VENTE'} {quantity}x PUST"
 
     if dry_run:
         print(f"  [DRY-RUN] {action}")
         return {"status": "dry-run", "side": side, "quantity": quantity}
 
     print(f"  [EXECUTE] {action}")
-    stdout, stderr = _run_bourso([
+    stdout, stderr, rc = _run_cli_raw(
         "trade", "order", "new",
         "--side", side,
         "--account", PEA_ACCOUNT_ID,
-        "--symbol", ETF_SYMBOL,
+        "--symbol", SYMBOLS["PUST"],
         "--quantity", str(quantity),
-    ], password=password)
-
-    result = {"status": "executed", "side": side, "quantity": quantity,
-              "stdout": stdout, "stderr": stderr}
-    return result
-
-
-# ── Model inference ───────────────────────────────────────
-def is_emergency_off():
-    """Check if emergency override is active."""
-    if OVERRIDE_FILE.exists():
-        with open(OVERRIDE_FILE) as f:
-            data = json.load(f)
-        return data.get("active", False)
-    return False
-
-
-def run_inference():
-    """Download latest data, run model, return allocation probability."""
-    from src.risk_off_strategy.data import load_data, build_features, build_realtime_target
-    from src.risk_off_strategy.backtest import walk_forward
-
-    print("Downloading latest data...")
-    from src.download_ohlcv import download_risk_off
-    download_risk_off(force=True)
-
-    # Refresh FRED
-    from src.download_macro_data import fetch_fred, FRED_SERIES
-    DATA_DIR = ROOT / "data"
-    for series_id, label in FRED_SERIES.items():
-        path = DATA_DIR / f"fred_{label}.parquet"
-        if path.exists():
-            path.unlink()
-        fetch_fred(series_id, label)
-
-    print("Running model inference...")
-    price, vix, spread, tlt = load_data("QQQ", "2000-01-01", "2030-12-31")
-    df = build_features(price, vix, spread, tlt, prefix="qqq")
-    target, _ = build_realtime_target(price.values, -0.10, -0.05, lookahead=LOOKAHEAD)
-    df["target"] = target
-    df = df.dropna()
-
-    feature_cols = [c for c in df.columns if c != "target"]
-    X = df[feature_cols].values
-    y = df["target"].values
-
-    wf_pred, wf_proba, _ = walk_forward(
-        X, y, feature_cols, min_train=504, step=21, temperature=TEMPERATURE
     )
 
-    # Get latest probability
-    last_idx = np.where(wf_pred >= 0)[0][-1]
-    last_prob = wf_proba[last_idx]
-    last_date = df.index[last_idx]
+    output = (stdout + stderr).strip()
+    if rc != 0:
+        print(f"  [ERREUR] bourso-cli code {rc}: {output}")
+        return {"status": "error", "side": side, "quantity": quantity, "error": output}
 
-    # Compute target allocation
-    alloc = np.clip((last_prob - PROB_CASH) / (PROB_FULL - PROB_CASH), 0, 1)
-
-    print(f"\nModel inference:")
-    print(f"  Date:        {last_date.date()}")
-    print(f"  Probability: {last_prob:.4f}")
-    print(f"  Allocation:  {alloc*100:.0f}%")
-
-    return last_prob, alloc, last_date
-
-
-# ── Trading logic ─────────────────────────────────────────
-def compute_orders(target_alloc, current_shares, etf_price, total_equity):
-    """Compute orders needed to reach target allocation.
-
-    Args:
-        target_alloc: 0.0 to 1.0
-        current_shares: number of ETF shares currently held
-        etf_price: current ETF price
-        total_equity: total account value (cash + positions)
-
-    Returns:
-        side: 'buy', 'sell', or None
-        quantity: number of shares
-        reason: explanation string
-    """
-    current_value = current_shares * etf_price
-    current_alloc = current_value / total_equity if total_equity > 0 else 0
-    target_value = target_alloc * total_equity
-    delta_value = target_value - current_value
-    delta_alloc = target_alloc - current_alloc
-
-    print(f"\nAllocation:")
-    print(f"  Current: {current_alloc*100:.1f}% ({current_shares} shares, {current_value:.0f} EUR)")
-    print(f"  Target:  {target_alloc*100:.1f}% ({target_value:.0f} EUR)")
-    print(f"  Delta:   {delta_alloc*100:+.1f}% ({delta_value:+.0f} EUR)")
-
-    if delta_value > etf_price:
-        # BUY — no fee, execute freely
-        quantity = int(delta_value / etf_price)
-        return "buy", quantity, f"Buy {quantity} shares (+{delta_alloc*100:.1f}%)"
-
-    elif delta_value < -etf_price and abs(delta_alloc) >= SELL_THRESHOLD:
-        # SELL — 0.5% fee, only if delta >= 20%
-        quantity = int(abs(delta_value) / etf_price)
-        return "sell", quantity, f"Sell {quantity} shares ({delta_alloc*100:.1f}%, fee ~{quantity*etf_price*0.005:.1f} EUR)"
-
-    elif delta_value < -etf_price:
-        return None, 0, f"Sell skipped: delta {abs(delta_alloc)*100:.1f}% < threshold {SELL_THRESHOLD*100:.0f}%"
-
-    else:
-        return None, 0, "No action needed (within 1 share)"
+    print(f"  [OK] {output}")
+    return {"status": "executed", "side": side, "quantity": quantity, "output": output}
 
 
 def log_trade(record):
@@ -220,92 +165,66 @@ def log_trade(record):
     record["timestamp"] = datetime.now().isoformat()
     with open(TRADE_LOG, "a") as f:
         f.write(json.dumps(record) + "\n")
-    print(f"  Logged → {TRADE_LOG}")
+    print(f"  Log → {TRADE_LOG}")
 
 
-# ── Main ──────────────────────────────────────────────────
 def main():
-    parser = argparse.ArgumentParser(description="Risk-off real trading on Bourso PEA")
-    parser.add_argument("--execute", action="store_true", help="Execute orders (default: dry-run)")
-    parser.add_argument("--status", action="store_true", help="Show current status only")
-    parser.add_argument("--shares", type=int, default=0, help="Current number of ETF shares held")
-    parser.add_argument("--equity", type=float, default=0, help="Total account equity (EUR)")
-    parser.add_argument("--password", type=str, default=None, help="Bourso password (or use credentials file)")
+    parser = argparse.ArgumentParser(description="Execution PEA matin — signal du backtest soir")
+    parser.add_argument("--execute", action="store_true", help="Executer les ordres (defaut: dry-run)")
     args = parser.parse_args()
 
     print(f"{'='*60}")
-    print(f"Risk-Off Trading — {ETF_NAME}")
-    print(f"Date: {date.today()}")
+    print(f"PEA PUST (Nasdaq x1) — {date.today()}")
     print(f"Mode: {'LIVE' if args.execute else 'DRY-RUN'}")
     print(f"{'='*60}")
 
-    # 1. Get ETF price
-    etf_price = get_etf_price()
-    if etf_price:
-        print(f"\nETF price: {etf_price:.2f} EUR")
-    else:
-        print("[ERROR] Could not get ETF price")
-        return
+    # 1. Load signal from evening backtest
+    signal = load_signal()
+    if signal is None:
+        sys.exit(1)
 
-    # 2. Status only
-    if args.status:
-        if args.password:
-            print("\nAccounts:")
-            print(get_accounts(args.password))
-        return
-
-    # 3. Run inference
-    prob, alloc, model_date = run_inference()
-
-    # 3b. Emergency override
+    # 2. Emergency override
+    target_alloc = signal["allocation"]
     if is_emergency_off():
-        print(f"\n{'!'*60}")
-        print(f"  EMERGENCY OFF ACTIVE — allocation forcee a 0%")
-        print(f"  Desactiver via la webapp pour reprendre le model")
-        print(f"{'!'*60}")
-        alloc = 0.0
+        target_alloc = 0.0
+
+    # 3. Get PEA state (cash, positions)
+    try:
+        pea_state = get_pea_state()
+    except Exception as e:
+        print(f"[ERREUR] Impossible de lire le PEA: {e}")
+        sys.exit(1)
+
+    if pea_state["equity"] <= 0:
+        print("[ERREUR] PEA vide (equity=0)")
+        sys.exit(1)
 
     # 4. Compute orders
-    if args.equity <= 0:
-        print(f"\n[INFO] Specify --equity and --shares to compute orders")
-        print(f"  Example: python src/real_bourso.py --equity 10000 --shares 50")
-        return
-
-    side, quantity, reason = compute_orders(alloc, args.shares, etf_price, args.equity)
+    side, quantity, reason = compute_orders(target_alloc, pea_state)
     print(f"\nDecision: {reason}")
 
-    # 5. Execute or dry-run
+    # 5. Execute
+    result = None
     if side and quantity > 0:
-        result = place_order(side, quantity, args.password, dry_run=not args.execute)
+        result = execute_order(side, quantity, dry_run=not args.execute)
 
-        log_trade({
-            "date": str(date.today()),
-            "model_date": str(model_date.date()),
-            "probability": float(prob),
-            "target_alloc": float(alloc),
-            "side": side,
-            "quantity": quantity,
-            "etf_price": etf_price,
-            "equity": args.equity,
-            "current_shares": args.shares,
-            "executed": args.execute,
-            "result": result,
-        })
-    else:
-        log_trade({
-            "date": str(date.today()),
-            "model_date": str(model_date.date()),
-            "probability": float(prob),
-            "target_alloc": float(alloc),
-            "side": None,
-            "quantity": 0,
-            "etf_price": etf_price,
-            "equity": args.equity,
-            "current_shares": args.shares,
-            "reason": reason,
-        })
+    # 6. Log
+    log_trade({
+        "date": str(date.today()),
+        "signal_date": signal["date"],
+        "probability": signal["probability"],
+        "target_alloc": target_alloc,
+        "side": side,
+        "quantity": quantity,
+        "pust_price": pea_state["pust_price"],
+        "equity": pea_state["equity"],
+        "current_shares": pea_state["pust_shares"],
+        "executed": args.execute,
+        "reason": reason,
+        "result": result,
+    })
 
-    print(f"\nDone.")
+    print("\nTermine.")
 
 
 if __name__ == "__main__":
