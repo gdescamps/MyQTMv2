@@ -25,7 +25,7 @@ OUTPUTS = ROOT / "outputs"
 QQQ_OUT = OUTPUTS / "qqq_strategy"
 PE_OUT = OUTPUTS / "pe"
 TRADE_LOG = ROOT / "logs" / "trades.jsonl"
-ASSETS_DIR = ROOT / "dashboard" / "assets"
+ASSETS_DIR = ROOT / "assets"
 SIDEBAR_IMAGE = ASSETS_DIR / "sidebar.jpg"
 
 # Backtest images
