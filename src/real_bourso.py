@@ -40,6 +40,12 @@ def load_signal():
     with open(SIGNAL_PATH) as f:
         signal = json.load(f)
 
+    # Check backtest completed without error
+    if signal.get("status") != "ok":
+        print(f"[ERREUR] Backtest en erreur (status={signal.get('status', 'missing')})")
+        print(f"  Verifier logs/cron_backtest.log")
+        return None
+
     # Check signal freshness
     ts = datetime.fromisoformat(signal["timestamp"])
     age = datetime.now() - ts
@@ -48,7 +54,7 @@ def load_signal():
         print(f"  Le backtest du soir a-t-il tourne? Verifier logs/cron_backtest.log")
         return None
 
-    print(f"Signal du {signal['date']} (age: {age.total_seconds()/3600:.1f}h)")
+    print(f"Signal du {signal['date']} (status=ok, age: {age.total_seconds()/3600:.1f}h)")
     print(f"  Probabilite: {signal['probability']:.4f}")
     print(f"  Allocation:  {signal['allocation']*100:.0f}%")
     return signal

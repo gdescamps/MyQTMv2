@@ -101,6 +101,15 @@ TICKERS = ALL_TICKERS if arg == "ALL" else [arg]
 
 def run_ticker(ticker):
     prefix = ticker.lower().replace("-", "_")
+    OUT = ROOT / "outputs" / f"{prefix}_strategy"
+    OUT.mkdir(parents=True, exist_ok=True)
+
+    # Mark signal as "running" to invalidate stale "ok" if we crash
+    signal_path = OUT / "signal.json"
+    with open(signal_path, "w") as f:
+        json.dump({"status": "running", "ticker": ticker,
+                    "timestamp": pd.Timestamp.now().isoformat()}, f)
+
     print(f"\n{'='*70}")
     print(f"=== {ticker} Crisis-Avoidance Strategy ===")
     print(f"{'='*70}\n")
@@ -137,9 +146,6 @@ def run_ticker(ticker):
         # NaN for dates before PUST exists → set to 0 (no position)
         panx_ret_arr = np.where(np.isnan(pust_ret_aligned), 0.0, pust_ret_aligned)
 
-    OUT = ROOT / "outputs" / f"{prefix}_strategy"
-    OUT.mkdir(parents=True, exist_ok=True)
-
     levs = get_leverages(ticker)
     target_labels = y[pred_mask]
     bt_results = plot_results(wf_dates, price_ret, wf_prob, PROB_CASH, PROB_FULL,
@@ -155,6 +161,7 @@ def run_ticker(ticker):
     last_prob = wf_prob[-1]
     alloc = float(np.clip((last_prob - PROB_CASH) / (PROB_FULL - PROB_CASH), 0, 1))
     signal = {
+        "status": "ok",
         "ticker": ticker,
         "date": str(wf_dates[-1].date()),
         "probability": float(last_prob),
