@@ -117,11 +117,13 @@ def refresh_data():
         expected_date = None
 
     # Wait for today's data on all OHLCV sources (skip FRED/VIX — lagged)
+    # Max 3 retries (15 min) — if still missing, assume US holiday
     if expected_date is not None:
         import time as _time
         wait_tickers = [t for t in RISK_OFF_TICKERS if t != "vix_ohlc"]
         wait_interval = 300  # 5 min between checks
-        while datetime.now() < tomorrow_830.replace(tzinfo=None):
+        max_data_retries = 3
+        for data_attempt in range(max_data_retries):
             download_risk_off(force=True)
             missing = []
             for t in wait_tickers:
@@ -135,11 +137,13 @@ def refresh_data():
             if not missing:
                 print(f"Toutes les donnees du {expected_date.date()} disponibles")
                 break
-            print(f"[ATTENTE] Donnees du {expected_date.date()} manquantes pour: "
-                  f"{', '.join(missing)}. Retry dans {wait_interval}s...")
-            _time.sleep(wait_interval)
+            if data_attempt < max_data_retries - 1:
+                print(f"[ATTENTE] Donnees du {expected_date.date()} manquantes pour: "
+                      f"{', '.join(missing)}. Retry dans {wait_interval}s...")
+                _time.sleep(wait_interval)
         else:
-            print(f"[WARN] Deadline 08:30 atteinte, donnees du jour incompletes")
+            print(f"[INFO] Donnees du {expected_date.date()} indisponibles apres "
+                  f"{max_data_retries} tentatives — probable jour ferie US")
 
     # Return last available date
     last_dates = []
