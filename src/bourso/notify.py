@@ -21,7 +21,6 @@ from pathlib import Path
 SENDER = "descamps.gregory@gmail.com"
 MAILING_LIST = [
     "descamps.gregory@gmail.com",
-    "nathdescamps59@gmail.com",
 ]
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587
