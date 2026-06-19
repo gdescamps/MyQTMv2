@@ -18,7 +18,11 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 
-EMAIL = "descamps.gregory@gmail.com"
+SENDER = "descamps.gregory@gmail.com"
+MAILING_LIST = [
+    "descamps.gregory@gmail.com",
+    "nathdescamps59@gmail.com",
+]
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587
 
@@ -45,16 +49,21 @@ def _get_app_password():
     )
 
 
-def send_email(subject, body, to=EMAIL, images=None):
+def send_email(subject, body, to=None, images=None):
     """Send an email via Gmail SMTP, with optional inline images.
 
+    to: single address or list. Defaults to MAILING_LIST.
     images: list of file paths to embed inline in the email body.
     """
+    if to is None:
+        to = MAILING_LIST
+    if isinstance(to, str):
+        to = [to]
+
     pwd = _get_app_password()
 
     if images:
         msg = MIMEMultipart("related")
-        # Build HTML body with inline images
         html = "<html><body>"
         html += body.replace("\n", "<br>")
         for i, path in enumerate(images):
@@ -74,15 +83,15 @@ def send_email(subject, body, to=EMAIL, images=None):
         msg = MIMEText(body, "plain", "utf-8")
 
     msg["Subject"] = subject
-    msg["From"] = EMAIL
-    msg["To"] = to
+    msg["From"] = SENDER
+    msg["To"] = ", ".join(to)
 
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
         server.starttls()
-        server.login(EMAIL, pwd)
+        server.login(SENDER, pwd)
         server.send_message(msg)
 
-    print(f"Email envoye a {to}: {subject}")
+    print(f"Email envoye a {', '.join(to)}: {subject}")
 
 
 def send_recap():
