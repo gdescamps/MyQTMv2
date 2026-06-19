@@ -116,13 +116,45 @@ def send_recap():
         return False
 
     alloc_pct = f"{alloc*100:.0f}%"
+
+    # Check current PEA state to predict morning action
+    action_preview = ""
+    try:
+        from src.bourso.prepare import prepare_order, PEA_ACCOUNT_ID, SYMBOLS
+        data = prepare_order(PEA_ACCOUNT_ID, SYMBOLS["PUST"])
+        acct = data["account"]
+        price = data["symbol"]["last_price"]
+        shares = data["quantity_held"]
+        cash = acct["cash"]
+        equity = cash + acct["stocks"]
+        current_alloc = (shares * price) / equity if equity > 0 else 0
+        target_value = alloc * equity
+        delta_value = target_value - shares * price
+        delta_alloc = alloc - current_alloc
+
+        if delta_value > price:
+            qty = int(delta_value / price)
+            action_preview = f"ACHAT {qty} parts prevu demain matin"
+        elif delta_value < -price and abs(delta_alloc) >= 0.20:
+            qty = int(abs(delta_value) / price)
+            action_preview = f"VENTE {qty} parts prevue demain matin"
+        else:
+            action_preview = "Pas de changement prevu demain matin"
+
+        action_preview += (
+            f"\n  PEA actuel: {shares} parts, {cash:.0f} EUR especes, "
+            f"alloc {current_alloc*100:.0f}% -> {alloc_pct}"
+        )
+    except Exception as e:
+        action_preview = f"(impossible de verifier le PEA: {e})"
+
     subject = f"[MyQTM] {ticker} {date} — alloc {alloc_pct} (prob {prob:.3f})"
     body = (
         f"Backtest {ticker} termine avec succes.\n\n"
         f"  Date:        {date}\n"
         f"  Probabilite: {prob:.4f}\n"
         f"  Allocation:  {alloc_pct}\n\n"
-        f"Signal pour execution PEA demain matin 09:05.\n"
+        f"{action_preview}\n"
     )
 
     images = []
