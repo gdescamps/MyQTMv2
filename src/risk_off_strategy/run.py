@@ -99,13 +99,49 @@ def refresh_data():
             fetch_fred(series_id, label, force=True)
     retry(_fetch_fred, hourly_until=tomorrow_830, label="FRED download")
 
-    # Check if US market is still open
+    # Determine expected trading date
     paris_tz = timezone(timedelta(hours=2))  # CEST (summer)
     now_paris = datetime.now(paris_tz)
     today = pd.Timestamp(now_paris.date())
     before_close = now_paris.hour < US_CLOSE_HOUR and today.weekday() < 5
 
-    # Return last available date, excluding today if before US close
+    if before_close:
+        # Before US close: don't expect today's data
+        expected_date = None
+        print(f"Before US close ({now_paris.strftime('%H:%M')} Paris) — excluding today")
+    elif today.weekday() < 5:
+        # After US close on a weekday: wait for today's data
+        expected_date = today
+    else:
+        # Weekend: don't expect new data
+        expected_date = None
+
+    # Wait for today's data on all OHLCV sources (skip FRED/VIX — lagged)
+    if expected_date is not None:
+        import time as _time
+        wait_tickers = [t for t in RISK_OFF_TICKERS if t != "vix_ohlc"]
+        wait_interval = 300  # 5 min between checks
+        while datetime.now() < tomorrow_830.replace(tzinfo=None):
+            download_risk_off(force=True)
+            missing = []
+            for t in wait_tickers:
+                p = DATA_DIR / f"{t}.parquet"
+                if p.exists():
+                    df = pd.read_parquet(p)
+                    if df.index[-1] < expected_date:
+                        missing.append(t)
+                else:
+                    missing.append(t)
+            if not missing:
+                print(f"Toutes les donnees du {expected_date.date()} disponibles")
+                break
+            print(f"[ATTENTE] Donnees du {expected_date.date()} manquantes pour: "
+                  f"{', '.join(missing)}. Retry dans {wait_interval}s...")
+            _time.sleep(wait_interval)
+        else:
+            print(f"[WARN] Deadline 08:30 atteinte, donnees du jour incompletes")
+
+    # Return last available date
     last_dates = []
     for t in RISK_OFF_TICKERS:
         p = DATA_DIR / f"{t}.parquet"
@@ -117,8 +153,6 @@ def refresh_data():
                 last_dates.append(df.index[-1])
 
     end_date = max(last_dates).strftime("%Y-%m-%d") if last_dates else "2026-12-31"
-    if before_close:
-        print(f"Before US close ({now_paris.strftime('%H:%M')} Paris) — excluding today")
     print(f"Data up to: {end_date}\n")
     return end_date
 
