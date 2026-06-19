@@ -68,8 +68,95 @@ Formats : `csv`, `json`. Sans `--output`, ecrit sur stdout.
 
 | ETF | Symbole Bourso | ISIN |
 |-----|---------------|------|
-| Amundi PEA Nasdaq-100 (PANX) | a chercher | FR0013412269 |
-| Amundi Nasdaq-100 2x (LQQ) | a chercher | FR0010342592 |
+| Amundi PEA Nasdaq-100 (PUST) | 1rTPUST | FR0011871110 |
+| Amundi Nasdaq-100 2x (LQQ) | 1rTLQQ | FR0010342592 |
 | Amundi MSCI World (CW8) | 1rTCW8 | LU1681043599 |
+| Amundi PEA S&P 500 (PE500) | 1rTPE500 | FR0013412285 |
 
-Pour trouver un symbole : aller sur `boursorama.com/bourse/trackers/cours/<SYMBOLE>/`.
+---
+
+# Execution automatique PEA
+
+## Architecture
+
+```
+22:30  cron backtest (run.py QQQ)  →  outputs/qqq_strategy/signal.json
+09:05  cron PEA (real_bourso.py)   →  lit signal, execute PUST sur Euronext
+```
+
+- **ETF**: PUST (Amundi PEA Nasdaq-100), symbole Bourso `1rTPUST`
+- **Levier**: x1 uniquement (LQQ x2 trop cher par part a 2000+ EUR)
+- **Compte**: PEA DESCAMPS
+
+## Cron
+
+Le crontab **doit** contenir :
+
+```cron
+PATH=/home/greg/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+30 22 * * 1-5 cd /home/greg/data_local/code/MyQTMv2 && XGBOOST_DEVICE=cpu ./venv/bin/python -m src.risk_off_strategy.run QQQ >> logs/cron_backtest.log 2>&1 && XGBOOST_DEVICE=cpu ./venv/bin/python -m src.risk_off_strategy.compare_pit QQQ >> logs/cron_backtest.log 2>&1
+
+5 9 * * 1-5 cd /home/greg/data_local/code/MyQTMv2 && ./venv/bin/python -m src.real_bourso >> logs/cron_pea.log 2>&1
+```
+
+### Pieges cron rencontres
+
+1. **`PATH` manquant** — `bourso-cli` est installe dans `~/.local/bin/` qui n'est pas dans le PATH par defaut du cron. Sans la ligne `PATH=...` en tete du crontab, `real_bourso.py` echoue avec `No such file or directory: 'bourso-cli'`. **Incident du 19 juin 2026** : le premier cron matin a echoue pour cette raison.
+
+2. **`cd` obligatoire** — les commandes cron s'executent depuis `$HOME`, pas depuis le repertoire du projet. Sans `cd /home/greg/data_local/code/MyQTMv2 &&` devant chaque commande, les imports Python et les chemins relatifs (`logs/`, `outputs/`) echouent.
+
+3. **GPU indisponible** — le backtest du soir tourne en parallele d'autres workloads GPU. `XGBOOST_DEVICE=cpu` force XGBoost sur CPU pour eviter les conflits.
+
+## Signal (signal.json)
+
+Le backtest ecrit `outputs/qqq_strategy/signal.json` :
+
+```json
+{
+  "status": "ok",
+  "ticker": "QQQ",
+  "date": "2026-06-18",
+  "probability": 0.85,
+  "allocation": 1.0,
+  "timestamp": "2026-06-18T22:35:00"
+}
+```
+
+- `status`: `"running"` au debut du backtest, `"ok"` a la fin. Si crash, reste `"running"` et le matin refuse d'executer.
+- `allocation`: 0.0 (cash) a 1.0 (full invest), calcule via `(prob - 0.70) / (0.75 - 0.70)`.
+- Le script du matin verifie que le signal a < 18h (fraicheur).
+
+## Frais et seuils
+
+- **Achat**: 0% (ETF gratuit sur Bourso PEA)
+- **Vente**: 0.5% → vente seulement si delta allocation >= 20% (`SELL_THRESHOLD`)
+- **Emergency OFF**: creer `logs/emergency_off.json` avec `{"active": true}` pour forcer allocation a 0%
+
+## Scripts
+
+| Script | Role |
+|---|---|
+| `src/real_bourso.py` | Execution matin: lit signal, PEA prepare, achat/vente PUST |
+| `src/bourso/prepare.py` | Dry-run: affiche prix, cash, capacite d'achat |
+| `src/bourso/execute.py` | Execution manuelle interactive (PEA ou CTO) |
+| `src/bourso/list_accounts.py` | Liste tous les comptes et soldes |
+
+## Logs
+
+- `logs/cron_backtest.log` — sortie du backtest du soir
+- `logs/cron_pea.log` — sortie de l'execution matin
+- `logs/trades.jsonl` — historique des ordres (lu par la webapp)
+
+## Execution manuelle
+
+```bash
+# Dry-run (voir ce qui serait fait)
+python -m src.real_bourso
+
+# Execution reelle
+python -m src.real_bourso --execute
+
+# Ordre manuel interactif
+python -m src.bourso.execute pea PUST buy 4
+```
