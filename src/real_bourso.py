@@ -16,6 +16,7 @@ Usage:
 import argparse
 import json
 import sys
+import time
 from datetime import datetime, date, timedelta
 from pathlib import Path
 
@@ -29,6 +30,40 @@ OVERRIDE_FILE = LOG_DIR / "emergency_off.json"
 
 SELL_THRESHOLD = 0.20  # only sell if delta_alloc >= 20% (0.5% fee on sells)
 MAX_SIGNAL_AGE_HOURS = 18  # signal must be < 18h old (evening to morning)
+MAX_RETRIES = 5
+INITIAL_WAIT = 60  # seconds
+MAX_WAIT = 900  # 15 min max between retries
+
+
+def retry(fn, label="", hourly_until=None):
+    """Retry with exponential backoff (60s, 120s, 240s, 480s, 900s), then hourly."""
+    wait = INITIAL_WAIT
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            return fn()
+        except Exception as e:
+            if attempt == MAX_RETRIES:
+                break
+            print(f"[RETRY] {label}: tentative {attempt}/{MAX_RETRIES} echouee: {e}")
+            print(f"  Prochaine tentative dans {wait}s...")
+            time.sleep(wait)
+            wait = min(wait * 2, MAX_WAIT)
+
+    if hourly_until is None:
+        print(f"[ERREUR] {label}: echec apres {MAX_RETRIES} tentatives")
+        raise
+    attempt = MAX_RETRIES
+    while datetime.now() < hourly_until:
+        attempt += 1
+        print(f"[RETRY] {label}: tentative {attempt} (horaire), prochaine dans 1h...")
+        time.sleep(3600)
+        try:
+            return fn()
+        except Exception as e:
+            print(f"[RETRY] {label}: tentative {attempt} echouee: {e}")
+
+    print(f"[ERREUR] {label}: echec, deadline {hourly_until} atteinte")
+    raise
 
 
 def load_signal():
@@ -194,9 +229,11 @@ def main():
     if is_emergency_off():
         target_alloc = 0.0
 
-    # 3. Get PEA state (cash, positions)
+    # 3. Get PEA state (cash, positions) — retry until Euronext close
+    euronext_close = datetime.now().replace(hour=17, minute=0, second=0)
     try:
-        pea_state = get_pea_state()
+        pea_state = retry(get_pea_state, label="PEA state",
+                          hourly_until=euronext_close)
     except Exception as e:
         print(f"[ERREUR] Impossible de lire le PEA: {e}")
         sys.exit(1)
@@ -209,10 +246,18 @@ def main():
     side, quantity, reason = compute_orders(target_alloc, pea_state)
     print(f"\nDecision: {reason}")
 
-    # 5. Execute
+    # 5. Execute — retry until Euronext close
     result = None
     if side and quantity > 0:
-        result = execute_order(side, quantity, dry_run=not args.execute)
+        try:
+            result = retry(
+                lambda: execute_order(side, quantity, dry_run=not args.execute),
+                label="Execution ordre",
+                hourly_until=euronext_close,
+            )
+        except Exception as e:
+            print(f"[ERREUR] Ordre echoue: {e}")
+            result = {"status": "error", "error": str(e)}
 
         # 6. Notify by email if a position change was made
         try:

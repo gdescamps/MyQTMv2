@@ -32,10 +32,50 @@ def get_leverages(ticker):
 US_CLOSE_HOUR = 22  # US market close in Paris time (22h00 = 16h00 ET)
 
 
+def retry(fn, max_retries=5, initial_wait=60, max_wait=900,
+          hourly_until=None, label=""):
+    """Retry a function with exponential backoff, then hourly until deadline.
+
+    Phase 1: exponential backoff (60s, 120s, 240s, 480s, 900s) = ~30 min
+    Phase 2: retry every hour until hourly_until (datetime), or give up.
+    """
+    import time
+    from datetime import datetime
+    wait = initial_wait
+    for attempt in range(1, max_retries + 1):
+        try:
+            return fn()
+        except Exception as e:
+            if attempt == max_retries:
+                break
+            print(f"[RETRY] {label}: tentative {attempt}/{max_retries} echouee: {e}")
+            print(f"  Prochaine tentative dans {wait}s...")
+            time.sleep(wait)
+            wait = min(wait * 2, max_wait)
+
+    # Phase 2: hourly retries until deadline
+    if hourly_until is None:
+        print(f"[ERREUR] {label}: echec apres {max_retries} tentatives")
+        raise
+    attempt = max_retries
+    while datetime.now() < hourly_until:
+        attempt += 1
+        print(f"[RETRY] {label}: tentative {attempt} (horaire), prochaine dans 1h...")
+        time.sleep(3600)
+        try:
+            return fn()
+        except Exception as e:
+            print(f"[RETRY] {label}: tentative {attempt} echouee: {e}")
+
+    print(f"[ERREUR] {label}: echec, deadline {hourly_until} atteinte")
+    raise
+
+
 def refresh_data():
     """Re-download risk-off OHLCV + macro data to get latest prices.
 
     If run before US close (22h Paris), excludes today's incomplete bar.
+    Retries on network failure (up to 5 attempts, ~30 min max).
     """
     from src.download_ohlcv import download_risk_off, RISK_OFF_TICKERS
     from src.download_macro_data import fetch_fred, FRED_SERIES
@@ -44,12 +84,20 @@ def refresh_data():
 
     DATA_DIR = ROOT / "data"
 
-    # OHLCV: risk-off tickers + VIX
-    download_risk_off(force=True)
+    # Deadline: 08:30 next morning (before 09:05 PEA cron)
+    from datetime import datetime
+    tomorrow_830 = (datetime.now() + timedelta(hours=10)).replace(
+        hour=8, minute=30, second=0)
 
-    # FRED macro
-    for series_id, label in FRED_SERIES.items():
-        fetch_fred(series_id, label, force=True)
+    # OHLCV: risk-off tickers + VIX (with retry)
+    retry(lambda: download_risk_off(force=True),
+          hourly_until=tomorrow_830, label="OHLCV download")
+
+    # FRED macro (with retry)
+    def _fetch_fred():
+        for series_id, label in FRED_SERIES.items():
+            fetch_fred(series_id, label, force=True)
+    retry(_fetch_fred, hourly_until=tomorrow_830, label="FRED download")
 
     # Check if US market is still open
     paris_tz = timezone(timedelta(hours=2))  # CEST (summer)
