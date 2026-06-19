@@ -214,7 +214,28 @@ def main():
     if side and quantity > 0:
         result = execute_order(side, quantity, dry_run=not args.execute)
 
-    # 6. Log
+        # 6. Notify by email if a position change was made
+        try:
+            from src.bourso.notify import send_email
+            action = "ACHAT" if side == "buy" else "VENTE"
+            mode = "LIVE" if args.execute else "DRY-RUN"
+            subject = f"[MyQTM] {mode} {action} {quantity}x PUST @ {pea_state['pust_price']:.2f}"
+            body = (
+                f"PEA — {date.today()}\n\n"
+                f"  Action:      {action} {quantity} parts PUST\n"
+                f"  Prix:        {pea_state['pust_price']:.2f} EUR\n"
+                f"  Allocation:  {target_alloc*100:.0f}%\n"
+                f"  Probabilite: {signal['probability']:.4f}\n"
+                f"  Signal du:   {signal['date']}\n\n"
+                f"  Especes:     {pea_state['cash']:.2f} EUR\n"
+                f"  Titres:      {pea_state['stocks']:.2f} EUR\n"
+                f"  Mode:        {mode}\n"
+            )
+            send_email(subject, body)
+        except Exception as e:
+            print(f"[WARN] Email non envoye: {e}")
+
+    # 7. Log
     log_trade({
         "date": str(date.today()),
         "model_date": signal["date"],
