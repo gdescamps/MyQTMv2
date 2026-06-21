@@ -2,104 +2,110 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Repository Structure
+## What this repo is
 
-This repo contains `MyQTM/` as a git submodule — a quantitative trading framework for high-growth tech stocks. All active code lives under `MyQTM/`. Work from within `MyQTM/` or reference paths relative to it.
+A **crisis-avoidance ("risk-off") trading system**. A walk-forward XGBoost model predicts when to be invested vs. in cash, producing a continuous allocation (0 → 2x leverage). The live system runs the strategy nightly on QQQ and executes the resulting allocation each morning on a **Boursorama PEA** account via the unofficial `bourso-cli`, trading the Amundi PEA Nasdaq-100 ETF (**PUST**, x1 only).
+
+All code lives directly under `src/` — there is **no git submodule** (the old `MyQTM/` submodule is gone). Run everything from the repo root with the venv active.
+
+> Note: `README.md` documents an earlier, different design (a 26-ETF cross-sectional momentum strategy with IB Gateway live trading, files like `etf.py` / `train.py` / `robot.py`). Those files are **not** in this repo state — treat `README.md` as legacy/aspirational. The authoritative description of the live system is here and in `BOURSO.md`.
 
 ## Environment Setup
 
-Requires Python 3.11 and a virtual environment:
+Python 3.12 + venv:
 
 ```bash
-cd MyQTM
-./1_setup.sh   # creates venv, installs deps, pulls DVC data
+./1_setup_interpreter.sh   # rm venv, python3.12 -m venv, pip install -r requirements.txt
 source venv/bin/activate
 ```
 
-Required credentials in `MyQTM/.env`:
-- `FMP_APIKEY` — Financial Modeling Prep API key
-- `HUGGINEFACE_KEY` — HuggingFace API key
-- `GOOGLE_APPLICATION_CREDENTIALS` + `PROJECT_ID` — GCP service account for Gemini LLM
-- `TWS_USERID` / `TWS_PASSWORD` — Interactive Brokers credentials
+`.env` keys (loaded via python-dotenv):
+- `FRED` — FRED API key (macro data: VIX, BAA spread)
+- `FMPAPI` / `FINHUB` — Financial Modeling Prep / Finnhub (PE data for exploration)
+- `BOURSO_ID` / `BOURSO_CODE` — BoursoBank credentials for PEA execution
+- `GMAIL_APP_PASSWORD` — 16-char Gmail app password for email notifications
+- `GOOGLE_APPLICATION_CREDENTIALS` / `PROJECT_ID` — GCP (legacy LLM, not on the live path)
 
-## Common Commands
-
-All commands run from `MyQTM/` with venv activated:
-
-```bash
-./2_data.sh              # Download & transform FMP data (runs src/data.py -> data_pipeline.py)
-./3_train.sh             # Train XGBoost model (src/train.py)
-./4_search_hyperparams.sh # CMA-ES hyperparameter search (src/search_params.py)
-./5_benchmark.sh         # Run backtest (src/benchmark.py)
-./8_robot.sh             # Start live trading robot (src/robot.py)
-```
-
-Run tests:
-```bash
-pytest                   # all tests
-pytest tests/test_fmp.py # single test file
-```
-
-Lint: flake8 with E501 ignored, max line length 120 (see `.flake8`).
+`bourso-cli` (Rust, v0.5.3) is installed at `~/.local/bin/bourso-cli` — see `BOURSO.md` for build/config. It is **not** in the default cron PATH (see cron pitfalls below).
 
 ## Architecture
 
-The system has four main phases:
+### 1. Data (`src/download_*.py` → `data/*.parquet`)
+- `download_ohlcv.py` — yfinance OHLCV. `RISK_OFF_TICKERS` (QQQ, SPY, ACWI + VIX, TLT) vs. `--extra` exploration tickers.
+- `download_macro_data.py` — FRED macro series (BAA spread, etc.) → `data/fred_*.parquet`.
+- `download_pe_qqq_top5.py` — cap-weighted PE of top-5 NASDAQ-100 names (FMP), for the webapp/exploration only.
 
-### 1. Data Pipeline (`src/data_pipeline.py`)
-Orchestrates in sequence:
-1. `data_download_fmp.py` — fetches raw OHLCV, fundamentals, news, economic indicators from FMP API into `data/fmp_data/`
-2. `data_transform_price_trends_indicators_time_series.py` — price/technical indicators
-3. `data_transform_key_metrics_time_series.py` — fundamental key metrics
-4. `data_transform_economic_indicators_time_series.py` — macro indicators
-5. `data_transform_analyst_stock_recommendations_time_series.py`
-6. `data_transform_ratings_time_series.py`
-7. `data_transform_stock_news.py` — filters news to `RELIABLE_NEWS_SITES`
-8. `data_transform_stock_news_to_sentiment_scores.py` — uses Google Gemini (`src/llm.py`) to score news sentiment; results are cached in `llm_cache.pkl`
-9. `data_tranform_clean.py` — cleans/aligns all data
-10. `data_transform_sentiments_time_series.py`
-11. `data_transform_split_intervals.py` — creates interlaced train/test windows
+Data is DVC-backed (`data.dvc`, `outputs.dvc`, `.env.dvc` → GCS). `*_revised.parquet` files are the latest-revised series; the unsuffixed files are point-in-time snapshots used for the PIT-vs-revised comparison.
 
-### 2. Model Training (`src/train.py`)
-- XGBoost multi-class classifier (long / short / hold) per stock
-- Custom `EvalF1Callback` for early stopping on macro F1
-- Feature selection via `mean / std^power` importance ranking (configurable `mean_std_power` in `PARAM_GRID`)
-- Output saved to `outputs/last_train/`
+### 2. Risk-off strategy (`src/risk_off_strategy/`)
+- `data.py` — `load_data` (price + VIX + BAA spread + TLT, spread shifted J+3 for FRED publication lag), `build_features`, and `build_realtime_target`: a **drawdown state machine** (exit at −10%, re-enter at −5%) producing the binary in/out label.
+- `backtest.py` — `walk_forward` (rolling train, 21-day step, interlaced-block feature selection by stable importance `mean/std^1.7`, embargo ≥ lookahead), `simulate_with_fees`, plotting (`plot_results`, `plot_recent`, `plot_projection`, `plot_comparison`).
+- `run.py` — entry point. Downloads fresh data (with retry/backoff), runs walk-forward, writes charts and `outputs/<ticker>_strategy/signal.json`. Key config: `MIN_TRAIN=504`, `STEP=21`, `LOOKAHEAD=6`, `DD_EXIT=-0.10`, `DD_REENTER=-0.05`, `PROB_CASH=0.70`, `PROB_FULL=0.75`, `TEMPERATURE=3.0`. Leveraged tickers (QQQ, SPY) test [1.0, 1.5, 1.75, 2.0]; others x1 only.
+- `compare_pit.py` — runs the strategy on both point-in-time and revised data, plots the two equity curves to detect look-ahead bias from data revisions.
+- `test_lookahead.py` — guards against label/feature leakage.
 
-### 3. Hyperparameter Search (`src/search_params.py`)
-- CMA-ES (Covariance Matrix Adaptation Evolution Strategy) via `scikit-optimize`
-- Optimizes 9 trading thresholds (open/close probabilities for long/short, position sizing)
-- Parallel evaluation with stock dropout for robustness
-- Output saved to `outputs/last_cma/`
+`signal.json` schema and the `allocation = clip((prob - PROB_CASH)/(PROB_FULL - PROB_CASH), 0, 1)` formula are documented in `BOURSO.md`. `status` is `"running"` during the backtest and `"ok"` on success — the morning script refuses to act on a non-`ok` or stale (>18h) signal.
 
-### 4. Live Trading (`src/robot.py`)
-- Runs on cron: data fetch at 1:30 PM, trading at 3:30 PM (weekdays, Paris time)
-- Connects to Interactive Brokers via `src/ib.py` (uses `ib_insync`)
-- Position management: `src/trade.py` — `select_positions_to_open/close`, `open/close_positions`
+### 3. PEA execution (`src/real_bourso.py` + `src/bourso/`)
+- `real_bourso.py` — morning entry point. Reads `signal.json`, checks the PEA via `bourso-cli`, and buys/sells PUST. Sells only when `delta_alloc ≥ SELL_THRESHOLD=0.20` (0.5% sell fee; buys are free). `logs/emergency_off.json` with `{"active": true}` forces allocation to 0%. Two-phase retry (exponential backoff → hourly until deadline). `--execute` for live, default is dry-run.
+- `src/bourso/` — `prepare.py` (dry-run state/capacity), `execute.py` (manual interactive order), `list_accounts.py`, `quote.py`, `notify.py` (Gmail SMTP recap/trade emails, inline-image HTML, `MAILING_LIST` currently just the owner).
 
-## Key Configuration (`src/config.py`)
+### 4. Webapp (`src/webapp.py`)
+NiceGUI dashboard (backtests, PE chart, allocations, trade history). Runs in Docker on port 8081 (`webapp_build.sh` / `webapp_run.sh` / `webapp_kill.sh`).
 
-- `BENCHMARK_END_DATE` — update to today before running new data pipeline
-- `TRADE_STOCKS` — union of `TRADE_GROWTH_STOCKS + TRADE_VALUE_STOCKS + NEW_CANDIDATE_STOCKS`
-- `TS_SIZE = 6` — time series window size for features
-- `MAX_POSITIONS = 12` — CMA-ES typically selects 3-4 in practice
-- `PARAM_GRID` — XGBoost hyperparameters including `mean_std_power` for feature ranking
-- `INIT_SPACE` — CMA-ES search bounds (all in [0.01, 0.999])
+## Cron (the live system)
 
-## Data Versioning (DVC)
+Two weekday jobs (see `crontab -l`); the crontab **must** define `PATH` and `DIR` at the top:
 
-Raw data, model outputs, and LLM cache are versioned via DVC backed by Google Cloud Storage:
-```bash
-dvc pull -r gcs outputs.dvc
-dvc pull -r gcs data/fmp_data.dvc
-dvc pull -r gcs llm_cache.pkl.dvc
-./6_dvc_push.sh   # push after updating data/models
+```cron
+PATH=/home/greg/.local/bin:/usr/local/bin:/usr/bin:/bin
+DIR=/home/greg/data_local/code/MyQTMv2
+
+# 22:30 — evening backtest + PIT comparison + email recap (CPU mode)
+30 22 * * 1-5 cd $DIR && XGBOOST_DEVICE=cpu ./venv/bin/python -m src.risk_off_strategy.run QQQ ... && ... compare_pit QQQ ...; ... src.bourso.notify --recap ...
+
+# 09:05 — PEA PUST execution at Euronext Paris open
+5 9 * * 1-5 cd $DIR && ./venv/bin/python -m src.real_bourso >> logs/cron_pea.log 2>&1
 ```
 
-## IB Gateway (Docker)
+**Cron pitfalls (already hit — keep them in mind):**
+1. `PATH` line is mandatory — `bourso-cli` lives in `~/.local/bin`, not the default cron PATH.
+2. `cd $DIR &&` is mandatory — cron runs from `$HOME`; relative paths (`logs/`, `outputs/`) and module imports break otherwise.
+3. `XGBOOST_DEVICE=cpu` forces CPU to avoid GPU contention with other workloads at night.
 
-Interactive Brokers gateway runs via Docker Compose:
+The `cron` service is `enabled` (survives reboots) — the crontab is persisted on disk, not in memory.
+
+Logs: `logs/cron_backtest.log`, `logs/cron_pea.log`, `logs/trades.jsonl` (order history, read by the webapp).
+
+## Common Commands
+
+From repo root, venv active:
+
 ```bash
-docker-compose up   # starts IB Gateway (see docker-compose.yml)
+# Strategy
+python -m src.risk_off_strategy.run QQQ          # backtest + signal.json (QQQ | SPY | ACWI | ALL)
+python -m src.risk_off_strategy.compare_pit QQQ  # point-in-time vs revised equity curves
+
+# Data
+python -m src.download_ohlcv                     # risk-off tickers (--all / --extra for more)
+python -m src.download_macro_data                # FRED macro series
+
+# PEA
+python -m src.real_bourso                        # dry-run (what would be done)
+python -m src.real_bourso --execute              # live execution
+python -m src.bourso.execute pea PUST buy 4      # manual interactive order
+python -m src.bourso.notify --recap              # send evening recap email
+
+# Tests / lint
+pytest                                           # see pytest.ini
+flake8                                           # E501 ignored, max line 120
 ```
-Default mode is `TRADING_MODE=paper` — change in `.env` for live trading.
+
+DVC: `dvc pull -r gcs data.dvc` / `dvc pull -r gcs outputs.dvc`; push with `./6_dvc_push.sh` if present.
+
+## Conventions
+
+- Write analysis/scratch files to `myfiles/`.
+- Prefer structured commits with clear messages; the user works on the `dev` branch (PRs target `master`).
+- Don't run long training/backtests unless asked — the user prefers to kill-and-restart over waiting.
+- `BOURSO.md` is the operational runbook for the PEA/cron pipeline; keep it in sync when changing the live path.

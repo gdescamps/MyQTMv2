@@ -1,264 +1,166 @@
-# MyQTMv2 — Quantitative ETF Momentum Strategy
+# MyQTMv2 — Risk-Off Strategy
 
-Systematic ETF allocation strategy combining XGBoost cross-sectional IC maximization with a VIX-based regime overlay. Three allocation modes — heuristic, Follow Leads model, Smart Money model — are activated based on market conditions and model validation.
+A **crisis-avoidance trading system** for QQQ (Nasdaq-100). A walk-forward XGBoost model
+learns when to stay invested versus move to cash, turning its probability into a
+**continuous allocation** (0% → up to 2x leverage). The goal is not to beat the market on
+return alone, but to **capture most of the upside while cutting drawdowns by ~4x**.
 
-## Performance (OOS backtest 2006-2026)
+The live system runs nightly, writes a signal, and the next morning executes that
+allocation on a **Boursorama PEA** account (ETF **PUST**, Amundi PEA Nasdaq-100, x1).
+See [`BOURSO.md`](BOURSO.md) for the operational runbook and [`CLAUDE.md`](CLAUDE.md) for the
+code map.
 
-| Metric | Heuristic + Cash only | Full strategy (SM + FL) |
-|--------|----------------------|------------------------|
-| **Sharpe** | 1.278 | 1.385 |
-| **Ann. return** | +22.1% | +24.0% |
-| **Max DD** | -29.5% | -29.6% |
-| **Final value** | 9.3M€ | 12.7M€ |
+## Performance (walk-forward OOS, 2005 → 2026, 21 years)
 
-The heuristic baseline is already solid (Sharpe 1.28). The SM and FL models add +2%/year and +0.10 Sharpe without degrading drawdown.
+All figures are **net of Boursorama PEA fees** (0% buy, 0.5% sell) and ETF TER.
 
-### Robustness (50 Monte Carlo runs, 5-10 random ETFs dropped)
+| Strategy | CAGR | Total | Max DD |
+|----------|-----:|------:|------:|
+| QQQ Buy & Hold | 16.1% | 23x | **−53.4%** |
+| Oracle (perfect label) | 20.9% | 54x | −9.9% |
+| **XGB x1.0 (live config)** | **21.9%** | **63x** | **−7.6%** |
+| XGB x1.5 | 33.9% | 462x | −11.4% |
+| XGB x2.0 | 46.8% | 3182x | −15.0% |
 
-| Stat | Sharpe | Ann. return | Max DD |
-|------|--------|-------------|--------|
-| Original | 1.38 | +24.0% | -29.6% |
-| **Median** | **1.32** | **+22.0%** | **-27.6%** |
-| Min | 1.16 | +17.9% | — |
-| Max | 1.45 | +24.5% | — |
+The headline is the **x1.0 line**: it beats Buy & Hold on return *and* shrinks the worst
+drawdown from −53% to −8% — close to the theoretical oracle. Leverage multiplies returns
+but is only used in backtest; the live PEA trades x1 (no leveraged PEA-eligible ETF cheap
+enough per share). The drawdown stays bounded because the model exits to cash before
+crashes deepen, not because it predicts tops.
 
-## Strategy: VIX Regime Allocation
-
-The system uses VIX EMA100 to determine market regime and selects the appropriate allocation model:
-
-```
-┌──────────────────────┬────────────────────┬────────────────────┬──────────────────────────────────┐
-│ VIX EMA100           │ SM Model Validated │ FL Model Validated │ Allocation                       │
-├──────────────────────┼────────────────────┼────────────────────┼──────────────────────────────────┤
-│ —                    │ —                  │ no                 │ Heuristic top-5 Sharpe-wtd 2y    │
-│ < 19                 │ —                  │ yes                │ Follow Leads Model               │
-│ >= 19 (turbulent)    │ yes                │ —                  │ Smart Money Model                │
-│ >= 20 + rising slope │ no                 │ —                  │ Cash                             │
-│ Spike (d5d > 6)      │ —                  │ —                  │ Cash                             │
-└──────────────────────┴────────────────────┴────────────────────┴──────────────────────────────────┘
-```
-
-- **Heuristic**: default allocator — top-5 ETFs by rolling 2-year Sharpe ratio, softmax-weighted. Active in calm markets and as fallback when VIX >= 19 but not in cash conditions.
-- **Follow Leads Model**: XGBoost predictions from the Follow Leads pipeline, activated when causal EMA of past test-IC > 0.015
-- **Smart Money Model**: XGBoost predictions using institutional flow features, activated when causal EMA of past test-IC > 0.030
-- **Cash**: 0% invested when VIX is high + rising and no validated model, or during VIX spikes
-
-### Model validation (IC gate)
-
-Both models use a causal IC gate: the EMA24 of past test-IC values (from previous walk-forward steps) must exceed a threshold before the model can deploy. This prevents the model from trading when it has no demonstrated alpha. The gate requires at least 84 past steps (~7 years) before it can open, naturally keeping models dormant during early years when the cross-section is too sparse.
-
-| Gate | Threshold | Min steps | Typical activation |
-|------|-----------|-----------|-------------------|
-| Smart Money | test-IC EMA24 > 0.030 | 84 | ~2018 onward |
-| Follow Leads | test-IC EMA24 > 0.015 | 84 | ~2018 onward |
-
-## Algorithm Overview
+## How it works
 
 ```
-┌───────────────┐    ┌──────────────────┐    ┌─────────────────┐    ┌─────────────────────┐
-│ ~250 Features │───>│ K-fold WF Feature │───>│ XGBoost ensemble │───>│  VIX regime overlay: │
-│  Engineering  │    │ selection (x10)   │    │ (x20, embargo d) │    │ heuristic / FL / SM │
-└───────────────┘    └──────────────────┘    └─────────────────┘    │ + cash on spike/VIX │
-                                                                     └─────────────────────┘
+┌──────────────┐   ┌──────────────────┐   ┌───────────────────┐   ┌──────────────────┐
+│ price + VIX  │──▶│ ~95 features +   │──▶│ walk-forward XGB  │──▶│ proba → alloc    │
+│ + BAA spread │   │ drawdown-state   │   │ (per-step refit + │   │ 0→2x, fee-aware  │
+│ + TLT        │   │ machine label    │   │ feature selection)│   │ PEA execution    │
+└──────────────┘   └──────────────────┘   └───────────────────┘   └──────────────────┘
 ```
 
-## 1. Universe (26 ETFs)
+### 1. Data (`src/risk_off_strategy/data.py`)
 
-### Backtest universe (US proxy tickers)
+Four daily series, all free:
 
-US-listed proxy tickers are used for backtesting and training — they provide deeper historical data (shares outstanding since 2000+). The backtest uses these tickers for OHLCV and smart-money features.
+| Series | Source | Role |
+|--------|--------|------|
+| QQQ close | yfinance | the asset traded |
+| VIX | yfinance | implied volatility / fear gauge |
+| BAA credit spread | FRED | credit stress (shifted **J+3** for publication lag) |
+| TLT | yfinance | long Treasuries — flight-to-safety signal |
 
-| # | Proxy | Name | Section | Smart money since |
-|---|-------|------|---------|-------------------|
-| 1 | IVV | S&P 500 | geo | 2000 |
-| 2 | QQQ | Nasdaq 100 | geo | 1999 |
-| 3 | ACWI | MSCI World | geo | 2008 |
-| 4 | EEM | Emerging Markets | geo | 2003 |
-| 5 | IEMG | Core EM IMI | geo | 2012 |
-| 6 | EMXC | EM ex-China | geo | 2017 |
-| 7 | ILF | Latin America 40 | geo | 2001 |
-| 8 | EWY | South Korea | geo | 2000 |
-| 9 | EWT | Taiwan | geo | 2000 |
-| 10 | EWZ | Brazil | geo | 2000 |
-| 11 | EWW | Mexico | geo | 2000 |
-| 12 | EWC | Canada | geo | 2000 |
-| 13 | EWJ | Japan | geo | 1996 |
-| 14 | TUR | Turkey | geo | 2008 |
-| 15 | FXI | China Large-Cap | geo | 2004 |
-| 16 | ISF.L | FTSE 100 | geo | ~2000 |
-| 17 | IEUR | Core Europe | geo | 2014 |
-| 18 | EZU | Eurozone | geo | 2000 |
-| 19 | SUSA | USA SRI | geo | 2005 |
-| 20 | SOXX | Semiconductors | thematic | 2001 |
-| 21 | ROBO | Automation & Robotics | thematic | 2013 |
-| 22 | ICLN | Global Clean Energy | thematic | 2008 |
-| 23 | EXX1.DE | EURO STOXX Banks | thematic | ~2001 |
-| 24 | RING | Gold Miners | commodity | 2012 |
-| 25 | IEO | Oil & Gas E&P | commodity | 2006 |
-| 26 | SXRS.DE | Diversified Commodity | commodity | 2006 |
+Point-in-time snapshots (`data/<x>.parquet`) and latest-revised series
+(`data/<x>_revised.parquet`) are both kept so look-ahead bias from data revisions can be
+measured (`compare_pit.py`).
 
-### Live trading universe (UCITS EUR on Interactive Brokers)
+### 2. Label — drawdown state machine (`build_realtime_target`)
 
-For live trading, each proxy maps to a European UCITS ETF denominated in EUR, tradable on Interactive Brokers. All are iShares except 2 (Amundi and Xtrackers) which track the **exact same index** as their iShares proxy — no performance drift.
+The target is **not** a future return. It is a hysteresis state machine over price:
 
-| # | Proxy | UCITS ticker | Exchange | Issuer | IB fee model |
-|---|-------|-------------|----------|--------|-------------|
-| 1 | IVV | SXR8 | XETRA | iShares | 0.10%, min 4€ |
-| 2 | QQQ | SXRV | XETRA | iShares | 0.10%, min 4€ |
-| 3 | ACWI | IUSQ | Amsterdam | iShares | 0.05%, min 4€ |
-| 4 | EEM | IEMA | Amsterdam | iShares | 0.05%, min 4€ |
-| 5 | IEMG | IEMA | Amsterdam | iShares | 0.05%, min 4€ |
-| 6 | EMXC | EMXC | Euronext Paris | **Amundi** | 0.05%, min 3€ |
-| 7 | ILF | LTAM | Amsterdam | iShares | 0.05%, min 4€ |
-| 8 | EWY | IKRA | Amsterdam | iShares | 0.05%, min 4€ |
-| 9 | EWT | ITWN | Amsterdam | iShares | 0.05%, min 4€ |
-| 10 | EWZ | IBZL | Amsterdam | iShares | 0.05%, min 4€ |
-| 11 | EWW | D5BI | XETRA | **Xtrackers** | 0.10%, min 4€ |
-| 12 | EWC | SXR2 | XETRA | iShares | 0.10%, min 4€ |
-| 13 | EWJ | SJPE | Amsterdam | iShares | 0.05%, min 4€ |
-| 14 | TUR | ITKY | Amsterdam | iShares | 0.05%, min 4€ |
-| 15 | FXI | FXC | Amsterdam | iShares | 0.05%, min 4€ |
-| 16 | ISF.L | ISF | LSE | iShares | 6 GBP flat |
-| 17 | IEUR | IMEU | Amsterdam | iShares | 0.05%, min 4€ |
-| 18 | EZU | IMEU | Amsterdam | iShares | 0.05%, min 4€ |
-| 19 | SUSA | 36B6 | XETRA | iShares | 0.10%, min 4€ |
-| 20 | SOXX | ISQ5 | GETTEX | iShares | 0.10%, min 4€ |
-| 21 | ROBO | RBOT | Amsterdam | iShares | 0.05%, min 4€ |
-| 22 | ICLN | INRG | Milan | iShares | 0.05%, min 4€ |
-| 23 | EXX1.DE | EXX1 | XETRA | iShares | 0.10%, min 4€ |
-| 24 | RING | IS0E | XETRA | iShares | 0.10%, min 4€ |
-| 25 | IEO | IS0D | XETRA | iShares | 0.10%, min 4€ |
-| 26 | SXRS.DE | SXRS | XETRA | iShares | 0.10%, min 4€ |
+- **Exit to cash** when drawdown from the running peak crosses **−10%** (`DD_EXIT`).
+- **Re-enter** when drawdown recovers above **−5%** (`DD_REENTER`).
 
-**Non-iShares ETFs**: EMXC (Amundi) and EWW (Xtrackers) track the same MSCI indices as their iShares US proxies. No difference in price behavior — they replicate the exact same basket of stocks.
+This produces a clean in/out label that marks the dangerous regimes. The label at day *t*
+is the machine's state at *t + LOOKAHEAD* (`LOOKAHEAD=6`), so the model learns to act
+*before* the drawdown fully develops. The walk-forward embargo (21 days) is larger than
+the lookahead, so there is **no leakage** — verified by `test_lookahead.py`.
 
-**Note**: IEMG and EEM both map to IEMA; IEUR and EZU both map to IMEU. These are distinct proxy tickers with different smart-money signals but trade the same UCITS product.
+### 3. Features (`build_features`)
 
-## 2. Data Sources
+~95 features per day, technical + macro + cross-asset:
 
-| Source | Data |
-|--------|------|
-| yfinance | OHLCV daily prices (via US/LSE proxy tickers for max history) |
-| FRED | VIX, HY spread, yield curve, DXY |
-| iShares XLS | Shares outstanding (smart-money flows) |
+- **Price**: SMA / returns / vol over {5,10,20,50,100,200}, RSI, Bollinger position,
+  drawdown depth/speed/duration, rolling max-DD, consecutive down days, mean-reversion.
+- **Non-linear risk**: asymmetric (down vs up) volatility, skew/kurtosis, acceleration,
+  volatility-of-volatility, vol regime.
+- **Macro**: VIX and BAA spread levels, SMAs, term-structure proxies, spikes, acceleration.
+- **Cross-asset**: price/TLT ratio + momentum (risk-on vs risk-off), and interaction terms
+  (`vix × spread`, `vix × drawdown`, `tlt × vix`, …) that fire only in joint stress.
 
-No FMP, no LLM, no paid API.
+### 4. Walk-forward XGBoost (`walk_forward`)
 
-## 3. Feature Engineering (`feature_engineering.py`)
-
-~250 candidate features computed per ETF per day. Categories: technical (momentum, vol, RSI, MA, ATR, Bollinger, drawdown, skew/kurtosis), macro (VIX/HY/yield curve/DXY plus z-scores/velocity/interactions), smart-money (shares outstanding z-scores + crossovers + momentum), cross-sectional (z-scores vs universe and within section, ranks, momentum x volume/SO/VIX, dispersion, breadth, rank persistence), and expanding stats since inception.
-
-**Label**: `ret_10d_fwd` (forward 10-day return, absolute) — z-scored cross-sectionally per date so that MSE minimization = cross-sectional IC maximization.
-
-## 4. K-fold Walk-Forward Training (`train.py`)
-
-At each WF step we run two K-fold passes — one for feature selection, one for model training — both with **varying final embargo** between train data and the 21-day test window.
-
-### Feature selection — 10 folds
+Expanding-window, retrained every 21 trading days:
 
 | Parameter | Value |
 |-----------|-------|
-| Number of folds | 10 |
-| Final embargo schedule | 30 -> 12 days (step 2) |
-| Stability metric | mean(importance) / std(importance)^1.7 |
-| Cap | **top 110** features kept per step |
+| Min train | 504 days (~2 years) |
+| Step / test window | 21 days |
+| Embargo (train→test gap) | 21 days (> label lookahead) |
+| Per-step feature selection | stable importance `mean / std^1.7`, train-only |
+| Model | XGBoost, `max_depth=4`, `lr=0.03`, subsample/colsample 0.7, strong L1/L2 |
 
-### Model ensemble — 20 models
+Each step selects features on the **training slice only** (interlaced blocks, embargoed),
+refits, and predicts the next 21 days out-of-sample. Raw logits are passed through a
+**temperature-scaled sigmoid** (`T=3.0`) so the probability is smooth rather than
+saturating at 0/1 — this makes the downstream allocation gradual. Results are cached
+incrementally, so a daily run only computes the newest steps.
 
-| Parameter | Value |
-|-----------|-------|
-| Number of models | 20 |
-| Final embargo schedule | 30 -> 11 days (step 1) |
-| Seeds | 0..19 (different per model) |
-| Aggregation | Mean of 20 predictions on test window |
+### 5. Allocation & fees (`simulate_with_fees`)
 
-### Common config
+The probability maps linearly to an allocation, then is clamped and scaled by leverage:
 
-| Parameter | Value |
-|-----------|-------|
-| Rolling train window | 1250 days (~5 years) |
-| Test window | 21 days (~1 month) |
-| Step | 21 days |
-| Block size | 21 days (interlaced train/val) |
-| Embargo | 10 days (>= label horizon) |
-| Objective | reg:squarederror (IC maximization via z-scored labels) |
-| max_depth | 6 |
-| min_child_weight | 40 |
-| learning_rate | 0.04 |
+```
+allocation = clip( (proba − PROB_CASH) / (PROB_FULL − PROB_CASH), 0, 1 ) × leverage
+           = clip( (proba − 0.70) / (0.75 − 0.70), 0, 1 ) × leverage
+```
 
-## 5. Allocation Layer (`backtest.py`)
+So below proba 0.70 → fully cash; above 0.75 → fully invested; linear in between.
+The simulator applies real **Boursorama PEA** economics:
 
-### Score -> weights pipeline
+- **Buys are free**; **sells cost 0.5%** → only sell when the allocation drops by
+  ≥ 20% (or all the way to cash), avoiding churn.
+- ETF TER charged daily (PUST 0.23%/yr; LQQ 0.60%/yr for the levered portion in backtest).
 
-1. Z-score test predictions cross-sectionally per day
-2. Filter to positive scores (score > 0)
-3. Top-N filter: keep top 3 by score (TOP_N_ALLOC=3)
-4. Softmax with T=1.0 -> weights
-5. Normalize to sum = 1; 100% of capital deployed unless cash-out is active
+## Repository layout
 
-### Hysteresis rebalancing
+| Path | Role |
+|------|------|
+| `src/risk_off_strategy/data.py` | data loading, features, drawdown-state label |
+| `src/risk_off_strategy/backtest.py` | walk-forward, fee-aware simulation, plots |
+| `src/risk_off_strategy/run.py` | entry point → backtest + charts + `signal.json` |
+| `src/risk_off_strategy/compare_pit.py` | point-in-time vs revised equity curves |
+| `src/risk_off_strategy/test_lookahead.py` | leakage guard |
+| `src/download_ohlcv.py`, `download_macro_data.py` | refresh `data/*.parquet` |
+| `src/real_bourso.py`, `src/bourso/` | morning PEA execution + email notifications |
+| `src/webapp.py` | NiceGUI dashboard (backtests, allocations, trade history) |
 
-Rebalance only when a currently allocated ETF leaves the monitored top-N (TOP_N_MONITOR=3). `prev_topn_set` is carried between WF steps.
-
-### Transaction costs (IB Fixed pricing)
-
-Per-ETF fees based on the actual IB exchange used for live trading:
-
-| Exchange | Fee | Min | ETFs |
-|----------|-----|-----|------|
-| XETRA (IBIS/IBIS2/GETTEX) | 0.10% | 4€ | SXR8, SXRV, SXR2, D5BI, 36B6, ISQ5, EXX1, IS0E, IS0D, SXRS |
-| Amsterdam (AEB) | 0.05% | 4€ | IUSQ, IEMA, LTAM, IKRA, ITWN, IBZL, SJPE, ITKY, FXC, IMEU, RBOT |
-| Euronext Paris (SBF) | 0.05% | 3€ | EMXC (Amundi) |
-| Milan (BVME.ETF) | 0.05% | 4€ | INRG |
-| LSE (LSEETF) | 6 GBP flat | — | ISF |
-| Spread cost | 0.01% per trade | — | all |
-| Rebalance threshold | 3% weight change | — | all |
-
-## 6. Robustness (`backtest.py --robustness`)
-
-50 Monte Carlo runs, randomly dropping 5-10 ETFs from the universe at each step (applied in all modes — heuristic, FL, SM).
-
-## 7. Live Trading (`robot.py`)
-
-Heuristic-only strategy executed via Interactive Brokers Gateway (Docker). Trades the UCITS EUR equivalents.
+## Running
 
 ```bash
-python robot.py --allocation          # show target allocation
-python robot.py --data                # refresh OHLCV + VIX
-python robot.py --dry-run             # connect to IB, show trade plan
-python robot.py --trade               # execute trades
-python robot.py --stop                # stop IB Gateway docker
-```
-
-## 8. Files
-
-| File | Description |
-|------|-------------|
-| `etf.py` | UNIVERSE (26 ETFs) + TRADING_MAP (UCITS EUR) + IB fee schedule |
-| `feature_engineering.py` | ~250 features + ISHARES_MAP + per-ETF smart-money activation |
-| `train.py` | K-fold WF feature selection (x10) + XGBoost ensemble training (x20) |
-| `backtest.py` | VIX regime allocation + IC gates + Monte Carlo robustness |
-| `robot.py` | Live trading robot (heuristic strategy via IB Gateway) |
-| `docker-compose.yml` | IB Gateway container config |
-
-## 9. Running
-
-```bash
+./1_setup_interpreter.sh        # Python 3.12 venv + requirements
 source venv/bin/activate
 
-python feature_engineering.py            # data/features.parquet (~1 min)
-python train.py                          # data/oos_predictions.parquet (~10 min GPU)
-python backtest.py                       # outputs/backtest_equity.jpg
-python backtest.py --robustness          # outputs/backtest_robustness.jpg (~15 min)
+python -m src.download_ohlcv            # refresh QQQ / VIX / TLT
+python -m src.download_macro_data       # refresh FRED BAA spread
+
+python -m src.risk_off_strategy.run QQQ          # backtest → outputs/qqq_strategy/{charts,signal.json}
+python -m src.risk_off_strategy.compare_pit QQQ  # PIT vs revised sanity check
 ```
 
-## 10. Key Design Decisions
+`run.py` also accepts `SPY`, `ACWI`, or `ALL`. Outputs land in `outputs/<ticker>_strategy/`:
+full / 1-year / 1-month equity charts, the PIT comparison, a forward projection, and
+`signal.json` consumed by the morning PEA script.
 
-1. **Single growing universe** — one pipeline, 26 ETFs activated as their smart-money series come online.
-2. **Three-tier VIX regime** — heuristic in calm markets, ML models in turbulent markets (when validated), cash during extreme stress.
-3. **IC gate (causal EMA24)** — models only deploy when they have demonstrated alpha on past OOS steps. Keeps allocation safe during early years and regime shifts.
-4. **K-fold ensembling over varying embargo** — averaging models trained with different train/test cut points cancels both subsampling noise and boundary-sensitivity.
-5. **Per-day regime detection** — VIX EMA100 checked daily, not per-step, avoiding ~50-day strategy lag.
-6. **VIX slope condition for cash** — cash only when VIX >= 20 AND rising, not just high. Allows recovery participation when VIX is elevated but falling.
-7. **Heuristic as a real fallback** — when models are not validated, the strategy actively ignores XGB and picks the rolling-Sharpe leaders. This alone delivers Sharpe 1.28.
-8. **Realistic IB fees** — per-exchange commission schedule matching Interactive Brokers Fixed pricing for UCITS EUR ETFs.
+### Live automation
+
+Two weekday cron jobs drive production (see [`BOURSO.md`](BOURSO.md)):
+
+```
+22:30  src.risk_off_strategy.run QQQ   → signal.json  (+ PIT compare + email recap)
+09:05  src.real_bourso                 → executes PUST allocation on the PEA
+```
+
+`signal.json` carries `status` (`"running"` → `"ok"`), the probability, and the target
+`allocation`; the morning script refuses to act on a non-`ok` or stale (>18h) signal, and
+`logs/emergency_off.json` forces 0% as a kill switch.
+
+## Design choices
+
+1. **Drawdown-state label, not return prediction** — the model learns to recognize
+   dangerous regimes, a far easier and more stable target than forecasting returns.
+2. **Lookahead label + embargo** — act before the crash, with a provable no-leakage gap.
+3. **Temperature-scaled probability → continuous allocation** — gradual de-risking instead
+   of binary on/off whipsaws.
+4. **Fee-aware sizing** — the 0.5% PEA sell fee is modeled, so the strategy only trims when
+   the move is worth it.
+5. **Free data only** — yfinance + FRED; reproducible with no paid API.
