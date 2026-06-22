@@ -100,10 +100,16 @@ def _config_hash(feature_cols, xgb_params, feat_select, feat_power, feat_top_n,
     h.update(f"{feat_select}_{feat_power}_{feat_top_n}".encode())
     h.update(f"{min_train}_{step}_{embargo}_{temperature}".encode())
     if X is not None:
-        # Fingerprint: first row + last row + shape to distinguish data sources
-        h.update(f"{X.shape}".encode())
+        # Fingerprint: early rows + column count to distinguish data sources/windows.
+        # Row COUNT is deliberately excluded so that appending new daily rows keeps the
+        # same cache key → the incremental resume branch (cached_N < N) can kick in.
+        # Early rows are stable under append (new data lands at the end) and already
+        # differ across tickers/start-dates. Safe because only append-only PIT data uses
+        # the cache (compare_pit disables it for revised data, which changes historically).
+        h.update(f"ncols={X.shape[1]}".encode())
         h.update(X[0].tobytes())
-        h.update(X[min(100, len(X)-1)].tobytes())
+        h.update(X[min(100, len(X) - 1)].tobytes())
+        h.update(X[min(500, len(X) - 1)].tobytes())
     return h.hexdigest()[:16]
 
 
