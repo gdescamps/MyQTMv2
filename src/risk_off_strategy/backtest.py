@@ -5,6 +5,7 @@ Walk-forward XGBoost backtest with continuous allocation 0-150%.
 import hashlib
 import json
 import os
+import subprocess
 import numpy as np
 import xgboost as xgb
 import matplotlib.pyplot as plt
@@ -113,11 +114,56 @@ def _config_hash(feature_cols, xgb_params, feat_select, feat_power, feat_top_n,
     return h.hexdigest()[:16]
 
 
+def _gpu_busy(util_threshold=20):
+    """Is another workload using the GPU right now?
+
+    Returns True (busy), False (free), or None (can't tell — no nvidia-smi).
+    Considers the GPU busy if any compute process is resident OR utilisation
+    is above util_threshold. Memory is ignored (N/A on unified-memory GB10).
+    """
+    try:
+        apps = subprocess.run(
+            ["nvidia-smi", "--query-compute-apps=pid", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=5)
+        if apps.returncode == 0 and apps.stdout.strip():
+            # Exclude our own PID: once XGBoost opens a CUDA context, this process
+            # shows up here too — that's not "another workload".
+            own = os.getpid()
+            others = [int(x) for x in apps.stdout.split()
+                      if x.strip().isdigit() and int(x) != own]
+            if others:
+                return True  # another process is resident on the GPU
+        util = subprocess.run(
+            ["nvidia-smi", "--query-gpu=utilization.gpu",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5)
+        if util.returncode == 0 and util.stdout.strip():
+            vals = [int(v) for v in util.stdout.split() if v.strip().isdigit()]
+            if vals and max(vals) >= util_threshold:
+                return True
+        return False
+    except Exception:
+        return None  # nvidia-smi missing/unreadable — let caller decide
+
+
 def _detect_device():
-    """Try GPU, fallback to CPU. Respects XGBOOST_DEVICE env var."""
-    override = os.environ.get("XGBOOST_DEVICE")
-    if override:
+    """Pick XGBoost device. Respects XGBOOST_DEVICE override.
+
+    - XGBOOST_DEVICE=cpu|cuda  → forced.
+    - XGBOOST_DEVICE=auto or unset → use GPU only if available AND not busy,
+      otherwise CPU. This lets the nightly job grab the GPU when it's free and
+      gracefully share with other GPU workloads when they're running.
+    """
+    override = (os.environ.get("XGBOOST_DEVICE") or "").strip().lower()
+    if override in ("cpu", "cuda"):
         return override
+
+    # auto: skip GPU if another workload is using it
+    if _gpu_busy() is True:
+        print("GPU busy (autre workload détecté) → CPU")
+        return "cpu"
+
+    # GPU free (or undetectable) — use it if XGBoost can actually run on cuda
     try:
         m = xgb.XGBClassifier(device="cuda", n_estimators=1, verbosity=0)
         m.fit(np.zeros((10, 2)), np.zeros(10, dtype=int), verbose=False)

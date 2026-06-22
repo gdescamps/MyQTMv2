@@ -61,8 +61,8 @@ Two weekday jobs (see `crontab -l`); the crontab **must** define `PATH` and `DIR
 PATH=/home/greg/.local/bin:/usr/local/bin:/usr/bin:/bin
 DIR=/home/greg/data_local/code/MyQTMv2
 
-# 22:30 — evening backtest + PIT comparison + email recap (CPU mode)
-30 22 * * 1-5 cd $DIR && XGBOOST_DEVICE=cpu ./venv/bin/python -m src.risk_off_strategy.run QQQ ... && ... compare_pit QQQ ...; ... src.bourso.notify --recap ...
+# 22:30 — evening backtest + PIT comparison + email recap (GPU if free, else CPU)
+30 22 * * 1-5 cd $DIR && XGBOOST_DEVICE=auto ./venv/bin/python -m src.risk_off_strategy.run QQQ ... && ... compare_pit QQQ ...; ... src.bourso.notify --recap ...
 
 # 09:05 — PEA PUST execution at Euronext Paris open
 5 9 * * 1-5 cd $DIR && ./venv/bin/python -m src.real_bourso >> logs/cron_pea.log 2>&1
@@ -71,7 +71,7 @@ DIR=/home/greg/data_local/code/MyQTMv2
 **Cron pitfalls (already hit — keep them in mind):**
 1. `PATH` line is mandatory — `bourso-cli` lives in `~/.local/bin`, not the default cron PATH.
 2. `cd $DIR &&` is mandatory — cron runs from `$HOME`; relative paths (`logs/`, `outputs/`) and module imports break otherwise.
-3. `XGBOOST_DEVICE=cpu` forces CPU to avoid GPU contention with other workloads at night.
+3. `XGBOOST_DEVICE=auto` lets `_detect_device` (in `backtest.py`) use the GPU when it's free and fall back to CPU when another workload is using it (checked via `nvidia-smi`). Force a device with `XGBOOST_DEVICE=cpu` or `=cuda`.
 
 The `cron` service is `enabled` (survives reboots) — the crontab is persisted on disk, not in memory.
 

@@ -95,7 +95,7 @@ Le crontab **doit** contenir :
 ```cron
 PATH=/home/greg/.local/bin:/usr/local/bin:/usr/bin:/bin
 
-30 22 * * 1-5 cd /home/greg/data_local/code/MyQTMv2 && XGBOOST_DEVICE=cpu ./venv/bin/python -m src.risk_off_strategy.run QQQ >> logs/cron_backtest.log 2>&1 && XGBOOST_DEVICE=cpu ./venv/bin/python -m src.risk_off_strategy.compare_pit QQQ >> logs/cron_backtest.log 2>&1
+30 22 * * 1-5 cd /home/greg/data_local/code/MyQTMv2 && XGBOOST_DEVICE=auto ./venv/bin/python -m src.risk_off_strategy.run QQQ >> logs/cron_backtest.log 2>&1 && XGBOOST_DEVICE=auto ./venv/bin/python -m src.risk_off_strategy.compare_pit QQQ >> logs/cron_backtest.log 2>&1
 
 5 9 * * 1-5 cd /home/greg/data_local/code/MyQTMv2 && ./venv/bin/python -m src.real_bourso >> logs/cron_pea.log 2>&1
 ```
@@ -106,7 +106,7 @@ PATH=/home/greg/.local/bin:/usr/local/bin:/usr/bin:/bin
 
 2. **`cd` obligatoire** — les commandes cron s'executent depuis `$HOME`, pas depuis le repertoire du projet. Sans `cd /home/greg/data_local/code/MyQTMv2 &&` devant chaque commande, les imports Python et les chemins relatifs (`logs/`, `outputs/`) echouent.
 
-3. **GPU indisponible** — le backtest du soir tourne en parallele d'autres workloads GPU. `XGBOOST_DEVICE=cpu` force XGBoost sur CPU pour eviter les conflits.
+3. **Contention GPU** — le backtest du soir peut tourner en parallele d'autres workloads GPU. `XGBOOST_DEVICE=auto` laisse `_detect_device` (dans `backtest.py`) utiliser le GPU quand il est libre et basculer sur CPU quand un autre process l'occupe (verifie via `nvidia-smi` : process compute residents + utilisation). Forcer avec `XGBOOST_DEVICE=cpu` ou `=cuda` si besoin.
 
 ## Signal (signal.json)
 
