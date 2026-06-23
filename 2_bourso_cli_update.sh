@@ -2,15 +2,17 @@
 #
 # Installe ou met a jour bourso-cli a partir du submodule external/bourso-api.
 #
-# Le submodule est epingle a une version precise (voir `git -C external/bourso-api describe --tags`).
-# Ce script compile cette version-la (Rust/cargo) et copie le binaire dans ~/.local/bin/.
+# Le submodule est epingle sur un commit precis du depot amont (le DERNIER commit
+# de la branche `main`, qui peut etre posterieur au dernier tag — la version reste
+# affichee v0.5.3 tant que le Cargo.toml n'est pas bumpe en amont).
+# Ce script compile ce commit (Rust/cargo) et copie le binaire dans ~/.local/bin/.
 #
 # Usage:
-#   ./bourso_cli_update.sh            # build le commit epingle du submodule + installe
-#   ./bourso_cli_update.sh --pull     # avance le submodule sur le dernier tag upstream, puis build
+#   ./2_bourso_cli_update.sh            # build le commit epingle du submodule + installe
+#   ./2_bourso_cli_update.sh --pull     # avance le submodule sur le DERNIER commit de main, puis build
 #
 # Apres --pull, pense a committer le nouveau pointeur du submodule:
-#   git add external/bourso-api && git commit -m "chore: bump bourso-cli a vX.Y.Z"
+#   git add external/bourso-api && git commit -m "chore: bump bourso-cli (<short-sha>)"
 #
 set -euo pipefail
 
@@ -26,13 +28,12 @@ if [ ! -f "$SUBMODULE/Cargo.toml" ]; then
     git submodule update --init external/bourso-api
 fi
 
-# 2. Optionnel: avancer sur le dernier tag upstream
+# 2. Optionnel: avancer sur le dernier commit de main
 if [ "${1:-}" = "--pull" ]; then
-    echo "==> Recuperation des tags upstream"
+    echo "==> Recuperation du dernier commit upstream (main)"
     git -C "$SUBMODULE" fetch --tags --quiet origin
-    LATEST_TAG="$(git -C "$SUBMODULE" tag -l 'v*' --sort=-v:refname | head -1)"
-    echo "==> Dernier tag upstream: $LATEST_TAG — checkout"
-    git -C "$SUBMODULE" checkout --quiet "$LATEST_TAG"
+    git -C "$SUBMODULE" checkout --quiet origin/main
+    echo "==> Submodule sur: $(git -C "$SUBMODULE" rev-parse --short HEAD) — $(git -C "$SUBMODULE" log -1 --format=%s)"
 fi
 
 PIN_VER="$(grep -m1 '^version' "$SUBMODULE/Cargo.toml" | sed -E 's/.*"([^"]+)".*/\1/')"

@@ -80,7 +80,7 @@ The `cron` service is `enabled` (survives reboots) — the crontab is persisted 
 
 Logs: `logs/cron_backtest.log`, `logs/cron_pea.log`, `logs/cron_bourso_check.log`, `logs/trades.jsonl` (order history, read by the webapp).
 
-`bourso-cli` source is a pinned git submodule at `external/bourso-api` (tag v0.5.3). Build/install with `./bourso_cli_update.sh` (add `--pull` to bump to the latest upstream tag). Dry-run tests live in `tests/` (`pytest tests/`); `src.bourso.check_cli` (20:00 cron) runs them, checks upstream for new commits, and emails a report. See `BOURSO.md`.
+`bourso-cli` source is a pinned git submodule at `external/bourso-api` — pinned to the **latest `main` commit** (`9218f54`, still version-stamped `0.5.3`; the v0.5.3 tag predates the `export` command). Build/install with `./2_bourso_cli_update.sh` (add `--pull` to bump to the latest upstream commit, then commit the gitlink). Dry-run tests in `tests/` (`pytest tests/`) catch a broken build immediately; `src.bourso.check_cli` (20:00 cron) runs them and emails an alert if the build is broken (`BUILD CASSE`) or a new upstream commit appeared (with the commit message). See `BOURSO.md`.
 
 ## Common Commands
 

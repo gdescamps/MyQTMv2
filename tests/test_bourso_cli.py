@@ -1,9 +1,14 @@
 """Tests dry-run du binaire bourso-cli.
 
-Ces tests verifient que bourso-cli est installe et fonctionne, SANS jamais
-passer d'ordre reel ni s'authentifier : on s'appuie sur l'introspection du
-binaire (--version, --help, aide des sous-commandes) et sur la commande
-`quote` (non authentifiee). Aucun ordre d'achat/vente n'est emis.
+But: identifier IMMEDIATEMENT qu'un build de bourso-cli est casse, SANS jamais
+passer d'ordre reel ni s'authentifier. On s'appuie sur l'introspection du
+binaire (--version, --help, aide de chaque sous-commande), l'absence de panic
+Rust, et la commande `quote` (non authentifiee). Aucun ordre n'est emis.
+
+Le submodule `external/bourso-api` est epingle sur le DERNIER commit de `main`
+(et non sur le tag v0.5.3, anterieur a la commande `export`). `export` fait
+donc partie des commandes attendues : si le binaire installe ne l'expose pas,
+c'est que le build est perime/casse -> le test echoue.
 """
 
 import re
@@ -12,7 +17,7 @@ import pytest
 
 from tests.conftest import pinned_version, run_cli
 
-# Sous-commandes attendues dans l'aide de bourso-cli v0.5.x
+# Sous-commandes attendues du dernier commit main (inclut `export`, ajoute apres v0.5.3)
 EXPECTED_COMMANDS = ["accounts", "config", "trade", "quote", "export", "transfer"]
 
 
@@ -34,7 +39,7 @@ def test_version_matches_submodule_pin(bourso_cli):
     """Le binaire installe correspond a la version epinglee dans le submodule.
 
     Garde-fou: detecte un binaire perime par rapport au pin du submodule
-    (relancer ./bourso_cli_update.sh pour resynchroniser).
+    (relancer ./2_bourso_cli_update.sh pour resynchroniser).
     """
     pin = pinned_version()
     if pin is None:
@@ -43,7 +48,7 @@ def test_version_matches_submodule_pin(bourso_cli):
     installed = re.search(r"(\d+\.\d+\.\d+)", out + err).group(1)
     assert installed == pin, (
         f"binaire v{installed} != pin submodule v{pin} "
-        f"— relancer ./bourso_cli_update.sh"
+        f"— relancer ./2_bourso_cli_update.sh"
     )
 
 
@@ -61,11 +66,29 @@ def test_help_lists_expected_commands(bourso_cli):
     assert not missing, f"sous-commandes manquantes dans l'aide: {missing}"
 
 
-@pytest.mark.parametrize("subcommand", ["quote", "trade", "accounts", "export"])
+@pytest.mark.parametrize("subcommand", EXPECTED_COMMANDS)
 def test_subcommand_help(bourso_cli, subcommand):
-    """L'aide de chaque sous-commande fonctionne (dry-run, aucune action)."""
+    """L'aide de CHAQUE sous-commande fonctionne (dry-run, aucune action).
+
+    Un build casse fait souvent planter une sous-commande precise : ce test
+    parametre sur toutes les commandes attendues les couvre une a une.
+    """
     rc, out, err = run_cli(bourso_cli, subcommand, "--help")
     assert rc == 0, f"'{subcommand} --help' a echoue: {err}"
+
+
+def test_no_rust_panic(bourso_cli):
+    """Le binaire ne doit jamais paniquer (build sain) face a une commande invalide.
+
+    Une commande inconnue doit sortir proprement (usage clap, rc=2) et NE PAS
+    afficher un panic Rust ('panicked at') ni un backtrace — symptome d'un
+    binaire corrompu/casse.
+    """
+    rc, out, err = run_cli(bourso_cli, "commande-bidon-inexistante")
+    combined = (out + err).lower()
+    assert "panicked" not in combined, f"panic Rust detecte: {out + err}"
+    assert "backtrace" not in combined, f"backtrace detecte: {out + err}"
+    assert rc != 0, "une commande invalide devrait sortir en erreur"
 
 
 @pytest.mark.network

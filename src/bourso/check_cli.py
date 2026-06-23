@@ -71,8 +71,10 @@ def check_upstream():
         count = _git("rev-list", "--count", f"HEAD..{UPSTREAM_BRANCH}")
         info["new_commits"] = int(count)
         if info["new_commits"] > 0:
+            # Inclure le message complet (sujet + corps) de chaque nouveau commit
             info["log"] = _git(
-                "log", "--oneline", "--no-decorate",
+                "log", "--no-decorate", "--date=short",
+                "--format=- %h (%an, %ad): %s%n%w(0,4,4)%b",
                 f"HEAD..{UPSTREAM_BRANCH}", "-n", "20",
             )
     except Exception as e:
@@ -81,34 +83,51 @@ def check_upstream():
 
 
 def build_report(tests_ok, tests_summary, up):
-    """Assemble (sujet, corps) du mail."""
-    alert = (not tests_ok) or (up.get("new_commits", 0) > 0) or up.get("error")
-    flag = "ALERTE" if alert else "OK"
+    """Assemble (sujet, corps, alerte) du mail.
 
-    tests_line = "REUSSIS" if tests_ok else "ECHEC"
+    Deux causes d'alerte, reflechies dans le sujet :
+      - build casse  : les tests dry-run echouent sur le binaire installe ;
+      - nouveau commit amont : un commit est apparu au-dela du pin courant.
+    """
+    build_broken = not tests_ok
+    has_new = up.get("new_commits", 0) > 0
+    alert = build_broken or has_new or bool(up.get("error"))
+
+    # Sujet priorisant le probleme le plus grave
+    if build_broken:
+        flag = "BUILD CASSE"
+    elif has_new:
+        n = up["new_commits"]
+        flag = f"{n} nouveau commit" + ("s" if n > 1 else "")
+    elif up.get("error"):
+        flag = "check amont impossible"
+    else:
+        flag = "OK"
+
+    tests_line = "REUSSIS" if tests_ok else "ECHEC — build casse, NE PAS deployer"
 
     if up.get("error"):
         up_block = f"Verification amont IMPOSSIBLE: {up['error']}"
-    elif up.get("new_commits", 0) > 0:
+    elif has_new:
         up_block = (
             f"{up['new_commits']} nouveau(x) commit(s) amont au-dela du pin "
-            f"v{up['pinned_version']} (commit {up['pinned_commit']}).\n"
-            f"Dernier tag publie: {up['latest_tag']}\n\n"
-            f"Commits:\n{up['log']}\n\n"
-            f"Pour mettre a jour: ./bourso_cli_update.sh --pull "
-            f"puis committer external/bourso-api."
+            f"(commit {up['pinned_commit']}, v{up['pinned_version']}).\n\n"
+            f"Messages des commits:\n{up['log']}\n"
+            f"Pour mettre a jour manuellement:\n"
+            f"  ./2_bourso_cli_update.sh --pull        # checkout dernier commit main + build + install\n"
+            f"  git add external/bourso-api && git commit -m 'chore: bump bourso-cli'"
         )
     else:
         up_block = (
-            f"A jour: pin v{up['pinned_version']} (commit {up['pinned_commit']}) "
-            f"= dernier tag amont {up['latest_tag']}."
+            f"A jour: le pin (commit {up['pinned_commit']}, v{up['pinned_version']}) "
+            f"= dernier commit de main. Dernier tag publie: {up['latest_tag']}."
         )
 
-    subject = f"[MyQTM] bourso-cli check — {flag}"
+    subject = f"[MyQTM] bourso-cli — {flag}"
     body = (
         f"Verification quotidienne de bourso-cli\n"
         f"{'=' * 40}\n\n"
-        f"1. Tests dry-run: {tests_line}\n"
+        f"1. Build installe (tests dry-run): {tests_line}\n"
         f"   {tests_summary}\n\n"
         f"2. Depot amont (azerpas/bourso-api):\n"
         f"   {up_block}\n"

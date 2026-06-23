@@ -42,7 +42,7 @@ def bourso_cli():
     """Chemin du binaire bourso-cli; skip tout le module s'il est absent."""
     path = find_bourso_cli()
     if not path:
-        pytest.skip("bourso-cli introuvable (lancer ./bourso_cli_update.sh)")
+        pytest.skip("bourso-cli introuvable (lancer ./2_bourso_cli_update.sh)")
     return path
 
 

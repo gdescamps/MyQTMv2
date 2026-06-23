@@ -4,46 +4,51 @@ CLI non-officiel pour BoursoBank, installe depuis [azerpas/bourso-api](https://g
 
 ## Installation
 
-La source est versionnee comme **submodule git** epingle a une version precise :
-`external/bourso-api` → tag **v0.5.3** (commit `32fa2cf`). Cela rend la version
-de bourso-cli reproductible et tracable dans ce depot.
+La source est versionnee comme **submodule git** epingle sur un **commit precis**
+du depot amont : `external/bourso-api` → **dernier commit de `main`** (`9218f54`,
+soit `v0.5.3-2-g9218f54`). On epingle le commit et non le tag car le tag v0.5.3
+est anterieur a la commande `export` (ajoutee apres le tag, sans bump de version :
+le binaire reste affiche `0.5.3`). Cela rend le build reproductible et tracable.
 
 Apres un clone du depot principal :
 ```bash
 git submodule update --init external/bourso-api
-./bourso_cli_update.sh            # compile le commit epingle + installe dans ~/.local/bin
+./2_bourso_cli_update.sh            # compile le commit epingle + installe dans ~/.local/bin
 ```
 
-Binaire : `~/.local/bin/bourso-cli` (v0.5.3)
+Binaire : `~/.local/bin/bourso-cli` (affiche v0.5.3, build du commit `9218f54`)
 
-Pour mettre a jour vers le dernier tag amont :
+Pour mettre a jour vers le dernier commit amont (MAJ manuelle apres alerte) :
 ```bash
-./bourso_cli_update.sh --pull     # avance le submodule au dernier tag, build, installe
-git add external/bourso-api && git commit -m "chore: bump bourso-cli a vX.Y.Z"
+./2_bourso_cli_update.sh --pull     # checkout dernier commit de main, build, installe
+git add external/bourso-api && git commit -m "chore: bump bourso-cli (<short-sha>)"
 ```
 
-Le script `bourso_cli_update.sh` :
+Le script `2_bourso_cli_update.sh` :
 1. initialise le submodule s'il manque ;
-2. (`--pull`) avance le submodule sur le dernier tag `v*` upstream ;
-3. compile (`cargo build --release`) la version epinglee ;
+2. (`--pull`) avance le submodule sur le dernier commit de `main` upstream ;
+3. compile (`cargo build --release`) le commit epingle ;
 4. copie le binaire dans `~/.local/bin/` ;
 5. verifie que la version installee == version du `Cargo.toml` epingle.
 
 ## Tests dry-run + verification quotidienne
 
-`tests/` contient des tests pytest **dry-run** qui verifient le bon
-fonctionnement de bourso-cli sans jamais passer d'ordre reel ni s'authentifier
-(introspection `--version`/`--help`, aide des sous-commandes, coherence entre le
-binaire installe et le pin du submodule, parsing JSON des wrappers) :
+`tests/` contient des tests pytest **dry-run** dont le but est d'identifier
+**immediatement un build casse** de bourso-cli, sans jamais passer d'ordre reel
+ni s'authentifier : presence du binaire, version == pin du submodule, **toutes**
+les sous-commandes attendues presentes (`accounts/config/trade/quote/export/transfer`,
+`export` faisant partie du dernier commit `main`), aide de chaque sous-commande,
+**absence de panic Rust**, et parsing JSON des wrappers.
 ```bash
-pytest tests/                     # 13 tests + 1 xfail (quote 410 Gone en v0.5.3)
+pytest tests/                     # 16 tests + 1 xfail (quote 410 Gone, cote Boursorama)
 ```
 
-Un cron quotidien (**tous les jours 20:00**) lance `src.bourso.check_cli`, qui :
-1. passe les tests dry-run ci-dessus ;
-2. verifie via le submodule si de **nouveaux commits/tags** ont ete pousses sur
-   `azerpas/bourso-api` au-dela du pin v0.5.3 ;
-3. envoie un **email de rapport** (statut `OK` / `ALERTE`).
+Un cron quotidien (**tous les jours 20:00**) lance `src.bourso.check_cli`, qui **alerte** :
+1. si le **build installe est casse** — les tests dry-run echouent (sujet `BUILD CASSE`) ;
+2. ou si **un nouveau commit** est apparu sur `main` au-dela du pin courant — le
+   mail inclut alors le **message complet de chaque commit** (sujet `N nouveau commit`),
+   pour decider d'une mise a jour manuelle via `./2_bourso_cli_update.sh --pull` ;
+3. sinon, rapport `OK`. (Statut email egalement affiche sur stdout / log.)
 
 ```cron
 0 20 * * * cd $DIR && ./venv/bin/python -m src.bourso.check_cli >> logs/cron_bourso_check.log 2>&1
@@ -181,7 +186,7 @@ Le backtest ecrit `outputs/qqq_strategy/signal.json` :
 | `src/bourso/execute.py` | Execution manuelle interactive (PEA ou CTO) |
 | `src/bourso/list_accounts.py` | Liste tous les comptes et soldes |
 | `src/bourso/check_cli.py` | Cron 20h: tests dry-run + check commits upstream + email |
-| `bourso_cli_update.sh` | Build/install bourso-cli depuis le submodule `external/bourso-api` |
+| `2_bourso_cli_update.sh` | Build/install bourso-cli depuis le submodule `external/bourso-api` |
 
 ## Logs
 
