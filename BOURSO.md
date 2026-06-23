@@ -115,6 +115,11 @@ Renvoie en JSON le resume du compte trading : `cash`, `valuation`, `total`, et l
 `positions` (par symbole : `quantity`, `last` prix, `amount`...). Read-only, ne passe
 aucun ordre. C'est la commande sur laquelle s'appuie `src/bourso/prepare.py`.
 
+Le patch utilise `position=INSTANT` (position **temps reel**, qui inclut les ordres
+executes non encore regles) et **non** `ACCOUNTING` (comptable, fige au reglement J+2
+— qui afficherait p.ex. 4 parts au lieu de 6 le jour d'un achat). Indispensable pour
+une strategie quotidienne : le nombre de parts et le cash sont a jour immediatement.
+
 ### Cotation (sans authentification)
 ```bash
 bourso-cli quote --symbol 1rTCW8 --length 30 last
