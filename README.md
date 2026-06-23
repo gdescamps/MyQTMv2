@@ -122,6 +122,10 @@ The simulator applies real **Boursorama PEA** economics:
 | `src/risk_off_strategy/test_lookahead.py` | leakage guard |
 | `src/download_ohlcv.py`, `download_macro_data.py` | refresh `data/*.parquet` |
 | `src/real_bourso.py`, `src/bourso/` | morning PEA execution + email notifications |
+| `src/bourso/check_cli.py` | daily bourso-cli health check (tests + account + upstream) → email |
+| `external/bourso-api` (submodule) | pinned fork [gdescamps/bourso-api](https://github.com/gdescamps/bourso-api), branch `myqtm` = upstream tag + `trade summary` patch |
+| `2_bourso_cli_update.sh` | build/install `bourso-cli` from the submodule (`--pull` to bump) |
+| `tests/` | pytest dry-run + live-account checks for `bourso-cli` |
 | `src/webapp.py` | NiceGUI dashboard (backtests, allocations, trade history) |
 
 ## Running
@@ -129,6 +133,9 @@ The simulator applies real **Boursorama PEA** economics:
 ```bash
 ./1_setup_interpreter.sh        # Python 3.12 venv + requirements
 source venv/bin/activate
+
+git submodule update --init external/bourso-api   # bourso-cli source (pinned fork)
+./2_bourso_cli_update.sh                           # build + install bourso-cli (Rust/cargo)
 
 python -m src.download_ohlcv            # refresh QQQ / VIX / TLT
 python -m src.download_macro_data       # refresh FRED BAA spread
@@ -143,17 +150,28 @@ full / 1-year / 1-month equity charts, the PIT comparison, a forward projection,
 
 ### Live automation
 
-Two weekday cron jobs drive production (see [`BOURSO.md`](BOURSO.md)):
+Three cron jobs drive production (see [`BOURSO.md`](BOURSO.md)):
 
 ```
-22:30  src.risk_off_strategy.run QQQ     → signal.json  (+ PIT compare + email recap)
-09:05  src.real_bourso --execute         → executes PUST allocation on the PEA (live)
+22:30  src.risk_off_strategy.run QQQ     → signal.json  (+ PIT compare + email recap)   [weekdays]
+09:05  src.real_bourso --execute         → executes PUST allocation on the PEA (live)    [weekdays]
+20:00  src.bourso.check_cli              → bourso-cli health check + email alert         [daily]
 ```
 
 `signal.json` carries `status` (`"running"` → `"ok"`), the probability, and the target
 `allocation`; the morning script refuses to act on a non-`ok` or stale signal (max age
 90h — wide enough to tolerate weekend/holiday gaps so Monday mornings still execute), and
 `logs/emergency_off.json` forces 0% as a kill switch.
+
+PEA execution talks to Boursorama through **`bourso-cli`** (Rust). Upstream
+[azerpas/bourso-api](https://github.com/azerpas/bourso-api) exposes the account-reading
+function `get_trading_summary` in its library but never wires it to the CLI, so the source
+is a **pinned git-submodule fork** (`external/bourso-api`, branch `myqtm`) adding a
+read-only **`trade summary`** command (real-time cash/positions via `position=INSTANT`).
+The 20:00 check validates the installed binary (pytest dry-run, no rebuild), does a real
+`trade summary`, and watches azerpas for new tags — emailing `BUILD CASSE` /
+`CONNEXION COMPTE KO` / `nouveau tag` so the fork can be rebased manually with
+`./2_bourso_cli_update.sh --pull`.
 
 ## Design choices
 

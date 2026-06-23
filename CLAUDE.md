@@ -8,7 +8,7 @@ A **crisis-avoidance ("risk-off") trading system**. A walk-forward XGBoost model
 
 All Python code lives directly under `src/` (the old `MyQTM/` submodule is gone). The only git submodule is `external/bourso-api` — the pinned Rust source of `bourso-cli` (see "Bourso CLI" in `BOURSO.md`). Run everything from the repo root with the venv active.
 
-> Note: `README.md` documents an earlier, different design (a 26-ETF cross-sectional momentum strategy with IB Gateway live trading, files like `etf.py` / `train.py` / `robot.py`). Those files are **not** in this repo state — treat `README.md` as legacy/aspirational. The authoritative description of the live system is here and in `BOURSO.md`.
+> `README.md` and `BOURSO.md` both describe the current risk-off system: `README.md` is the strategy/architecture overview, `BOURSO.md` is the operational runbook for the PEA/cron/bourso-cli pipeline. Keep all three in sync. (The old 26-ETF momentum design — `etf.py` / `train.py` / `robot.py` — is gone; ignore any lingering references to it in `memory/`.)
 
 ## Environment Setup
 
