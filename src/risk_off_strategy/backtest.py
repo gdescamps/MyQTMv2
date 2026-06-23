@@ -14,6 +14,13 @@ from pathlib import Path
 
 CACHE_DIR = Path(__file__).resolve().parent.parent.parent / "outputs" / "risk_off_strategy"
 
+# Version du cache walk-forward. A INCREMENTER des qu'une modif change la LOGIQUE
+# de calcul des proba (selection de features, params XGB par defaut, embargo,
+# scaling de proba, etc.) sans changer le hash de config existant. Sinon un cache
+# perime (calcule par l'ancien code) reste "valide" et est resservi en silence
+# -> resultats errones (cf. backtest QQQ x1.0 figé a 17.3% au lieu de 21.5%).
+_CACHE_VERSION = 2
+
 
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
@@ -96,6 +103,7 @@ def _config_hash(feature_cols, xgb_params, feat_select, feat_power, feat_top_n,
                  min_train, step, embargo, temperature, X=None):
     """Hash of walk-forward config + data fingerprint. Stable across data updates."""
     h = hashlib.sha256()
+    h.update(f"cachever={_CACHE_VERSION}".encode())
     h.update(json.dumps(sorted(feature_cols)).encode())
     h.update(json.dumps(xgb_params, sort_keys=True).encode())
     h.update(f"{feat_select}_{feat_power}_{feat_top_n}".encode())

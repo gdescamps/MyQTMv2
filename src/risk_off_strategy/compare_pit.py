@@ -104,10 +104,19 @@ def run_wf(price, vix, spread, tlt, ticker, cache_suffix=""):
     X = df[feature_cols].values
     y = df["target"].values
 
+    # Cache DESACTIVE des deux cotes. Une comparaison PIT-vs-revised n'a de sens
+    # que si le MEME modele/code tourne sur les deux jeux de donnees : toute
+    # difference doit etre imputable a la donnee, pas au cache. Or le cache
+    # incremental (_config_hash) exclut volontairement le nb de lignes et
+    # n'echantillonne que 3 lignes anciennes ; un changement de config/code qui
+    # ne touche pas ces lignes laisse l'ancien cache "valide" et sert des proba
+    # calculees sous une config perimee -> fausse divergence (cf. bug du PNG ou
+    # le PIT cache donnait 17.3% vs 21.5% recalcule a neuf). On recalcule donc
+    # les deux a chaque fois (cache_suffix n'est garde que pour le log).
     wf_pred, wf_proba, _ = walk_forward(
         X, y, feature_cols,
         min_train=MIN_TRAIN, step=STEP, temperature=TEMPERATURE,
-        use_cache=(cache_suffix == ""),  # only use cache for PIT
+        use_cache=False,
     )
 
     pred_mask = wf_pred >= 0
