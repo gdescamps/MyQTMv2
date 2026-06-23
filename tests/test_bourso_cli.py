@@ -5,20 +5,23 @@ passer d'ordre reel ni s'authentifier. On s'appuie sur l'introspection du
 binaire (--version, --help, aide de chaque sous-commande), l'absence de panic
 Rust, et la commande `quote` (non authentifiee). Aucun ordre n'est emis.
 
-Le submodule `external/bourso-api` est epingle sur le DERNIER commit de `main`
-(et non sur le tag v0.5.3, anterieur a la commande `export`). `export` fait
-donc partie des commandes attendues : si le binaire installe ne l'expose pas,
-c'est que le build est perime/casse -> le test echoue.
+Le submodule `external/bourso-api` pointe sur notre fork (branche `myqtm` =
+tag v0.5.3 + patch `trade summary`). Les commandes attendues ci-dessous
+correspondent a ce build ; on verifie aussi que la sous-commande maison
+`trade summary` (indispensable a la lecture du PEA) est bien presente. Si le
+binaire installe ne les expose pas toutes, c'est que le build est perime/casse
+ou non patche -> le test echoue.
 """
 
+import os
 import re
 
 import pytest
 
 from tests.conftest import pinned_version, run_cli
 
-# Sous-commandes attendues du dernier commit main (inclut `export`, ajoute apres v0.5.3)
-EXPECTED_COMMANDS = ["accounts", "config", "trade", "quote", "export", "transfer"]
+# Sous-commandes attendues du tag v0.5.3 (PAS `export`, ajoute en amont apres le tag)
+EXPECTED_COMMANDS = ["accounts", "config", "trade", "quote", "transfer"]
 
 
 def test_binary_present(bourso_cli):
@@ -77,6 +80,16 @@ def test_subcommand_help(bourso_cli, subcommand):
     assert rc == 0, f"'{subcommand} --help' a echoue: {err}"
 
 
+def test_trade_summary_patch_present(bourso_cli):
+    """La sous-commande maison `trade summary` doit etre presente (patch myqtm).
+
+    C'est elle qui permet a `prepare.py`/`get_pea_state` de lire le PEA. Un binaire
+    non patche (azerpas vanilla) ne l'expose pas -> ce test echoue immediatement.
+    """
+    rc, out, err = run_cli(bourso_cli, "trade", "summary", "--help")
+    assert rc == 0, f"'trade summary --help' a echoue (binaire non patche ?): {err}"
+
+
 def test_no_rust_panic(bourso_cli):
     """Le binaire ne doit jamais paniquer (build sain) face a une commande invalide.
 
@@ -110,3 +123,26 @@ def test_quote_live(bourso_cli):
         pytest.skip(f"reseau indisponible: {e}")
     assert rc == 0, f"quote a echoue (rc={rc}): {err}"
     assert re.search(r"\d+[.,]\d+", out + err), "aucun prix dans la sortie"
+
+
+@pytest.mark.live
+def test_prepare_live():
+    """Connexion au compte REEL — equivalent de src/bourso/prepare.py.
+
+    Lance un vrai `bourso-cli trade prepare` (via prepare_order) sur le PEA/PUST :
+    authentifie aupres de BoursoBank, lit cours + cash + position. Aucun ordre.
+    C'est ce qui valide a 20h que la chaine d'execution du matin marchera.
+
+    DESACTIVE par defaut : ne s'execute que si BOURSO_LIVE_TESTS=1 (defini par le
+    cron de 20h), pour ne pas authentifier le compte a chaque `pytest` de dev.
+    """
+    if not os.environ.get("BOURSO_LIVE_TESTS"):
+        pytest.skip("BOURSO_LIVE_TESTS non defini — check compte reel desactive")
+
+    from src.bourso.prepare import prepare_order, PEA_ACCOUNT_ID, SYMBOLS
+    data = prepare_order(PEA_ACCOUNT_ID, SYMBOLS["PUST"])
+
+    price = data["symbol"]["last_price"]
+    cash = data["account"]["cash"]
+    assert price and price > 0, f"cours PUST invalide: {price!r}"
+    assert cash is not None, "cash du compte illisible (None)"

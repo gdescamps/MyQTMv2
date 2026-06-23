@@ -1,54 +1,76 @@
 # Bourso CLI
 
-CLI non-officiel pour BoursoBank, installe depuis [azerpas/bourso-api](https://github.com/azerpas/bourso-api).
+CLI non-officiel pour BoursoBank, base sur [azerpas/bourso-api](https://github.com/azerpas/bourso-api),
+avec un **fork maison** ([gdescamps/bourso-api](https://github.com/gdescamps/bourso-api)) qui ajoute
+la sous-commande `trade summary`.
 
-## Installation
+## Installation (fork maison + patch `trade summary`)
 
-La source est versionnee comme **submodule git** epingle sur un **commit precis**
-du depot amont : `external/bourso-api` → **dernier commit de `main`** (`9218f54`,
-soit `v0.5.3-2-g9218f54`). On epingle le commit et non le tag car le tag v0.5.3
-est anterieur a la commande `export` (ajoutee apres le tag, sans bump de version :
-le binaire reste affiche `0.5.3`). Cela rend le build reproductible et tracable.
+`azerpas/bourso-api` n'expose **pas** de commande CLI pour lire l'etat d'un compte
+trading (cash/positions) — la fonction existe dans la lib (`get_trading_summary`)
+mais n'est pas cablee au CLI. Or `src/bourso/prepare.py` (recap du soir + execution
+du matin) en a besoin. On maintient donc un **fork** avec un patch minimal.
+
+Le submodule `external/bourso-api` pointe sur le fork, branche **`myqtm`** =
+tag upstream (actuellement **v0.5.3**) + 1 commit `feat: add 'trade summary' CLI`.
+Deux remotes dans le submodule :
+
+| Remote | URL | Usage |
+|---|---|---|
+| `origin` | `git@github.com:gdescamps/bourso-api.git` | notre fork (branche `myqtm`, push) |
+| `upstream` | `https://github.com/azerpas/bourso-api.git` | tags + observation de `main` (lecture) |
 
 Apres un clone du depot principal :
 ```bash
 git submodule update --init external/bourso-api
-./2_bourso_cli_update.sh            # compile le commit epingle + installe dans ~/.local/bin
+./2_bourso_cli_update.sh            # compile le commit epingle (myqtm) + installe dans ~/.local/bin
 ```
 
-Binaire : `~/.local/bin/bourso-cli` (affiche v0.5.3, build du commit `9218f54`)
+Binaire : `~/.local/bin/bourso-cli` (v0.5.3 + patch `trade summary`)
 
-Pour mettre a jour vers le dernier commit amont (MAJ manuelle apres alerte) :
+Quand un nouveau tag azerpas sort (le cron de 20h alerte), MAJ manuelle :
 ```bash
-./2_bourso_cli_update.sh --pull     # checkout dernier commit de main, build, installe
-git add external/bourso-api && git commit -m "chore: bump bourso-cli (<short-sha>)"
+./2_bourso_cli_update.sh --pull     # rebase myqtm sur le dernier tag azerpas, build, installe
+cd external/bourso-api && git push origin myqtm --force-with-lease && cd -
+git add external/bourso-api && git commit -m "chore: bump bourso-cli a vX.Y.Z"
 ```
 
 Le script `2_bourso_cli_update.sh` :
 1. initialise le submodule s'il manque ;
-2. (`--pull`) avance le submodule sur le dernier commit de `main` upstream ;
+2. (`--pull`) `fetch upstream --tags` puis **rebase `myqtm` sur le dernier tag** azerpas ;
 3. compile (`cargo build --release`) le commit epingle ;
 4. copie le binaire dans `~/.local/bin/` ;
-5. verifie que la version installee == version du `Cargo.toml` epingle.
+5. verifie que la version installee == version du `Cargo.toml`.
 
-## Tests dry-run + verification quotidienne
+> Le patch lui-meme (`trade summary`) expose la fonction officielle
+> `BoursoWebClient::get_trading_summary` ; voir le commit sur la branche `myqtm`
+> du fork. `src/bourso/prepare.py` parse son JSON (cash, valuation, positions).
 
-`tests/` contient des tests pytest **dry-run** dont le but est d'identifier
-**immediatement un build casse** de bourso-cli, sans jamais passer d'ordre reel
-ni s'authentifier : presence du binaire, version == pin du submodule, **toutes**
-les sous-commandes attendues presentes (`accounts/config/trade/quote/export/transfer`,
-`export` faisant partie du dernier commit `main`), aide de chaque sous-commande,
-**absence de panic Rust**, et parsing JSON des wrappers.
+## Tests + verification quotidienne
+
+`tests/` contient des tests pytest qui valident bourso-cli a deux niveaux :
+
+- **Build dry-run** (sans auth ni ordre reel) : presence du binaire, version ==
+  pin du submodule, sous-commandes attendues (`accounts/config/trade/quote/transfer`),
+  **presence du patch `trade summary`**, aide de chaque sous-commande, **absence de
+  panic Rust**, parsing JSON des wrappers.
+- **Connexion compte reel** (`test_prepare_live`, marker `live`) : equivalent de
+  `prepare.py` — un vrai `bourso-cli trade summary` sur le PEA (auth + lecture
+  cash/valuation/positions, aucun ordre). **Desactive par defaut**, actif seulement si
+  `BOURSO_LIVE_TESTS=1`, pour ne pas authentifier le compte a chaque `pytest`.
+
 ```bash
-pytest tests/                     # 16 tests + 1 xfail (quote 410 Gone, cote Boursorama)
+pytest tests/                                  # build dry-run (prepare_live skippe)
+BOURSO_LIVE_TESTS=1 pytest tests/ -k prepare_live   # check compte reel a la demande
 ```
 
 Un cron quotidien (**tous les jours 20:00**) lance `src.bourso.check_cli`, qui **alerte** :
-1. si le **build installe est casse** — les tests dry-run echouent (sujet `BUILD CASSE`) ;
-2. ou si **un nouveau commit** est apparu sur `main` au-dela du pin courant — le
-   mail inclut alors le **message complet de chaque commit** (sujet `N nouveau commit`),
-   pour decider d'une mise a jour manuelle via `./2_bourso_cli_update.sh --pull` ;
-3. sinon, rapport `OK`. (Statut email egalement affiche sur stdout / log.)
+1. **build casse** — les tests dry-run echouent (sujet `BUILD CASSE`) ;
+2. **connexion compte KO** — le `trade summary` reel sur le PEA echoue, p.ex.
+   auth/reseau/CLI cassee (sujet `CONNEXION COMPTE KO`) ;
+3. **nouveau tag azerpas** plus recent que notre tag de base — le mail inclut le
+   **changelog complet** du tag (sujet `nouveau tag vX.Y.Z`), pour decider du rebase ;
+4. sinon, rapport `OK`. (Statut aussi affiche sur stdout / log.)
 
 ```cron
 0 20 * * * cd $DIR && ./venv/bin/python -m src.bourso.check_cli >> logs/cron_bourso_check.log 2>&1
@@ -84,6 +106,14 @@ bourso-cli trade order new --side buy --symbol 1rTCW8 --account <ACCOUNT_ID> --q
 - `--side` : `buy` ou `sell`
 - `--symbol` : ID Boursorama du tracker (visible dans l'URL, ex: `https://www.boursorama.com/bourse/trackers/cours/1rTCW8/`)
 - `--quantity` : nombre de parts
+
+### Lire l'etat du compte (`trade summary` — patch maison)
+```bash
+bourso-cli trade summary --account <ACCOUNT_ID>
+```
+Renvoie en JSON le resume du compte trading : `cash`, `valuation`, `total`, et les
+`positions` (par symbole : `quantity`, `last` prix, `amount`...). Read-only, ne passe
+aucun ordre. C'est la commande sur laquelle s'appuie `src/bourso/prepare.py`.
 
 ### Cotation (sans authentification)
 ```bash
@@ -182,7 +212,7 @@ Le backtest ecrit `outputs/qqq_strategy/signal.json` :
 | Script | Role |
 |---|---|
 | `src/real_bourso.py` | Execution matin: lit signal, PEA prepare, achat/vente PUST |
-| `src/bourso/prepare.py` | Dry-run: affiche prix, cash, capacite d'achat |
+| `src/bourso/prepare.py` | Lecture etat PEA (cash/positions/cours) via `trade summary` |
 | `src/bourso/execute.py` | Execution manuelle interactive (PEA ou CTO) |
 | `src/bourso/list_accounts.py` | Liste tous les comptes et soldes |
 | `src/bourso/check_cli.py` | Cron 20h: tests dry-run + check commits upstream + email |

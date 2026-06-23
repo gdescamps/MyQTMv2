@@ -1,3 +1,4 @@
 [submodule "external/bourso-api"]
 	path = external/bourso-api
-	url = https://github.com/azerpas/bourso-api.git
+	url = git@github.com:gdescamps/bourso-api.git
+	branch = myqtm

@@ -1,4 +1,9 @@
-"""Prepare (dry-run) a trade order via bourso-cli to check price, fees, cash."""
+"""Lecture (dry-run) de l'etat du compte PEA via bourso-cli, sans passer d'ordre.
+
+S'appuie sur `bourso-cli trade summary` (patch maison exposant get_trading_summary
+de la lib bourso_api) pour recuperer cash, titres et positions. Remplace
+l'ancien `trade prepare` (qui venait d'un fork perdu et n'existe pas en amont).
+"""
 
 import json
 import os
@@ -65,66 +70,117 @@ def _extract_json(text):
     return None
 
 
-def prepare_order(account_id, symbol):
-    """Prepare an order (dry-run) and return parsed data.
+def _extract_json_array(text):
+    """Extract the first JSON array from text (skip log lines)."""
+    decoder = json.JSONDecoder()
+    start = 0
+    while True:
+        idx = text.find("[", start)
+        if idx == -1:
+            return None
+        try:
+            obj, _ = decoder.raw_decode(text[idx:])
+            if isinstance(obj, list):
+                return obj
+        except json.JSONDecodeError:
+            pass
+        start = idx + 1
 
-    The Rust CLI may fail to deserialize the response (null fields),
-    but the raw JSON is in the error message — we parse it from there.
 
-    Returns dict with keys: cash, last_price, symbol_info, account_info, order_types, etc.
+def _val(d, key):
+    """Extrait la valeur d'un champ SummaryValue ({value, decimals, currency}) ou brut."""
+    x = d.get(key)
+    return x.get("value") if isinstance(x, dict) else x
+
+
+def get_account_summary(account_id):
+    """Lit l'etat du compte trading via `bourso-cli trade summary` (read-only).
+
+    Retourne:
+      {"account": {name, type, cash, stocks, equity, balance},
+       "positions": {symbol: {quantity, last_price, label, amount, currency}}}
     """
-    stdout, stderr, rc = _run_cli_raw("trade", "prepare", "--account", account_id, "--symbol", symbol)
-
+    stdout, stderr, rc = _run_cli_raw("trade", "summary", "--account", account_id)
     combined = stdout + stderr
-    data = _extract_json(combined)
-    if not data:
+    data = _extract_json_array(combined)
+    if data is None:
         raise RuntimeError(f"Could not extract JSON from bourso-cli output:\n{combined}")
 
-    result = {
-        "resource_id": data.get("resourceId"),
-        "cash": data.get("position", {}).get("cash"),
-        "quantity_held": data.get("position", {}).get("quantity", 0),
-    }
+    account = {}
+    positions = {}
+    for item in data:
+        if item.get("id") == "account" and item.get("account"):
+            a = item["account"]
+            account = {
+                "name": a.get("name"),
+                "type": a.get("typeCategory"),
+                "cash": _val(a, "cash"),
+                "stocks": _val(a, "valuation"),
+                "equity": _val(a, "total"),
+                "balance": _val(a, "balance"),
+            }
+        elif item.get("id") == "positions" and item.get("positions"):
+            for p in item["positions"]:
+                positions[p.get("symbol")] = {
+                    "quantity": _val(p, "quantity"),
+                    "last_price": _val(p, "last"),
+                    "label": p.get("label"),
+                    "amount": _val(p, "amount"),
+                    "currency": (p.get("last") or {}).get("currency", "EUR"),
+                }
+    return {"account": account, "positions": positions}
 
-    sym = data.get("symbol", {})
-    result["symbol"] = {
-        "id": sym.get("symbol"),
-        "label": sym.get("label"),
-        "isin": sym.get("isin"),
-        "last_price": sym.get("lastPrice"),
-        "currency": sym.get("currency"),
-        "exchange": sym.get("exchangeLabel"),
-        "is_tracker": sym.get("details", {}).get("tracker", False),
-    }
 
-    acct = data.get("account", {})
-    details = acct.get("details", {})
-    result["account"] = {
-        "name": acct.get("name"),
-        "type": acct.get("type"),
-        "balance": acct.get("balance"),
-        "cash": details.get("cash"),
-        "stocks": details.get("stocks"),
-        "iban": acct.get("iban"),
-        "fees_profile": data.get("accountFeesProfile"),
-    }
+def prepare_order(account_id, symbol):
+    """Etat du compte + cours d'un symbole (dry-run, aucun ordre).
 
-    prefill = data.get("prefillOrderData", {})
-    result["prefill"] = {
-        "order_type": prefill.get("orderType"),
-        "order_amount": prefill.get("orderAmount"),
-        "order_validity": prefill.get("orderValidity"),
-    }
+    Reconstruit a partir de `trade summary`. Si le symbole n'est pas detenu
+    (0 part, donc absent des positions), le cours est recupere via le scraping
+    HTTP Boursorama (`quote.py`, car le `quote` du CLI est en 410). Conserve la
+    forme de retour attendue par les consommateurs (real_bourso, notify, etc.).
+    """
+    summary = get_account_summary(account_id)
+    acct = summary["account"]
+    pos = summary["positions"].get(symbol, {})
 
-    prep = data.get("prepareOrderData", {})
-    result["order_config"] = {
-        "buy_types": prep.get("listOrdType", {}).get("b", []),
-        "sell_types": prep.get("listOrdType", {}).get("s", []),
-        "min_expiry": prep.get("minExpireTm"),
-        "max_expiry": prep.get("maxExpireTm"),
-    }
+    qty = pos.get("quantity")
+    qty = int(qty) if qty is not None else 0
+    price = pos.get("last_price")
+    label = pos.get("label")
+    currency = pos.get("currency", "EUR")
 
-    return result
+    if price is None:
+        # symbole non detenu -> cours via scraping HTTP (le CLI `quote` renvoie 410)
+        from src.bourso.quote import get_quote
+        q = get_quote(symbol)
+        price = q.get("last")
+        label = label or q.get("name")
+
+    return {
+        "resource_id": None,
+        "cash": acct.get("cash"),
+        "quantity_held": qty,
+        "symbol": {
+            "id": symbol,
+            "label": label,
+            "isin": None,
+            "last_price": price,
+            "currency": currency,
+            "exchange": None,
+            "is_tracker": True,
+        },
+        "account": {
+            "name": acct.get("name"),
+            "type": acct.get("type"),
+            "balance": acct.get("balance"),
+            "cash": acct.get("cash"),
+            "stocks": acct.get("stocks"),
+            "iban": None,
+            "fees_profile": None,
+        },
+        "prefill": {},
+        "order_config": {"buy_types": [], "sell_types": [], "min_expiry": None, "max_expiry": None},
+    }
 
 
 def print_prepare(account_id, symbol):

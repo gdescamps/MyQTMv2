@@ -2,17 +2,19 @@
 #
 # Installe ou met a jour bourso-cli a partir du submodule external/bourso-api.
 #
-# Le submodule est epingle sur un commit precis du depot amont (le DERNIER commit
-# de la branche `main`, qui peut etre posterieur au dernier tag — la version reste
-# affichee v0.5.3 tant que le Cargo.toml n'est pas bumpe en amont).
-# Ce script compile ce commit (Rust/cargo) et copie le binaire dans ~/.local/bin/.
+# Le submodule pointe sur NOTRE fork (git@github.com:gdescamps/bourso-api.git),
+# branche `myqtm` = un tag upstream (azerpas) + le patch maison `trade summary`
+# (expose get_trading_summary en CLI, indispensable a la lecture du PEA cote
+# MyQTMv2). Deux remotes dans le submodule : `origin` = fork, `upstream` = azerpas.
+# Ce script compile le commit epingle (Rust/cargo) et copie le binaire dans ~/.local/bin/.
 #
 # Usage:
 #   ./2_bourso_cli_update.sh            # build le commit epingle du submodule + installe
-#   ./2_bourso_cli_update.sh --pull     # avance le submodule sur le DERNIER commit de main, puis build
+#   ./2_bourso_cli_update.sh --pull     # rebase `myqtm` sur le DERNIER tag azerpas, puis build
 #
-# Apres --pull, pense a committer le nouveau pointeur du submodule:
-#   git add external/bourso-api && git commit -m "chore: bump bourso-cli (<short-sha>)"
+# Apres --pull (rebase reussi), pousser le fork et committer le pointeur du submodule:
+#   cd external/bourso-api && git push origin myqtm --force-with-lease && cd -
+#   git add external/bourso-api && git commit -m "chore: bump bourso-cli a vX.Y.Z"
 #
 set -euo pipefail
 
@@ -28,12 +30,18 @@ if [ ! -f "$SUBMODULE/Cargo.toml" ]; then
     git submodule update --init external/bourso-api
 fi
 
-# 2. Optionnel: avancer sur le dernier commit de main
+# 2. Optionnel: rebaser notre patch `myqtm` sur le dernier tag azerpas
 if [ "${1:-}" = "--pull" ]; then
-    echo "==> Recuperation du dernier commit upstream (main)"
-    git -C "$SUBMODULE" fetch --tags --quiet origin
-    git -C "$SUBMODULE" checkout --quiet origin/main
-    echo "==> Submodule sur: $(git -C "$SUBMODULE" rev-parse --short HEAD) — $(git -C "$SUBMODULE" log -1 --format=%s)"
+    echo "==> Recuperation des tags azerpas (remote upstream)"
+    git -C "$SUBMODULE" fetch --tags --quiet upstream
+    LATEST_TAG="$(git -C "$SUBMODULE" tag -l 'v*' --sort=-v:refname | head -1)"
+    echo "==> Dernier tag azerpas: $LATEST_TAG — rebase de myqtm dessus"
+    git -C "$SUBMODULE" checkout --quiet myqtm
+    if ! git -C "$SUBMODULE" rebase "$LATEST_TAG"; then
+        echo "ERREUR: conflit de rebase. Resoudre manuellement dans $SUBMODULE puis relancer." >&2
+        exit 1
+    fi
+    echo "==> myqtm rebase sur $LATEST_TAG. Pense a: git push origin myqtm --force-with-lease"
 fi
 
 PIN_VER="$(grep -m1 '^version' "$SUBMODULE/Cargo.toml" | sed -E 's/.*"([^"]+)".*/\1/')"
