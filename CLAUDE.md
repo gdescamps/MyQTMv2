@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A **crisis-avoidance ("risk-off") trading system**. A walk-forward XGBoost model predicts when to be invested vs. in cash, producing a continuous allocation (0 → 2x leverage). The live system runs the strategy nightly on QQQ and executes the resulting allocation each morning on a **Boursorama PEA** account via the unofficial `bourso-cli`, trading the Amundi PEA Nasdaq-100 ETF (**PUST**, x1 only).
 
-All code lives directly under `src/` — there is **no git submodule** (the old `MyQTM/` submodule is gone). Run everything from the repo root with the venv active.
+All Python code lives directly under `src/` (the old `MyQTM/` submodule is gone). The only git submodule is `external/bourso-api` — the pinned Rust source of `bourso-cli` (see "Bourso CLI" in `BOURSO.md`). Run everything from the repo root with the venv active.
 
 > Note: `README.md` documents an earlier, different design (a 26-ETF cross-sectional momentum strategy with IB Gateway live trading, files like `etf.py` / `train.py` / `robot.py`). Those files are **not** in this repo state — treat `README.md` as legacy/aspirational. The authoritative description of the live system is here and in `BOURSO.md`.
 
@@ -55,7 +55,7 @@ NiceGUI dashboard (backtests, PE chart, allocations, trade history). Runs in Doc
 
 ## Cron (the live system)
 
-Two weekday jobs (see `crontab -l`); the crontab **must** define `PATH` and `DIR` at the top:
+Two weekday jobs + one daily check (see `crontab -l`); the crontab **must** define `PATH` and `DIR` at the top:
 
 ```cron
 PATH=/home/greg/.local/bin:/usr/local/bin:/usr/bin:/bin
@@ -66,6 +66,9 @@ DIR=/home/greg/data_local/code/MyQTMv2
 
 # 09:05 — PEA PUST execution at Euronext Paris open (live: --execute)
 5 9 * * 1-5 cd $DIR && ./venv/bin/python -m src.real_bourso --execute >> logs/cron_pea.log 2>&1
+
+# 20:00 daily — bourso-cli dry-run tests + upstream-commit check + email report
+0 20 * * * cd $DIR && ./venv/bin/python -m src.bourso.check_cli >> logs/cron_bourso_check.log 2>&1
 ```
 
 **Cron pitfalls (already hit — keep them in mind):**
@@ -75,7 +78,9 @@ DIR=/home/greg/data_local/code/MyQTMv2
 
 The `cron` service is `enabled` (survives reboots) — the crontab is persisted on disk, not in memory.
 
-Logs: `logs/cron_backtest.log`, `logs/cron_pea.log`, `logs/trades.jsonl` (order history, read by the webapp).
+Logs: `logs/cron_backtest.log`, `logs/cron_pea.log`, `logs/cron_bourso_check.log`, `logs/trades.jsonl` (order history, read by the webapp).
+
+`bourso-cli` source is a pinned git submodule at `external/bourso-api` (tag v0.5.3). Build/install with `./bourso_cli_update.sh` (add `--pull` to bump to the latest upstream tag). Dry-run tests live in `tests/` (`pytest tests/`); `src.bourso.check_cli` (20:00 cron) runs them, checks upstream for new commits, and emails a report. See `BOURSO.md`.
 
 ## Common Commands
 

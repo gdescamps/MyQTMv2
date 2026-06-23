@@ -4,18 +4,54 @@ CLI non-officiel pour BoursoBank, installe depuis [azerpas/bourso-api](https://g
 
 ## Installation
 
-Compile depuis source (Rust) le 2026-06-17 :
+La source est versionnee comme **submodule git** epingle a une version precise :
+`external/bourso-api` → tag **v0.5.3** (commit `32fa2cf`). Cela rend la version
+de bourso-cli reproductible et tracable dans ce depot.
+
+Apres un clone du depot principal :
 ```bash
-cd /tmp && git clone --depth 1 https://github.com/azerpas/bourso-api.git
-cd bourso-api && cargo build --release
-cp target/release/bourso-cli ~/.local/bin/
+git submodule update --init external/bourso-api
+./bourso_cli_update.sh            # compile le commit epingle + installe dans ~/.local/bin
 ```
 
 Binaire : `~/.local/bin/bourso-cli` (v0.5.3)
 
-Pour mettre a jour :
+Pour mettre a jour vers le dernier tag amont :
 ```bash
-cd /tmp/bourso-api && git pull && cargo build --release && cp target/release/bourso-cli ~/.local/bin/
+./bourso_cli_update.sh --pull     # avance le submodule au dernier tag, build, installe
+git add external/bourso-api && git commit -m "chore: bump bourso-cli a vX.Y.Z"
+```
+
+Le script `bourso_cli_update.sh` :
+1. initialise le submodule s'il manque ;
+2. (`--pull`) avance le submodule sur le dernier tag `v*` upstream ;
+3. compile (`cargo build --release`) la version epinglee ;
+4. copie le binaire dans `~/.local/bin/` ;
+5. verifie que la version installee == version du `Cargo.toml` epingle.
+
+## Tests dry-run + verification quotidienne
+
+`tests/` contient des tests pytest **dry-run** qui verifient le bon
+fonctionnement de bourso-cli sans jamais passer d'ordre reel ni s'authentifier
+(introspection `--version`/`--help`, aide des sous-commandes, coherence entre le
+binaire installe et le pin du submodule, parsing JSON des wrappers) :
+```bash
+pytest tests/                     # 13 tests + 1 xfail (quote 410 Gone en v0.5.3)
+```
+
+Un cron quotidien (**tous les jours 20:00**) lance `src.bourso.check_cli`, qui :
+1. passe les tests dry-run ci-dessus ;
+2. verifie via le submodule si de **nouveaux commits/tags** ont ete pousses sur
+   `azerpas/bourso-api` au-dela du pin v0.5.3 ;
+3. envoie un **email de rapport** (statut `OK` / `ALERTE`).
+
+```cron
+0 20 * * * cd $DIR && ./venv/bin/python -m src.bourso.check_cli >> logs/cron_bourso_check.log 2>&1
+```
+
+```bash
+python -m src.bourso.check_cli            # tests + check upstream + email
+python -m src.bourso.check_cli --no-email # rapport affiche sans envoi
 ```
 
 ## Configuration
@@ -82,6 +118,7 @@ Formats : `csv`, `json`. Sans `--output`, ecrit sur stdout.
 ```
 22:30  cron backtest (run.py QQQ)  →  outputs/qqq_strategy/signal.json
 09:05  cron PEA (real_bourso.py)   →  lit signal, execute PUST sur Euronext
+20:00  cron check (check_cli.py)   →  tests dry-run + maj upstream + email
 ```
 
 - **ETF**: PUST (Amundi PEA Nasdaq-100), symbole Bourso `1rTPUST`
@@ -98,6 +135,8 @@ PATH=/home/greg/.local/bin:/usr/local/bin:/usr/bin:/bin
 30 22 * * 1-5 cd /home/greg/data_local/code/MyQTMv2 && XGBOOST_DEVICE=auto ./venv/bin/python -m src.risk_off_strategy.run QQQ >> logs/cron_backtest.log 2>&1 && XGBOOST_DEVICE=auto ./venv/bin/python -m src.risk_off_strategy.compare_pit QQQ >> logs/cron_backtest.log 2>&1
 
 5 9 * * 1-5 cd /home/greg/data_local/code/MyQTMv2 && ./venv/bin/python -m src.real_bourso --execute >> logs/cron_pea.log 2>&1
+
+0 20 * * * cd /home/greg/data_local/code/MyQTMv2 && ./venv/bin/python -m src.bourso.check_cli >> logs/cron_bourso_check.log 2>&1
 ```
 
 ### Pieges cron rencontres
@@ -141,12 +180,15 @@ Le backtest ecrit `outputs/qqq_strategy/signal.json` :
 | `src/bourso/prepare.py` | Dry-run: affiche prix, cash, capacite d'achat |
 | `src/bourso/execute.py` | Execution manuelle interactive (PEA ou CTO) |
 | `src/bourso/list_accounts.py` | Liste tous les comptes et soldes |
+| `src/bourso/check_cli.py` | Cron 20h: tests dry-run + check commits upstream + email |
+| `bourso_cli_update.sh` | Build/install bourso-cli depuis le submodule `external/bourso-api` |
 
 ## Logs
 
 - `logs/cron_backtest.log` — sortie du backtest du soir
 - `logs/cron_pea.log` — sortie de l'execution matin
 - `logs/trades.jsonl` — historique des ordres (lu par la webapp)
+- `logs/cron_bourso_check.log` — sortie du check quotidien bourso-cli (20h)
 
 ## Execution manuelle
 
