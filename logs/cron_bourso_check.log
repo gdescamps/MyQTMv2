@@ -1,0 +1,37 @@
+----- SIMULATION CRON Tue Jun 23 12:42:50 CEST 2026 -----
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   16 passed, 1 xfailed in 0.18s
+
+2. Depot amont (azerpas/bourso-api):
+   A jour: le pin (commit 9218f54, v0.5.3) = dernier commit de main. Dernier tag publie: v0.5.3.
+
+----- CRON RUN (manuel) Tue Jun 23 12:45:32 CEST 2026 -----
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   16 passed, 1 xfailed in 0.16s
+
+2. Depot amont (azerpas/bourso-api):
+   A jour: le pin (commit 9218f54, v0.5.3) = dernier commit de main. Dernier tag publie: v0.5.3.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+----- CRON 20H (manuel) Tue Jun 23 15:25:42 CEST 2026 -----
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   16 passed, 1 skipped, 1 xfailed in 0.14s
+
+2. Connexion compte reel (trade summary PEA/PUST): OK — PUST 106.2800 EUR — PEA: 273.05 EUR especes, 4 part(s)
+
+3. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.3 (pin 628b70e, v0.5.3) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK

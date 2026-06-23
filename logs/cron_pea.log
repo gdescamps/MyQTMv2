@@ -1,0 +1,39 @@
+============================================================
+PEA PUST (Nasdaq x1) — 2026-06-19
+Mode: DRY-RUN
+============================================================
+Signal du 2026-06-18 (status=ok, age: 8.2h)
+  Probabilite: 0.8500
+  Allocation:  100%
+[ERREUR] Impossible de lire le PEA: [Errno 2] No such file or directory: 'bourso-cli'
+============================================================
+PEA PUST (Nasdaq x1) — 2026-06-22
+Mode: DRY-RUN
+============================================================
+[ERREUR] Signal trop ancien: 2026-06-18 (58h)
+  Le backtest du soir a-t-il tourne? Verifier logs/cron_backtest.log
+============================================================
+PEA PUST (Nasdaq x1) — 2026-06-23
+Mode: DRY-RUN
+============================================================
+Signal du 2026-06-22 (status=ok, age: 10.3h)
+  Probabilite: 0.8131
+  Allocation:  100%
+
+PEA PEA DESCAMPS:
+  Especes:      273.05 EUR
+  Titres:       416.48 EUR
+  Total:        689.53 EUR
+  PUST:     4 parts @ 104.12 EUR
+
+Allocation:
+  Actuelle: 60.4% (4 parts, 416 EUR)
+  Cible:    100.0% (690 EUR)
+  Delta:    +39.6% (+273 EUR)
+
+Decision: Acheter 2 parts (+39.6%)
+  [DRY-RUN] ACHAT 2x PUST
+Email envoye a descamps.gregory@gmail.com: [MyQTM] DRY-RUN ACHAT 2x PUST @ 104.12
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
