@@ -97,7 +97,7 @@ PATH=/home/greg/.local/bin:/usr/local/bin:/usr/bin:/bin
 
 30 22 * * 1-5 cd /home/greg/data_local/code/MyQTMv2 && XGBOOST_DEVICE=auto ./venv/bin/python -m src.risk_off_strategy.run QQQ >> logs/cron_backtest.log 2>&1 && XGBOOST_DEVICE=auto ./venv/bin/python -m src.risk_off_strategy.compare_pit QQQ >> logs/cron_backtest.log 2>&1
 
-5 9 * * 1-5 cd /home/greg/data_local/code/MyQTMv2 && ./venv/bin/python -m src.real_bourso >> logs/cron_pea.log 2>&1
+5 9 * * 1-5 cd /home/greg/data_local/code/MyQTMv2 && ./venv/bin/python -m src.real_bourso --execute >> logs/cron_pea.log 2>&1
 ```
 
 ### Pieges cron rencontres
@@ -125,7 +125,7 @@ Le backtest ecrit `outputs/qqq_strategy/signal.json` :
 
 - `status`: `"running"` au debut du backtest, `"ok"` a la fin. Si crash, reste `"running"` et le matin refuse d'executer.
 - `allocation`: 0.0 (cash) a 1.0 (full invest), calcule via `(prob - 0.70) / (0.75 - 0.70)`.
-- Le script du matin verifie que le signal a < 18h (fraicheur).
+- Le script du matin verifie la fraicheur du signal : age max `MAX_SIGNAL_AGE_HOURS=90h`. Assez large pour tolerer les week-ends/feries (lundi matin = signal du vendredi soir ~58h ; long week-end jeu. soir → mar. matin ~82h). Au-dela = le backtest du soir s'est arrete → refus.
 
 ## Frais et seuils
 
