@@ -29,7 +29,12 @@ TRADE_LOG = LOG_DIR / "trades.jsonl"
 OVERRIDE_FILE = LOG_DIR / "emergency_off.json"
 
 SELL_THRESHOLD = 0.20  # only sell if delta_alloc >= 20% (0.5% fee on sells)
-MAX_SIGNAL_AGE_HOURS = 18  # signal must be < 18h old (evening to morning)
+# Signal must be fresh enough, but tolerate weekend/holiday gaps so Monday (and
+# post-long-weekend) mornings still execute. The backtest runs each weekday
+# evening, so the worst legitimate gap is a Monday morning reading Friday's
+# signal (~58h), or a long holiday weekend (Thu eve → Tue morning, ~82h).
+# Anything older than ~3.75 days means the evening backtest stopped → refuse.
+MAX_SIGNAL_AGE_HOURS = 90
 MAX_RETRIES = 5
 INITIAL_WAIT = 60  # seconds
 MAX_WAIT = 900  # 15 min max between retries

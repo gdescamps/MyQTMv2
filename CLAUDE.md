@@ -44,10 +44,10 @@ Data is DVC-backed (`data.dvc`, `outputs.dvc`, `.env.dvc` → GCS). `*_revised.p
 - `compare_pit.py` — runs the strategy on both point-in-time and revised data, plots the two equity curves to detect look-ahead bias from data revisions.
 - `test_lookahead.py` — guards against label/feature leakage.
 
-`signal.json` schema and the `allocation = clip((prob - PROB_CASH)/(PROB_FULL - PROB_CASH), 0, 1)` formula are documented in `BOURSO.md`. `status` is `"running"` during the backtest and `"ok"` on success — the morning script refuses to act on a non-`ok` or stale (>18h) signal.
+`signal.json` schema and the `allocation = clip((prob - PROB_CASH)/(PROB_FULL - PROB_CASH), 0, 1)` formula are documented in `BOURSO.md`. `status` is `"running"` during the backtest and `"ok"` on success — the morning script refuses to act on a non-`ok` or stale signal (`MAX_SIGNAL_AGE_HOURS=90`, wide enough to tolerate weekend/holiday gaps so Monday and post-long-weekend mornings still execute; older = the evening backtest stopped).
 
 ### 3. PEA execution (`src/real_bourso.py` + `src/bourso/`)
-- `real_bourso.py` — morning entry point. Reads `signal.json`, checks the PEA via `bourso-cli`, and buys/sells PUST. Sells only when `delta_alloc ≥ SELL_THRESHOLD=0.20` (0.5% sell fee; buys are free). `logs/emergency_off.json` with `{"active": true}` forces allocation to 0%. Two-phase retry (exponential backoff → hourly until deadline). `--execute` for live, default is dry-run.
+- `real_bourso.py` — morning entry point. Reads `signal.json`, checks the PEA via `bourso-cli`, and buys/sells PUST. Sells only when `delta_alloc ≥ SELL_THRESHOLD=0.20` (0.5% sell fee; buys are free). `logs/emergency_off.json` with `{"active": true}` forces allocation to 0%. Two-phase retry (exponential backoff → hourly until deadline). `--execute` runs live (the morning cron uses it); without the flag the script is a dry-run.
 - `src/bourso/` — `prepare.py` (dry-run state/capacity), `execute.py` (manual interactive order), `list_accounts.py`, `quote.py`, `notify.py` (Gmail SMTP recap/trade emails, inline-image HTML, `MAILING_LIST` currently just the owner).
 
 ### 4. Webapp (`src/webapp.py`)
@@ -64,8 +64,8 @@ DIR=/home/greg/data_local/code/MyQTMv2
 # 22:30 — evening backtest + PIT comparison + email recap (GPU if free, else CPU)
 30 22 * * 1-5 cd $DIR && XGBOOST_DEVICE=auto ./venv/bin/python -m src.risk_off_strategy.run QQQ ... && ... compare_pit QQQ ...; ... src.bourso.notify --recap ...
 
-# 09:05 — PEA PUST execution at Euronext Paris open
-5 9 * * 1-5 cd $DIR && ./venv/bin/python -m src.real_bourso >> logs/cron_pea.log 2>&1
+# 09:05 — PEA PUST execution at Euronext Paris open (live: --execute)
+5 9 * * 1-5 cd $DIR && ./venv/bin/python -m src.real_bourso --execute >> logs/cron_pea.log 2>&1
 ```
 
 **Cron pitfalls (already hit — keep them in mind):**

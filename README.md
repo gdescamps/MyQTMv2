@@ -146,12 +146,13 @@ full / 1-year / 1-month equity charts, the PIT comparison, a forward projection,
 Two weekday cron jobs drive production (see [`BOURSO.md`](BOURSO.md)):
 
 ```
-22:30  src.risk_off_strategy.run QQQ   → signal.json  (+ PIT compare + email recap)
-09:05  src.real_bourso                 → executes PUST allocation on the PEA
+22:30  src.risk_off_strategy.run QQQ     → signal.json  (+ PIT compare + email recap)
+09:05  src.real_bourso --execute         → executes PUST allocation on the PEA (live)
 ```
 
 `signal.json` carries `status` (`"running"` → `"ok"`), the probability, and the target
-`allocation`; the morning script refuses to act on a non-`ok` or stale (>18h) signal, and
+`allocation`; the morning script refuses to act on a non-`ok` or stale signal (max age
+90h — wide enough to tolerate weekend/holiday gaps so Monday mornings still execute), and
 `logs/emergency_off.json` forces 0% as a kill switch.
 
 ## Design choices
