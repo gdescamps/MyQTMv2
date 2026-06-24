@@ -1695,8 +1695,9 @@ et les allocations sur bourso
 l'historique d'allocation reelle sur bourso en 100 % et reel
 et les gains normalisé en % et reel en euros
 
-montrer les capital ajouté et realloué 
+-----------------------------------------------
 
+montrer les capital ajouté et realloué 
 
 inspire toi de 
 dashboard/3_build.sh
@@ -1708,7 +1709,188 @@ pour gerer la webapp bourso
 de la meme facon a
 crée les script a la racine de MyQTMv2
 
+-----------------------------------------------
+
+quel sont les modifications en cours ? 
+
+-----------------------------------------------
+
+lorsqu'on lance le backtest le 16 juin a 18h 
+est ce qu'on peut ne pas mettre a jour les donnée du 16juin 
+mettre a jour le 16 juin seulement apres la cloture US apres 22h
+
+-----------------------------------------------
+
+Total Portefeuille (titres + espèces)
+
+
+-----------------------------------------------
+
+dans 
+src/bourso/prepare.py
+preparer uniquement 
+
+PUST Nasdaq pea x1 
+LQQ Nasdaq pea x2
+
+pas PANX 
+
+-----------------------------------------------
+
+ecrire 
+src/bourso/execute.py
+un script pour executer l'ordre sur ct ou pea 
+
+
+definir un cron le matin a l'ouverture de euro next Paris
+definir le levier x1  a executer en reel (pas de lqq seulement pust) 
+utiliser seulement le PEA
+le matin a l'ouverture de euro next Paris
+verifier que le backtest a bien tourné la veille 
+et s'assurer que la part a allouer sur le pea est bien allouée 
+du capital peut etre ajouter, verifier le capital disponible et l'alloueur en fonction de 
+de la derniere mise a jour du backtest 
+
+n'executer le l'allocation live que si le backtest a tourné sanns erreur 
+on est d'accord que l'allocation du dernier run du backtest et a 100%
+a l'ouverture 4 units voit etre achetée ?
+
+
+est ce que les trades reel seroont visualisé dans la webapp ? 
+
+-----------------------------------------------
+
+Est-ce que les ordres ont été passés ce matin sur le PEA ?
+
+Tu veux dire que tu peux exécuter l'équivalent du chrome ce matin à 9h, mais l'exécuter maintenant.
+Pour vérifier si la location fonctionne avec ta correction.
+
+
+en utilisant src/bourso/prepare.py est ce que tu peux retrouver plus precisément 
+le compte du pea et du ct 
+est ce que c'est plus repide et precis que src/bourso/list_accounts.py
+
+
+Lors des prises de position le matin, est-ce que tu peux vérifier qu'on utilise correctement la vérification de l'état des comptes et des liquidités disponibles en utilisant la méthode PREPARE plutôt que 30e méthode.
+
+
+-----------------------------------------------
+
+est ce que tu peux 
+ecrire une script en python 
+pour envoyer de mail sur mon email descamps.gregory@gmail.com
+
+créer une mailling liste 
+
+(descamps.gregory@gmail.com, nathdescamps59@gmail.com )
+
+-----------------------------------------------
+
+Le soir a la apres la cloture US et apres la fin du backet 
+Lors des jours ouvrés de bourse.
+Envoyer un mail récapitulatif. 
+avec le png 
+outputs/qqq_strategy/backtest_1m.png
+
+Faire en sorte que le PNG soit affiché dans le mail et pas en pièce jointe. C'est possible ?
+
+
+Lanser un mail de test pour voir ce que ça donne.
+
+On est d'accord que le mail n'est pas envoyé pendant les jours fériés et les week-ends.
+
+
+pour les envoyer des mails
+créer une mailling liste
+(descamps.gregory@gmail.com)
+
+
+-----------------------------------------------
+
+envoyer un mail a l'ouverture si un changement de position est effectué 
+si il n'y a pas de changement d'allocation, pas de mails 
+
+
+est ce que l'email de la cloture indique si il y aura un changement d'allocation ? 
+
 
 -----------------------------------------------
 
 
+Après la tentative 5, essaye toutes les heures.
+Maintenant on a des caméras jusqu'à l'ouverture.
+
+-----------------------------------------------
+
+Est-ce que tu peux cloner le dépôt bourso-cli 
+en tant que submodule de ce depot 
+est pin la version de bourso-cli dans ce depot
+
+créer un script pour installer ou mettre a jour bourso-cli a partir du sub module
+
+dans 
+./tests créer des test unitaire pytest en dry-run pour verifier le fonctionnement
+
+créer un cron qui verifie chaque jour a 20h
+Passe les tests unitaires en dry-run de bourso-cli
+verif si des nouveau commit sont poussé sur le depot bourso-cli
+envoyer un mail de rapport sur ce cron
+
+
+-----------------------------------------------
+
+pin le commit le plus recent de bourso-cli et garde le build de ce commit
+meme si il est toujours considéré comme v0.5.3 
+les test unitaire doivent identifié immediatement si le dernier build est cassé
+le cron doit permettre d'alerte si le build bourso-cli est cassé 
+ou d'alerte des qu'un commit est apparu, inclure dans le mail le commentaire du commit
+
+ainsi des que je suis alerté je peux mettre a jour manuellement bourso-cli
+
+-----------------------------------------------
+
+Tu veux dire que l'API n'est pas reliée au CLI ?
+Donc tu me proposes de modifier le code original du dépôt pour y accéder.
+
+-----------------------------------------------
+
+oui bascule le repo, tests, backtest, passage d'ordre, sur le nouveau get_trading_summary, patch
+
+
+-----------------------------------------------
+
+
+  Plan concret (pour validation)
+
+  1. Patch CLI dans le submodule : ajouter trade summary --account <id> dans main.rs, qui appelle get_trading_summary et imprime le JSON.
+  2. Le rendre pérenne : garder le diff dans patches/bourso-cli-trade-summary.patch (versionné dans MyQTMv2) ; 2_bourso_cli_update.sh l'applique
+  avant cargo build. → submodule reste pristine, patch lisible/réversible.
+  3. Réécrire get_pea_state()/prepare.py pour parser ce JSON au lieu de trade prepare.
+  4. Tests + check 20h : valider que trade summary existe et que la lecture compte marche (le CONNEXION COMPTE KO repasse au vert).
+
+  Un point que je vérifierai à l'implémentation : que les structs TradingSummaryItem dérivent Serialize (sinon j'ajoute le dérive ou je formate le
+  JSON à la main) — détail mineur.
+
+  Je lance l'implémentation de ce plan ? (ou tu veux d'abord voir le diff Rust exact des ~15 lignes de main.rs avant que je touche quoi que ce soit
+  ?)
+
+
+Est-ce qu'on peut changer légèrement le plan en créant une branche dans le repo
+bourso-api 
+
+Qu'on rebase en cas de d'ajout d'un nouveau tag.
+
+Du coup ça veut dire que on devrait faire un fork sur mon github pour pousser cette branche 
+
+Mais ça ne nous empêche pas d'observer la branche main du depot original.
+
+Avec deux remote.
+
+
+
+il y a un probleme sur 
+outputs/qqq_strategy/pit_vs_revised.png
+
+car les 2 courbes point in time diverge en 2008
+hors l'idée est de garder les données téléchager le jour J 
+pour verifier si la donnée telechargée le jour j changer a j+10 par exemple (revision)
