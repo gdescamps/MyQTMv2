@@ -281,6 +281,105 @@ def simulate(qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85, exec_lag=1):
     return eq, alloc
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Backtest NAIF auditable — independant du walk-forward (Python pur)
+#
+# But : pouvoir relire le comptage du rendement ligne a ligne, sans numpy/pandas
+# dans la boucle, avec un modele d'execution explicite et SANS look-ahead :
+#
+#   jour D, cloture QQQ ~22h Paris : on connait proba[D] -> allocation[D]
+#   lendemain ~9h Paris            : on execute a l'OUVERTURE PUST (open[D+1])
+#   on detient jusqu'a l'ouverture PUST du prochain jour de signal
+#   rendement de la periode = open_pust_suivant / open_pust_entree - 1
+#
+# alloc[D] est connue a la cloture D, AVANT l'ouverture d'execution -> causal.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_backtest_input(signal_dates, proba_by_date,
+                         qqq_close_by_date, pust_open_by_date):
+    """Prepare le dictionnaire auditable consomme par run_naive_backtest.
+
+    Entrees (structures simples, faciles a inspecter) :
+      signal_dates      : liste des jours de signal (cloture QQQ), triee croissant
+      proba_by_date     : {date -> proba(invested) calculee a la cloture QQQ du jour}
+      qqq_close_by_date : {date -> cloture QQQ du jour}
+      pust_open_by_date : {date -> ouverture PUST du jour}  (jours de bourse PUST)
+
+    Sortie : { date -> {"proba", "qqq_close", "pust_open_next"} } ou
+      pust_open_next = ouverture PUST du PREMIER jour de bourse strictement apres
+      `date` (= le matin ou l'ordre decide a la cloture est execute), ou None si
+      PUST n'a pas encore de cotation apres cette date.
+    """
+    pust_dates = sorted(pust_open_by_date.keys())
+    out = {}
+    for d in signal_dates:
+        # 1er jour d'ouverture PUST strictement apres d (recherche lineaire triviale)
+        pust_open_next = None
+        for od in pust_dates:
+            if od > d:
+                pust_open_next = pust_open_by_date[od]
+                break
+        out[d] = {
+            "proba": proba_by_date[d],
+            "qqq_close": qqq_close_by_date.get(d),
+            "pust_open_next": pust_open_next,
+        }
+    return out
+
+
+def allocation_from_proba(proba, prob_cash, prob_full):
+    """proba -> allocation [0, 1] : cash sous prob_cash, plein au-dessus de prob_full,
+    lineaire entre les deux. (Fonction isolee pour audit/test unitaire.)"""
+    if proba <= prob_cash:
+        return 0.0
+    if proba >= prob_full:
+        return 1.0
+    return (proba - prob_cash) / (prob_full - prob_cash)
+
+
+def run_naive_backtest(data, prob_cash, prob_full):
+    """Backtest naif, auditable : execution PUST a l'ouverture du lendemain.
+
+    data      : dict {date -> {"proba", "qqq_close", "pust_open_next"}}
+                (cf. build_backtest_input)
+    prob_cash : proba en-dessous de laquelle alloc = 0 (100% cash)
+    prob_full : proba au-dessus de laquelle alloc = 1 (100% investi)
+
+    Boucle triviale : pour chaque jour de signal d (sauf le dernier),
+      - allocation = allocation_from_proba(proba[d])
+      - prix d'entree  = ouverture PUST du lendemain de d        (pust_open_next[d])
+      - prix de sortie = ouverture PUST du lendemain du jour suivant (pust_open_next[d_suivant])
+      - rendement periode = sortie / entree - 1
+      - equity *= 1 + allocation * rendement_periode
+
+    Retourne (equity_final, rows) ou rows detaille chaque pas pour audit humain.
+    """
+    days = sorted(data.keys())
+    equity = 1.0
+    rows = []
+    for k in range(len(days) - 1):
+        d = days[k]
+        d_next = days[k + 1]
+        entry = data[d]["pust_open_next"]        # ouverture PUST le lendemain de d
+        exit_price = data[d_next]["pust_open_next"]  # ouverture PUST le lendemain de d_next
+        if entry is None or exit_price is None or entry == 0:
+            continue  # PUST pas encore cote sur cette periode -> on saute
+        proba = data[d]["proba"]
+        alloc = allocation_from_proba(proba, prob_cash, prob_full)
+        period_ret = exit_price / entry - 1.0
+        equity *= 1.0 + alloc * period_ret
+        rows.append({
+            "date": d,
+            "proba": proba,
+            "alloc": alloc,
+            "pust_entry": entry,
+            "pust_exit": exit_price,
+            "period_ret": period_ret,
+            "equity": equity,
+        })
+    return equity, rows
+
+
 def _oracle_equity(qqq_ret, oracle_labels, exec_lag=1):
     """Equity d'un oracle parfait, meme decalage d'execution que la strategie."""
     lab = np.asarray(oracle_labels, dtype=float)
