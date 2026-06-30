@@ -2,38 +2,33 @@
 
 A **crisis-avoidance trading system** for QQQ (Nasdaq-100). A walk-forward XGBoost model
 learns when to stay invested versus move to cash, turning its probability into a
-**continuous allocation** (0% → up to 2x leverage). The goal is not to beat the market on
-return alone, but to **capture most of the upside while cutting drawdowns by ~4x**.
+**continuous allocation** (0% → 100%, x1). The goal is not to beat the market on return
+alone, but to **keep most of the upside while cutting drawdowns**.
 
 The live system runs nightly, writes a signal, and the next morning executes that
 allocation on a **Boursorama PEA** account (ETF **PUST**, Amundi PEA Nasdaq-100, x1).
 See [`BOURSO.md`](BOURSO.md) for the operational runbook and [`CLAUDE.md`](CLAUDE.md) for the
 code map.
 
-## Performance (walk-forward OOS, 2005 → 2026, 21 years)
+## Backtest (walk-forward OOS)
 
-All figures are **net of Boursorama PEA fees** (0% buy, 0.5% sell) and ETF TER.
+The backtest is **QQQ close-to-close, x1, without fees**. Execution alignment is honest
+(`exec_lag=1`): the probability at day `i` is computed ~5 min before the US close[i] and
+the order is sent then, so the position only earns the **next** return (close[i]→close[i+1]).
+There is **no 1-day look-ahead** (an earlier version paired prob[i]×ret[i], which inflated
+the CAGR several-fold).
 
-| Strategy | CAGR | Total | Max DD |
-|----------|-----:|------:|------:|
-| QQQ Buy & Hold | 16.1% | 23x | **−53.4%** |
-| Oracle (perfect label) | 20.9% | 54x | −9.9% |
-| **XGB x1.0 (live config)** | **21.9%** | **63x** | **−7.6%** |
-| XGB x1.5 | 33.9% | 462x | −11.4% |
-| XGB x2.0 | 46.8% | 3182x | −15.0% |
-
-The headline is the **x1.0 line**: it beats Buy & Hold on return *and* shrinks the worst
-drawdown from −53% to −8% — close to the theoretical oracle. Leverage multiplies returns
-but is only used in backtest; the live PEA trades x1 (no leveraged PEA-eligible ETF cheap
-enough per share). The drawdown stays bounded because the model exits to cash before
-crashes deepen, not because it predicts tops.
+> Regenerate the figures with `python -m src.risk_off_strategy.run QQQ` — the chart
+> (`outputs/qqq_strategy/backtest.png`) prints QQQ Buy & Hold, the perfect-label Oracle,
+> and the XGB strategy (CAGR / total / max drawdown). The previous headline table is
+> removed because it embedded leverage, fees, and the look-ahead alignment.
 
 ## How it works
 
 ```
 ┌──────────────┐   ┌──────────────────┐   ┌───────────────────┐   ┌──────────────────┐
 │ price + VIX  │──▶│ ~95 features +   │──▶│ walk-forward XGB  │──▶│ proba → alloc    │
-│ + BAA spread │   │ drawdown-state   │   │ (per-step refit + │   │ 0→2x, fee-aware  │
+│ + BAA spread │   │ drawdown-state   │   │ (per-step refit + │   │ 0→100% (x1)      │
 │ + TLT        │   │ machine label    │   │ feature selection)│   │ PEA execution    │
 └──────────────┘   └──────────────────┘   └───────────────────┘   └──────────────────┘
 ```
@@ -50,8 +45,7 @@ Four daily series, all free:
 | TLT | yfinance | long Treasuries — flight-to-safety signal |
 
 Point-in-time snapshots (`data/<x>.parquet`) and latest-revised series
-(`data/<x>_revised.parquet`) are both kept so look-ahead bias from data revisions can be
-measured (`compare_pit.py`).
+(`data/<x>_revised.parquet`) are both kept as a record of data revisions.
 
 ### 2. Label — drawdown state machine (`build_realtime_target`)
 
@@ -92,34 +86,32 @@ Expanding-window, retrained every 21 trading days:
 Each step selects features on the **training slice only** (interlaced blocks, embargoed),
 refits, and predicts the next 21 days out-of-sample. Raw logits are passed through a
 **temperature-scaled sigmoid** (`T=3.0`) so the probability is smooth rather than
-saturating at 0/1 — this makes the downstream allocation gradual. Results are cached
-incrementally, so a daily run only computes the newest steps.
+saturating at 0/1 — this makes the downstream allocation gradual. The walk-forward is
+recomputed from scratch every run (no cache).
 
-### 5. Allocation & fees (`simulate_with_fees`)
+### 5. Allocation (`simulate`)
 
-The probability maps linearly to an allocation, then is clamped and scaled by leverage:
+The probability maps linearly to an allocation, clamped to [0, 1] (x1, no leverage):
 
 ```
-allocation = clip( (proba − PROB_CASH) / (PROB_FULL − PROB_CASH), 0, 1 ) × leverage
-           = clip( (proba − 0.70) / (0.75 − 0.70), 0, 1 ) × leverage
+allocation = clip( (proba − PROB_CASH) / (PROB_FULL − PROB_CASH), 0, 1 )
+           = clip( (proba − 0.70) / (0.75 − 0.70), 0, 1 )
 ```
 
 So below proba 0.70 → fully cash; above 0.75 → fully invested; linear in between.
-The simulator applies real **Boursorama PEA** economics:
 
-- **Buys are free**; **sells cost 0.5%** → only sell when the allocation drops by
-  ≥ 20% (or all the way to cash), avoiding churn.
-- ETF TER charged daily (PUST 0.23%/yr; LQQ 0.60%/yr for the levered portion in backtest).
+The simulator is **close-to-close and fee-free**: `equity = cumprod(1 + ret · alloc)`,
+with `exec_lag=1` (the day-`i` signal earns the day-`i+1` return — no look-ahead). No
+transaction fees and no ETF TER are modeled.
 
 ## Repository layout
 
 | Path | Role |
 |------|------|
 | `src/risk_off_strategy/data.py` | data loading, features, drawdown-state label |
-| `src/risk_off_strategy/backtest.py` | walk-forward, fee-aware simulation, plots |
+| `src/risk_off_strategy/backtest.py` | walk-forward, QQQ close-to-close simulation (x1, no fees), plots |
 | `src/risk_off_strategy/run.py` | entry point → backtest + charts + `signal.json` |
-| `src/risk_off_strategy/compare_pit.py` | point-in-time vs revised equity curves |
-| `src/risk_off_strategy/test_lookahead.py` | leakage guard |
+| `src/risk_off_strategy/test_lookahead.py` | lookahead=0 vs 6 diagnostic |
 | `src/download_ohlcv.py`, `download_macro_data.py` | refresh `data/*.parquet` |
 | `src/real_bourso.py`, `src/bourso/` | morning PEA execution + email notifications |
 | `src/bourso/check_cli.py` | daily bourso-cli health check (tests + account + upstream) → email |
@@ -141,19 +133,17 @@ python -m src.download_ohlcv            # refresh QQQ / VIX / TLT
 python -m src.download_macro_data       # refresh FRED BAA spread
 
 python -m src.risk_off_strategy.run QQQ          # backtest → outputs/qqq_strategy/{charts,signal.json}
-python -m src.risk_off_strategy.compare_pit QQQ  # PIT vs revised sanity check
 ```
 
 `run.py` also accepts `SPY`, `ACWI`, or `ALL`. Outputs land in `outputs/<ticker>_strategy/`:
-full / 1-year / 1-month equity charts, the PIT comparison, a forward projection, and
-`signal.json` consumed by the morning PEA script.
+full / 1-year / 1-month equity charts and `signal.json` consumed by the morning PEA script.
 
 ### Live automation
 
 Three cron jobs drive production (see [`BOURSO.md`](BOURSO.md)):
 
 ```
-22:30  src.risk_off_strategy.run QQQ     → signal.json  (+ PIT compare + email recap)   [weekdays]
+22:30  src.risk_off_strategy.run QQQ     → signal.json  (+ email recap)                 [weekdays]
 09:05  src.real_bourso --execute         → executes PUST allocation on the PEA (live)    [weekdays]
 20:00  src.bourso.check_cli              → bourso-cli health check + email alert         [daily]
 ```
@@ -180,6 +170,6 @@ The 20:00 check validates the installed binary (pytest dry-run, no rebuild), doe
 2. **Lookahead label + embargo** — act before the crash, with a provable no-leakage gap.
 3. **Temperature-scaled probability → continuous allocation** — gradual de-risking instead
    of binary on/off whipsaws.
-4. **Fee-aware sizing** — the 0.5% PEA sell fee is modeled, so the strategy only trims when
-   the move is worth it.
+4. **Honest close-to-close alignment** (`exec_lag=1`) — the day-`i` signal earns the
+   day-`i+1` return, so the backtest carries no 1-day look-ahead.
 5. **Free data only** — yfinance + FRED; reproducible with no paid API.

@@ -1,25 +1,20 @@
 """
-Walk-forward XGBoost backtest with continuous allocation 0-150%.
+Walk-forward XGBoost backtest — QQQ close-to-close, allocation continue 0-100%.
+
+close-to-close : la proba de l'indice i est calculee ~5 min avant la cloture US[i]
+(prix ~ close[i]) et l'ordre part a ce moment-la. La position prise n'encaisse
+donc qu'a partir de close[i] -> le rendement ret[i+1]. C'est ce que reflete
+`exec_lag=1` dans simulate (aucun look-ahead). Voir son docstring.
+
+Backtest x1 uniquement, SANS frais (ni frais de transaction, ni TER).
 """
 
-import hashlib
-import json
 import os
 import subprocess
 import numpy as np
 import xgboost as xgb
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from pathlib import Path
-
-CACHE_DIR = Path(__file__).resolve().parent.parent.parent / "outputs" / "risk_off_strategy"
-
-# Version du cache walk-forward. A INCREMENTER des qu'une modif change la LOGIQUE
-# de calcul des proba (selection de features, params XGB par defaut, embargo,
-# scaling de proba, etc.) sans changer le hash de config existant. Sinon un cache
-# perime (calcule par l'ancien code) reste "valide" et est resservi en silence
-# -> resultats errones (cf. backtest QQQ x1.0 figé a 17.3% au lieu de 21.5%).
-_CACHE_VERSION = 2
 
 
 def sigmoid(x):
@@ -99,29 +94,6 @@ def select_features_stable(X, y, feature_cols, block_size=21, embargo_rows=5,
     return selected_idx, selected_names
 
 
-def _config_hash(feature_cols, xgb_params, feat_select, feat_power, feat_top_n,
-                 min_train, step, embargo, temperature, X=None):
-    """Hash of walk-forward config + data fingerprint. Stable across data updates."""
-    h = hashlib.sha256()
-    h.update(f"cachever={_CACHE_VERSION}".encode())
-    h.update(json.dumps(sorted(feature_cols)).encode())
-    h.update(json.dumps(xgb_params, sort_keys=True).encode())
-    h.update(f"{feat_select}_{feat_power}_{feat_top_n}".encode())
-    h.update(f"{min_train}_{step}_{embargo}_{temperature}".encode())
-    if X is not None:
-        # Fingerprint: early rows + column count to distinguish data sources/windows.
-        # Row COUNT is deliberately excluded so that appending new daily rows keeps the
-        # same cache key → the incremental resume branch (cached_N < N) can kick in.
-        # Early rows are stable under append (new data lands at the end) and already
-        # differ across tickers/start-dates. Safe because only append-only PIT data uses
-        # the cache (compare_pit disables it for revised data, which changes historically).
-        h.update(f"ncols={X.shape[1]}".encode())
-        h.update(X[0].tobytes())
-        h.update(X[min(100, len(X) - 1)].tobytes())
-        h.update(X[min(500, len(X) - 1)].tobytes())
-    return h.hexdigest()[:16]
-
-
 def _gpu_busy(util_threshold=20):
     """Is another workload using the GPU right now?
 
@@ -182,7 +154,8 @@ def _detect_device():
 
 def walk_forward(X, y, feature_cols, min_train=504, step=21, embargo=21,
                  temperature=3.0, xgb_params=None, feat_select=True,
-                 feat_top_n=None, feat_power=1.7, use_cache=True):
+                 feat_top_n=None, feat_power=1.7):
+    """Rolling-window walk-forward. Recalcule tout a chaque appel (pas de cache)."""
     if xgb_params is None:
         device = _detect_device()
         print(f"XGBoost device: {device}")
@@ -199,54 +172,8 @@ def walk_forward(X, y, feature_cols, min_train=504, step=21, embargo=21,
     wf_proba = np.full(N, np.nan)
     last_model = None
     last_feat_names = list(feature_cols)
-    resume_t = min_train  # where to start computing
-
-    # ── Incremental cache: load previous results and resume ──
-    cache_path = None
-    if use_cache:
-        cfg_hash = _config_hash(feature_cols, xgb_params, feat_select,
-                                feat_power, feat_top_n, min_train, step,
-                                embargo, temperature, X=X)
-        cache_path = CACHE_DIR / f"wf_incr_{cfg_hash}.npz"
-        if cache_path.exists():
-            cached = np.load(cache_path, allow_pickle=True)
-            cached_N = int(cached["N"])
-            cached_pred = cached["wf_pred"]
-            cached_proba = cached["wf_proba"]
-            last_feat_names = list(cached["feat_names"])
-
-            if cached_N == N:
-                # Data unchanged → full cache hit
-                print(f"Walk-forward loaded from cache ({cache_path.name}, {N} rows)")
-                imp = cached["importances"]
-                top_idx = np.argsort(imp)[-20:][::-1]
-                print(f"\nTop 20 features (cached):")
-                for idx in top_idx:
-                    print(f"  {last_feat_names[idx]:30s} {imp[idx]:.4f}")
-                return cached_pred, cached_proba, None
-
-            elif cached_N < N:
-                # Data grew → reuse old predictions, resume from last computed step
-                wf_pred[:cached_N] = cached_pred[:cached_N]
-                wf_proba[:cached_N] = cached_proba[:cached_N]
-                # Find resume point: last step boundary that was computed
-                resume_t = cached_N  # start computing from where old data ended
-                # Align to step boundary
-                t = min_train
-                while t + step <= cached_N:
-                    t += step
-                resume_t = t
-                n_old = (cached_N - min_train) // step
-                n_new = (N - cached_N + step - 1) // step
-                print(f"Incremental cache: {cached_N}→{N} rows (+{N - cached_N}), "
-                      f"reusing {n_old} steps, computing ~{n_new} new steps")
-            else:
-                # Data shrank (shouldn't happen) → recompute all
-                print(f"Cache data size mismatch ({cached_N}>{N}), recomputing...")
 
     n_steps = 0
-    n_cached = 0
-
     t = min_train
     while t < N:
         test_end = min(t + step, N)
@@ -255,12 +182,6 @@ def walk_forward(X, y, feature_cols, min_train=504, step=21, embargo=21,
         test_idx = np.arange(t, test_end)
 
         if len(train_idx) < min_train:
-            t = test_end
-            continue
-
-        # Skip steps already in cache
-        if t < resume_t and not np.isnan(wf_proba[t]):
-            n_cached += 1
             t = test_end
             continue
 
@@ -304,56 +225,23 @@ def walk_forward(X, y, feature_cols, min_train=504, step=21, embargo=21,
         n_steps += 1
 
         if feat_select and n_steps % 50 == 1:
-            n_feat = len(last_feat_names)
             print(f"  Step {n_steps}: t={t} train={len(train_idx)} "
-                  f"features={n_feat}/{len(feature_cols)}")
+                  f"features={len(last_feat_names)}/{len(feature_cols)}")
 
         t = test_end
 
-    total_steps = n_cached + n_steps
     if feat_select:
-        print(f"\nWalk-forward: {total_steps} steps total "
-              f"({n_cached} cached, {n_steps} computed), "
+        print(f"\nWalk-forward: {n_steps} steps, "
               f"last feature set: {len(last_feat_names)}/{len(feature_cols)}")
 
-    # Top features (last model or cached)
-    if last_model is not None:
-        imp = last_model.feature_importances_
-    elif cache_path and cache_path.exists():
-        imp = np.load(cache_path, allow_pickle=True)["importances"]
-    else:
-        imp = np.zeros(len(last_feat_names))
-
+    imp = last_model.feature_importances_ if last_model is not None \
+        else np.zeros(len(last_feat_names))
     top_idx = np.argsort(imp)[-20:][::-1]
     print(f"\nTop 20 features:")
     for idx in top_idx:
         print(f"  {last_feat_names[idx]:30s} {imp[idx]:.4f}")
 
-    # Save incremental cache
-    if use_cache:
-        CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        np.savez(cache_path, wf_pred=wf_pred, wf_proba=wf_proba,
-                 feat_names=np.array(last_feat_names),
-                 importances=imp, N=N)
-        print(f"Cache saved: {cache_path.name} ({N} rows)")
-
     return wf_pred, wf_proba, last_model
-
-
-def compute_equity(qqq_ret, proba, max_leverage=1.5,
-                   prob_cash=0.5, prob_full=0.85):
-    N = len(qqq_ret)
-
-    # Buy & Hold
-    bh_eq = np.cumprod(1 + qqq_ret)
-
-    # Continuous allocation
-    alloc = np.clip((proba - prob_cash) / (prob_full - prob_cash), 0, 1) * max_leverage
-    cont_eq = np.ones(N)
-    for i in range(1, N):
-        cont_eq[i] = cont_eq[i - 1] * (1 + qqq_ret[i] * alloc[i])
-
-    return bh_eq, cont_eq, alloc
 
 
 def compute_metrics(eq, years):
@@ -362,218 +250,122 @@ def compute_metrics(eq, years):
     return cagr, dd
 
 
-def simulate_with_fees(qqq_ret, wf_prob, max_lev, prob_cash=0.5, prob_full=0.85,
-                       fee_sell=0.005, sell_step=0.20,
-                       ter_1x=0.0023/252, ter_2x=0.0060/252):
-    """Simulate equity with Boursorama PEA fees (0% buy, 0.5% sell) and PUST+LQQ TER."""
-    alloc_target = np.clip((wf_prob - prob_cash) / (prob_full - prob_cash), 0, 1) * max_lev
+def simulate(qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85, exec_lag=1):
+    """Backtest QQQ close-to-close, allocation continue 0-100%, SANS frais.
+
+    L'allocation suit la cible chaque jour (proba -> alloc), sans frais de
+    transaction ni TER : equity = cumprod(1 + ret * alloc).
+
+    Alignement (exec_lag) — c'est ce qui distingue un backtest realiste d'un
+    backtest avec look-ahead :
+
+      La proba de l'indice i est calculee ~5 min avant la cloture US[i] (le prix
+      a 15h55 ET ~ close[i]) et l'ordre part a ce moment-la. La position n'est
+      donc en place qu'a partir de close[i] : elle encaisse le rendement
+      close[i]->close[i+1] = ret[i+1], PAS ret[i] (close[i-1]->close[i], deja
+      termine au moment ou on decide). exec_lag=1 reflete ce decalage = aucun
+      look-ahead.
+
+      exec_lag=0 apparie prob[i] x ret[i] : cela suppose d'etre deja positionne
+      a close[i-1] avec une proba qui n'existe qu'a close[i] -> look-ahead d'un
+      jour (gonfle fortement le CAGR). A n'utiliser que pour diagnostic.
+    """
+    prob = np.asarray(wf_prob, dtype=float)
+    if exec_lag > 0:
+        shifted = np.full_like(prob, prob_cash)  # avant le 1er signal exploitable -> cash
+        shifted[exec_lag:] = prob[:-exec_lag]
+        prob = shifted
+
+    alloc = np.clip((prob - prob_cash) / (prob_full - prob_cash), 0, 1)
+    eq = np.cumprod(1 + np.asarray(qqq_ret, dtype=float) * alloc)
+    return eq, alloc
+
+
+def _oracle_equity(qqq_ret, oracle_labels, exec_lag=1):
+    """Equity d'un oracle parfait, meme decalage d'execution que la strategie."""
+    lab = np.asarray(oracle_labels, dtype=float)
+    if exec_lag > 0:
+        shifted = np.zeros_like(lab)
+        shifted[exec_lag:] = lab[:-exec_lag]
+        lab = shifted
     N = len(qqq_ret)
-    INIT = 100_000
-    equity, actual_alloc, sell_count = INIT, 0.0, 0
-    eq_curve, alloc_curve = np.zeros(N), np.zeros(N)
-
-    for i in range(N):
-        tgt = alloc_target[i]
-        delta = tgt - actual_alloc
-        if delta > 0.001:
-            actual_alloc = tgt
-        elif delta < -0.001:
-            if tgt < 0.01:
-                equity -= actual_alloc * equity * fee_sell
-                sell_count += 1
-                actual_alloc = 0.0
-            elif actual_alloc - tgt >= sell_step:
-                equity -= (actual_alloc - tgt) * equity * fee_sell
-                sell_count += 1
-                actual_alloc = tgt
-
-        if actual_alloc <= 1.0:
-            dr = qqq_ret[i] * actual_alloc
-            dt = ter_1x * actual_alloc
-        else:
-            lf = actual_alloc - 1.0
-            pf = 1.0 - lf
-            dr = qqq_ret[i] * pf + 2 * qqq_ret[i] * lf
-            dt = ter_1x * pf + ter_2x * lf
-
-        equity *= (1 + dr - dt)
-        eq_curve[i] = equity
-        alloc_curve[i] = actual_alloc
-
-    return eq_curve / INIT, alloc_curve, sell_count
+    eq = np.ones(N)
+    for i in range(1, N):
+        eq[i] = eq[i - 1] * (1 + qqq_ret[i] * lab[i])
+    return eq
 
 
 def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
-                 save_path=None, ticker="QQQ", leverages=None, oracle_labels=None,
-                 panx_ret=None):
-    import pandas as pd
-
-    if leverages is None:
-        leverages = [1.0, 1.5, 1.75, 2.0]
-
+                 save_path=None, ticker="QQQ", oracle_labels=None):
+    """Backtest QQQ close-to-close : equity (B&H / XGB net frais / oracle) + allocation + PE."""
     years = (wf_dates[-1] - wf_dates[0]).days / 365.25
-    N = len(qqq_ret)
     bh_eq = np.cumprod(1 + qqq_ret)
     bh_cagr, bh_dd = compute_metrics(bh_eq, years)
-    colors = {1.0: "tab:orange", 1.5: "tab:red", 1.75: "crimson", 2.0: "darkred"}
 
-    # Recent period = PUST start if available, else 7 years
-    if panx_ret is not None:
-        nonzero = np.where(panx_ret != 0)[0]
-        if len(nonzero) > 0:
-            idx_recent = max(0, nonzero[0] - 1)
-        else:
-            idx_recent = np.where(wf_dates >= wf_dates[-1] - pd.DateOffset(years=7))[0][0]
-    else:
-        idx_recent = np.where(wf_dates >= wf_dates[-1] - pd.DateOffset(years=7))[0][0]
-    y_recent = (wf_dates[-1] - wf_dates[idx_recent]).days / 365.25
-    bh_cr, bh_dr = compute_metrics(bh_eq[idx_recent:] / bh_eq[idx_recent], y_recent)
+    eq_n, al_c = simulate(qqq_ret, wf_prob, prob_cash, prob_full)
+    n_cagr, n_dd = compute_metrics(eq_n, years)
 
-    results = {}
-    for lev in leverages:
-        eq_n, al_c, sc = simulate_with_fees(qqq_ret, wf_prob, lev, prob_cash, prob_full)
-        n_cagr, n_dd = compute_metrics(eq_n, years)
-        n_cr, n_dr = compute_metrics(eq_n[idx_recent:] / eq_n[idx_recent], y_recent)
-        results[lev] = dict(eq_n=eq_n, al_c=al_c, sc=sc,
-                            n_cagr=n_cagr, n_dd=n_dd, n_c10=n_cr, n_d10=n_dr)
-
-    # Oracle (perfect label) equity
     oracle = None
     if oracle_labels is not None:
-        oracle_eq = np.ones(N)
-        for i in range(1, N):
-            oracle_eq[i] = oracle_eq[i - 1] * (1 + qqq_ret[i] * oracle_labels[i])
-        oracle_cagr, oracle_dd = compute_metrics(oracle_eq, years)
-        oracle_cr, oracle_dr = compute_metrics(
-            oracle_eq[idx_recent:] / oracle_eq[idx_recent], y_recent)
-        oracle = dict(eq=oracle_eq, cagr=oracle_cagr, dd=oracle_dd,
-                      c10=oracle_cr, d10=oracle_dr)
+        oracle_eq = _oracle_equity(qqq_ret, oracle_labels)
+        o_cagr, o_dd = compute_metrics(oracle_eq, years)
+        oracle = dict(eq=oracle_eq, cagr=o_cagr, dd=o_dd)
 
-    # Print summary
+    # ── Summary ──
     print(f"\n{'='*70}")
     print(f"Periode: {wf_dates[0].date()} -> {wf_dates[-1].date()} ({years:.1f} ans)")
     print(f"{'':35s} {'CAGR':>8s} {'Total':>8s} {'MaxDD':>8s}")
     print(f"{ticker + ' Buy & Hold':35s} {bh_cagr*100:7.1f}% {bh_eq[-1]:7.1f}x {bh_dd*100:7.1f}%")
     if oracle:
-        print(f"{'Oracle (perfect label)':35s} {oracle['cagr']*100:7.1f}% "
+        print(f"{'Oracle (label parfait)':35s} {oracle['cagr']*100:7.1f}% "
               f"{oracle['eq'][-1]:7.1f}x {oracle['dd']*100:7.1f}%")
-    for lev in leverages:
-        r = results[lev]
-        lbl = f"XGB x{lev:.1f} net Bourso"
-        print(f"{lbl:35s} {r['n_cagr']*100:7.1f}% "
-              f"{r['eq_n'][-1]:7.1f}x {r['n_dd']*100:7.1f}%")
-    # ── PUST execution (CC signal → PUST open) ──
-    panx_results = None
-    if panx_ret is not None:
-        # Find first date with real PUST data (non-zero return after first few days)
-        nonzero = np.where(panx_ret != 0)[0]
-        if len(nonzero) > 0:
-            panx_start_idx = max(0, nonzero[0] - 1)
-            # Run simulation only on the PUST-available slice
-            panx_ret_slice = panx_ret[panx_start_idx:]
-            prob_slice = wf_prob[panx_start_idx:]
-            panx_dates_s = wf_dates[panx_start_idx:]
-            panx_years = (panx_dates_s[-1] - panx_dates_s[0]).days / 365.25
-            panx_results = {"start_idx": panx_start_idx, "dates": panx_dates_s}
-            for lev in leverages:
-                eq_p, al_p, _ = simulate_with_fees(
-                    panx_ret_slice, prob_slice, lev, prob_cash, prob_full)
-                p_cagr, p_dd = compute_metrics(eq_p, panx_years)
-                panx_results[lev] = dict(eq=eq_p, cagr=p_cagr, dd=p_dd)
-            # Keep x1.0 equity for the chart overlay
-            panx_results["eq"] = panx_results[1.0]["eq"]
-            panx_results["cagr"] = panx_results[1.0]["cagr"]
-            panx_results["dd"] = panx_results[1.0]["dd"]
+    print(f"{'XGB strategy':35s} {n_cagr*100:7.1f}% {eq_n[-1]:7.1f}x {n_dd*100:7.1f}%")
 
-    print(f"\nDepuis PUST ({wf_dates[idx_recent].date()} -> {wf_dates[-1].date()}, {y_recent:.1f} ans):")
-    print(f"{'':35s} {'CAGR QQQ':>10s} {'DD QQQ':>8s} {'CAGR PUST':>11s} {'DD PUST':>9s}")
-    print(f"{ticker + ' Buy & Hold':35s} {bh_cr*100:9.1f}%  {bh_dr*100:7.1f}%")
-    for lev in leverages:
-        r = results[lev]
-        lbl = f"XGB x{lev:.1f}"
-        line = f"{lbl:35s} {r['n_c10']*100:9.1f}%  {r['n_d10']*100:7.1f}%"
-        if panx_results and lev in panx_results:
-            pr = panx_results[lev]
-            line += f"  {pr['cagr']*100:9.1f}%  {pr['dd']*100:7.1f}%"
-        print(line)
-
-    # ── Load PE daily ──
+    # ── Load PE daily (panneau optionnel) ──
     try:
         from src.download_pe_qqq_top5 import load_pe_daily
         pe_daily = load_pe_daily()
     except Exception:
         pe_daily = None
-
-    # ── Plot ──
     has_pe = pe_daily is not None and len(pe_daily) > 0
+
     n_rows = 3 if has_pe else 2
     h_ratios = [3, 1, 1] if has_pe else [3, 1]
     fig, axes = plt.subplots(n_rows, 1, figsize=(14, 11 if has_pe else 9),
                              height_ratios=h_ratios, sharex=True)
-    ax1 = axes[0]
-    ax2 = axes[1]
+    ax1, ax2 = axes[0], axes[1]
     ax_pe = axes[2] if has_pe else None
 
     # Equity curves
     ax1.semilogy(wf_dates, bh_eq,
                  label=f"{ticker} Buy & Hold ({bh_cagr*100:.1f}%, DD {bh_dd*100:.1f}%)",
                  color="tab:blue", linewidth=1.5, alpha=0.6)
-    # Shade crisis periods (label=0) on equity and allocation charts
+    if oracle:
+        ax1.semilogy(wf_dates, oracle["eq"],
+                     label=f"Oracle ({oracle['cagr']*100:.1f}%, DD {oracle['dd']*100:.1f}%)",
+                     color="gray", linewidth=1.0, alpha=0.5, linestyle=":")
+    ax1.semilogy(wf_dates, eq_n,
+                 label=f"XGB strategy ({n_cagr*100:.1f}%, DD {n_dd*100:.1f}%)",
+                 color="tab:orange", linewidth=2)
+
+    # Shade crisis periods (label=0)
     if oracle_labels is not None:
-        crisis = oracle_labels == 0
-        crisis_axes = [ax1, ax2] + ([ax_pe] if ax_pe else [])
-        for ax in crisis_axes:
+        crisis = np.asarray(oracle_labels) == 0
+        for ax in [ax1, ax2] + ([ax_pe] if ax_pe else []):
             ax.fill_between(wf_dates, 0, 1, where=crisis,
                             color="red", alpha=0.08, transform=ax.get_xaxis_transform())
-    for lev in leverages:
-        r = results[lev]
-        ax1.semilogy(wf_dates, r["eq_n"],
-                     label=f"XGB x{lev:.1f} net Bourso ({r['n_cagr']*100:.1f}%, "
-                           f"DD {r['n_dd']*100:.1f}%)",
-                     color=colors[lev], linewidth=2)
-
-    # PUST execution curve (normalized to QQQ B&H at PUST start)
-    if panx_results is not None:
-        pr = panx_results
-        si = pr["start_idx"]
-        scale = bh_eq[si]
-        panx_eq_norm = pr["eq"] / pr["eq"][0] * scale
-        ax1.semilogy(pr["dates"], panx_eq_norm,
-                     label=f"PEA PUST open x1.0 ({pr['cagr']*100:.1f}%, DD {pr['dd']*100:.1f}%)",
-                     color="tab:green", linewidth=1.5, linestyle="--")
-
-    ax1.axvline(wf_dates[idx_recent], color="gray", linestyle=":", alpha=0.5)
-    annot = f"{y_recent:.0f} ans (PUST)\nB&H {bh_cr*100:.1f}%/an DD {bh_dr*100:.0f}%\n"
-    for lev in leverages:
-        r = results[lev]
-        annot += f"x{lev:.1f} {r['n_c10']*100:.1f}%/an DD {r['n_d10']*100:.0f}%\n"
-    if panx_results is not None:
-        annot += f"PUST x1.0 {panx_results['cagr']*100:.1f}%/an DD {panx_results['dd']*100:.0f}%\n"
-    mid_lev = leverages[len(leverages) // 2]
-    y_mid = np.sqrt(results[mid_lev]["eq_n"].max() * results[mid_lev]["eq_n"].min())
-    ax1.annotate(annot.strip(), xy=(wf_dates[idx_recent], y_mid), fontsize=8,
-                 color="gray", ha="right", va="center",
-                 bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8))
 
     ax1.set_ylabel("Equity (log scale)")
-    ax1.set_title(f"{ticker} — XGBoost WF Strict Feature Selection — net frais Boursorama PEA")
+    ax1.set_title(f"{ticker} — XGBoost WF close-to-close (x1, sans frais)")
     ax1.legend(loc="upper left", fontsize=9)
     ax1.grid(True, alpha=0.3)
     plt.setp(ax1.get_xticklabels(), visible=False)
 
     # Allocation
-    for lev in sorted(leverages, reverse=True):
-        ax2.fill_between(wf_dates, 0, results[lev]["al_c"] * 100,
-                         alpha=0.2, color=colors[lev], label=f"x{lev:.1f}")
-    max_alloc = max(leverages) * 100
+    ax2.fill_between(wf_dates, 0, al_c * 100, alpha=0.3, color="tab:orange")
     ax2.axhline(100, color="gray", linestyle="--", alpha=0.5, linewidth=0.8)
-    if max(leverages) >= 1.5:
-        ax2.axhline(150, color="tab:red", linestyle="--", alpha=0.3, linewidth=0.8)
-    if max(leverages) >= 2.0:
-        ax2.axhline(200, color="darkred", linestyle="--", alpha=0.3, linewidth=0.8)
     ax2.set_ylabel("Allocation (%)")
-    ax2.set_ylim(-5, max_alloc + 15)
-    ax2.legend(loc="lower right", fontsize=8)
+    ax2.set_ylim(-5, 115)
     ax2.grid(True, alpha=0.3)
     if ax_pe:
         plt.setp(ax2.get_xticklabels(), visible=False)
@@ -583,9 +375,8 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
         ax2.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
 
     # PE Top 5 panel
-    if ax_pe is not None and pe_daily is not None:
-        pe_masked = pe_daily.reindex(wf_dates)
-        pe_masked = pe_masked.ffill()
+    if ax_pe is not None:
+        pe_masked = pe_daily.reindex(wf_dates).ffill()
         ax_pe.plot(wf_dates, pe_masked.values, color="darkblue", lw=1.2,
                    label="PE Top 5 (daily)")
         ax_pe.axhline(20, color="green", ls=":", alpha=0.5, lw=1)
@@ -604,91 +395,23 @@ def plot_results(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
         plt.savefig(save_path, dpi=150)
         print(f"\nSaved: {save_path}")
     plt.show()
-    if panx_results is not None:
-        results["panx"] = panx_results
-    return results
 
-
-def plot_projection(results, leverages, capital=150_000, proj_years=5, save_path=None):
-    """PEA PUST projection per leverage."""
-    TAX_PEA = 0.172
-    panx_info = results.get("panx")
-
-    def _proj_pea(cagr_brut, init, years):
-        gross = init * (1 + cagr_brut) ** years
-        tax = max(0, gross - init) * TAX_PEA
-        return gross - tax, tax
-
-    fig, ax = plt.subplots(figsize=(12, 7))
-    x = np.arange(len(leverages))
-    bw = 0.5
-    max_val = 0
-
-    for i, lev in enumerate(leverages):
-        cagr_panx = panx_info[lev]["cagr"] if panx_info and lev in panx_info else results[lev]["n_c10"]
-
-        pea_net, pea_tax = _proj_pea(cagr_panx, capital, proj_years)
-
-        ax.bar(i, capital / 1000, bw, color="tab:blue", alpha=0.3,
-               label="Capital" if i == 0 else "")
-        ax.bar(i, (pea_net - capital) / 1000, bw, bottom=capital / 1000,
-               color="tab:blue", alpha=0.7,
-               label="Gains nets" if i == 0 else "")
-        ax.bar(i, pea_tax / 1000, bw, bottom=pea_net / 1000,
-               color="red", alpha=0.3, hatch="///",
-               label="Impots (17.2%)" if i == 0 else "")
-        ax.text(i, (pea_net + pea_tax) / 1000 + 15,
-                f"{pea_net/1000:.0f}k\u20ac\n(impots {pea_tax/1000:.0f}k)",
-                ha="center", va="bottom", fontsize=9, fontweight="bold",
-                color="tab:blue")
-
-        max_val = max(max_val, pea_net + pea_tax)
-
-        print(f"  x{lev:.1f} PEA PUST proj {proj_years}y: "
-              f"{pea_net/1000:.0f}k net (CAGR {cagr_panx*100:.1f}%, impots {pea_tax/1000:.0f}k)")
-
-    ax.set_xticks(x)
-    ax.set_xticklabels([f"x{lev:.1f}\nCAGR {panx_info[lev]['cagr']*100:.1f}%"
-                        if panx_info and lev in panx_info
-                        else f"x{lev:.1f}" for lev in leverages], fontsize=10)
-    ax.set_ylabel("Montant (k\u20ac)")
-    ax.set_title(f"Projection PEA PUST — {proj_years} ans — {capital/1000:.0f}k\u20ac — "
-                 f"Impot 17.2% a la sortie",
-                 fontsize=12)
-    ax.legend(loc="upper left", fontsize=9)
-    ax.grid(True, alpha=0.3, axis="y")
-    ax.axhline(capital / 1000, color="gray", linestyle="--", alpha=0.5)
-    ax.set_ylim(0, max_val / 1000 * 1.25)
-
-    plt.tight_layout()
-    if save_path:
-        plt.savefig(save_path, dpi=150)
-        print(f"Saved: {save_path}")
-    plt.show()
+    return dict(eq_n=eq_n, al_c=al_c, cagr=n_cagr, dd=n_dd,
+                bh_cagr=bh_cagr, bh_dd=bh_dd)
 
 
 def plot_recent(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
-                days=21, save_path=None, ticker="QQQ", leverages=None):
-    """Plot last N trading days with leverages, fees, and allocation."""
-
-    if leverages is None:
-        leverages = [1.0, 1.5, 2.0]
-    colors = {1.0: "tab:orange", 1.5: "tab:red", 1.75: "crimson", 2.0: "darkred"}
-
-    # Slice last N days
+                days=21, save_path=None, ticker="QQQ"):
+    """Plot last N trading days : rendement cumule, allocation, proba, PE."""
     n = min(days, len(wf_dates))
     dates = wf_dates[-n:]
     ret = qqq_ret[-n:]
     prob = wf_prob[-n:]
 
-    # Buy & hold
     cum_bh = np.cumprod(1 + ret)
-
-    # Use integer x-axis (no weekend gaps)
     x = np.arange(n)
     date_labels = [d.strftime("%d %b") for d in dates]
 
-    # Load PE daily
     try:
         from src.download_pe_qqq_top5 import load_pe_daily
         pe_daily = load_pe_daily()
@@ -704,63 +427,40 @@ def plot_recent(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
     ax1, ax2, ax3 = axes[0], axes[1], axes[2]
     ax_pe = axes[3] if has_pe else None
 
-    # B&H curve
-    ax1.plot(x, (cum_bh - 1) * 100, label=f"{ticker} B&H", color="tab:blue", linewidth=2)
+    # Note: simulate sur la tranche recente (exec_lag interne = 1)
+    eq_n, al_c = simulate(ret, prob, prob_cash, prob_full)
+    period_ret = (eq_n[-1] - 1) * 100
 
-    title_parts = [f"{ticker} {(cum_bh[-1]-1)*100:+.1f}%"]
-
-    for lev in leverages:
-        # Simulate with fees on this slice
-        eq_n, al_c, _ = simulate_with_fees(ret, prob, lev, prob_cash, prob_full)
-        period_ret = (eq_n[-1] - 1) * 100
-
-        ax1.plot(x, (eq_n - 1) * 100,
-                 label=f"XGB x{lev:.1f} net ({period_ret:+.1f}%)",
-                 color=colors[lev], linewidth=2)
-        title_parts.append(f"x{lev:.1f} {period_ret:+.1f}%")
-
-        # Allocation on ax2 (stacked fill, most visible = x2 behind)
-        if lev == 2.0:
-            ax2.fill_between(x, 0, al_c * 100, alpha=0.15, color=colors[lev], label=f"x{lev:.1f}")
-        elif lev == 1.5:
-            ax2.fill_between(x, 0, al_c * 100, alpha=0.25, color=colors[lev], label=f"x{lev:.1f}")
-        else:
-            ax2.fill_between(x, 0, al_c * 100, alpha=0.35, color=colors[lev], label=f"x{lev:.1f}")
-
+    ax1.plot(x, (cum_bh - 1) * 100, label=f"{ticker} B&H ({(cum_bh[-1]-1)*100:+.1f}%)",
+             color="tab:blue", linewidth=2)
+    ax1.plot(x, (eq_n - 1) * 100, label=f"XGB ({period_ret:+.1f}%)",
+             color="tab:orange", linewidth=2)
     ax1.axhline(0, color="gray", linestyle="-", alpha=0.3)
     ax1.set_ylabel("Rendement cumulé (%)")
-    ax1.set_title(f"Derniers {n}j ({dates[0].date()} \u2192 {dates[-1].date()})  "
-                  + "  ".join(title_parts))
+    ax1.set_title(f"Derniers {n}j ({dates[0].date()} → {dates[-1].date()})  "
+                  f"{ticker} {(cum_bh[-1]-1)*100:+.1f}%  XGB {period_ret:+.1f}%")
     ax1.legend(loc="upper left", fontsize=9)
     ax1.grid(True, alpha=0.3)
 
-    max_alloc = max(leverages) * 100
+    # Allocation
+    ax2.fill_between(x, 0, al_c * 100, alpha=0.3, color="tab:orange")
     ax2.axhline(100, color="gray", linestyle="--", alpha=0.5, linewidth=0.8)
-    if max(leverages) >= 1.5:
-        ax2.axhline(150, color="tab:red", linestyle="--", alpha=0.3, linewidth=0.8)
-    if max(leverages) >= 2.0:
-        ax2.axhline(200, color="darkred", linestyle="--", alpha=0.3, linewidth=0.8)
     ax2.set_ylabel("Allocation (%)")
-    ax2.set_ylim(-5, max_alloc + 15)
-    ax2.legend(loc="lower right", fontsize=8)
+    ax2.set_ylim(-5, 115)
     ax2.grid(True, alpha=0.3)
 
     # Probability
     ax3.plot(x, prob, color="tab:purple", linewidth=2, marker="o", markersize=3)
     ax3.axhline(prob_cash, color="gray", linestyle="--", alpha=0.5, label=f"Cash ({prob_cash})")
-    ax3.axhline(0.85, color="red", linestyle="--", alpha=0.5, label="Full (0.85)")
-    ax3.fill_between(x, prob_cash, prob, where=prob >= prob_cash,
-                     alpha=0.2, color="tab:green")
-    ax3.fill_between(x, prob_cash, prob, where=prob < prob_cash,
-                     alpha=0.2, color="tab:red")
+    ax3.axhline(prob_full, color="red", linestyle="--", alpha=0.5, label=f"Full ({prob_full})")
+    ax3.fill_between(x, prob_cash, prob, where=prob >= prob_cash, alpha=0.2, color="tab:green")
+    ax3.fill_between(x, prob_cash, prob, where=prob < prob_cash, alpha=0.2, color="tab:red")
     ax3.set_ylabel("P(invested)")
     ax3.set_ylim(0, 1)
     ax3.legend(loc="lower right", fontsize=9)
     ax3.grid(True, alpha=0.3)
 
-    # PE Top 5 panel
-    if ax_pe is not None and pe_daily is not None:
-        import pandas as pd
+    if ax_pe is not None:
         pe_slice = pe_daily.reindex(dates).ffill()
         ax_pe.plot(x, pe_slice.values, color="darkblue", lw=1.5, label="PE Top 5")
         ax_pe.axhline(20, color="green", ls=":", alpha=0.5, lw=1)
@@ -784,12 +484,10 @@ def plot_recent(wf_dates, qqq_ret, wf_prob, prob_cash=0.5, prob_full=0.85,
 
 
 def plot_comparison(results, prob_cash=0.5, prob_full=0.85, save_path=None):
-    """Compare multiple tickers on same chart with x1.5 leverage."""
-    import pandas as pd
+    """Compare plusieurs tickers (equity x1 net frais + allocation)."""
     import matplotlib.cm as cm
 
     tickers = list(results.keys())
-    n_tickers = len(tickers)
     cmap = cm.get_cmap("tab10")
     styles = ["-", "--", ":"]
 
@@ -799,34 +497,26 @@ def plot_comparison(results, prob_cash=0.5, prob_full=0.85, save_path=None):
     for i, ticker in enumerate(tickers):
         res = results[ticker]
         wf_dates, price_ret, wf_prob = res[0], res[1], res[2]
-        ticker_levs = res[3] if len(res) > 3 else [1.0, 1.5, 2.0]
-        lev = max(ticker_levs)  # best available leverage
         years = (wf_dates[-1] - wf_dates[0]).days / 365.25
         color = cmap(i)
         ls = styles[i % len(styles)]
 
-        # Best leverage with fees
-        eq_n, al_c, _ = simulate_with_fees(price_ret, wf_prob, lev, prob_cash, prob_full)
-        n_cagr = eq_n[-1] ** (1 / years) - 1
-        n_dd = ((eq_n - np.maximum.accumulate(eq_n)) / np.maximum.accumulate(eq_n)).min()
+        eq_n, al_c = simulate(price_ret, wf_prob, prob_cash, prob_full)
+        n_cagr, n_dd = compute_metrics(eq_n, years)
         ax1.semilogy(wf_dates, eq_n,
-                     label=f"{ticker} x{lev:.1f} ({n_cagr*100:.1f}%, DD {n_dd*100:.1f}%)",
+                     label=f"{ticker} ({n_cagr*100:.1f}%, DD {n_dd*100:.1f}%)",
                      color=color, linewidth=2.5, linestyle=ls)
+        ax2.fill_between(wf_dates, 0, al_c * 100, alpha=0.15, color=color, label=ticker)
 
-        ax2.fill_between(wf_dates, 0, al_c * 100, alpha=0.15, color=color,
-                         label=f"{ticker} x{lev:.1f}")
-
-    title_tickers = " vs ".join(tickers)
     ax1.set_ylabel("Equity (log scale)")
-    ax1.set_title(f"{title_tickers} — XGBoost WF net frais Boursorama PEA")
+    ax1.set_title(f"{' vs '.join(tickers)} — XGBoost WF close-to-close (x1, sans frais)")
     ax1.legend(loc="upper left", fontsize=8, ncol=2)
     ax1.grid(True, alpha=0.3)
 
     ax2.axhline(100, color="gray", linestyle="--", alpha=0.5, linewidth=0.8)
-    ax2.axhline(150, color="gray", linestyle="--", alpha=0.3, linewidth=0.8)
     ax2.set_ylabel("Allocation (%)")
     ax2.set_xlabel("Date")
-    ax2.set_ylim(-5, 165)
+    ax2.set_ylim(-5, 115)
     ax2.legend(loc="lower right", fontsize=9)
     ax2.grid(True, alpha=0.3)
     ax2.xaxis.set_major_locator(mdates.YearLocator(2))

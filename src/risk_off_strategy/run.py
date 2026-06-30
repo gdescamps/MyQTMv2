@@ -17,15 +17,7 @@ sys.path.insert(0, str(ROOT))
 
 from src.risk_off_strategy.data import load_data, build_features, build_realtime_target
 from src.risk_off_strategy.backtest import (walk_forward, plot_results, plot_recent,
-                                            plot_comparison, simulate_with_fees,
-                                            plot_projection)
-
-# Tickers with leveraged ETFs available → x1, x1.5, x2
-# Others → x1 only (no leveraged ETF)
-LEVERAGED_TICKERS = {"QQQ", "SPY"}
-
-def get_leverages(ticker):
-    return [1.0, 1.5, 1.75, 2.0] if ticker in LEVERAGED_TICKERS else [1.0]
+                                            plot_comparison)
 
 
 # ── Download fresh data ──────────────────────────────────
@@ -222,26 +214,14 @@ def run_ticker(ticker):
     wf_prob = wf_proba[pred_mask]
     price_ret = price.pct_change().fillna(0).loc[df.index].values[pred_mask]
 
-    # Load PUST (Amundi PEA Nasdaq-100) for PEA execution comparison
-    pust_path = ROOT / "data" / "PUST.parquet"
-    panx_ret_arr = None
-    if pust_path.exists():
-        pust_open = pd.read_parquet(pust_path)["open"]
-        pust_open_ret = pust_open.pct_change().fillna(0)
-        pust_ret_aligned = pust_open_ret.reindex(wf_dates).values
-        # NaN for dates before PUST exists → set to 0 (no position)
-        panx_ret_arr = np.where(np.isnan(pust_ret_aligned), 0.0, pust_ret_aligned)
-
-    levs = get_leverages(ticker)
     target_labels = y[pred_mask]
-    bt_results = plot_results(wf_dates, price_ret, wf_prob, PROB_CASH, PROB_FULL,
-                              save_path=str(OUT / "backtest.png"), ticker=ticker, leverages=levs,
-                              oracle_labels=target_labels, panx_ret=panx_ret_arr)
-    plot_projection(bt_results, levs, save_path=str(OUT / "projection.png"))
+    plot_results(wf_dates, price_ret, wf_prob, PROB_CASH, PROB_FULL,
+                 save_path=str(OUT / "backtest.png"), ticker=ticker,
+                 oracle_labels=target_labels)
     plot_recent(wf_dates, price_ret, wf_prob, PROB_CASH, PROB_FULL,
-                days=252, save_path=str(OUT / "backtest_1y.png"), ticker=ticker, leverages=levs)
+                days=252, save_path=str(OUT / "backtest_1y.png"), ticker=ticker)
     plot_recent(wf_dates, price_ret, wf_prob, PROB_CASH, PROB_FULL,
-                days=21, save_path=str(OUT / "backtest_1m.png"), ticker=ticker, leverages=levs)
+                days=21, save_path=str(OUT / "backtest_1m.png"), ticker=ticker)
 
     # Save latest signal to JSON for morning execution
     last_prob = wf_prob[-1]
@@ -261,7 +241,7 @@ def run_ticker(ticker):
         json.dump(signal, f, indent=2)
     print(f"Signal saved: {signal_path} (alloc={alloc*100:.0f}%, prob={last_prob:.4f})")
 
-    return wf_dates, price_ret, wf_prob, get_leverages(ticker)
+    return wf_dates, price_ret, wf_prob
 
 
 # ── Run ───────────────────────────────────────────────────
