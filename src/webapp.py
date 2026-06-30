@@ -13,6 +13,7 @@ Usage:  python src/webapp.py
 """
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -126,6 +127,87 @@ def compute_portfolio_history(trades):
             "quantity": qty, "executed": executed,
         })
     return history
+
+
+SELL_FEE = 0.005  # 0.5% sur les ventes (achats gratuits) — cf. real_bourso.py
+
+
+def compute_real_performance(trades):
+    """Performance réelle (time-weighted) du compte PEA.
+
+    Utilise l'equity mesurée chaque matin (cash + titres) comme vérité terrain
+    et neutralise les apports/retraits externes, pour que la courbe reflète le
+    rendement de la stratégie sur le capital disponible à l'instant — et non
+    l'effet d'un ajout d'argent. Les frais de vente restent comptés (coût réel).
+    """
+    # Ne garder que les vraies lectures du compte : prix réel, equity > 0, et
+    # soit un ordre exécuté, soit un snapshot d'état (side=None). Les plans
+    # dry-run (side=buy/sell, executed=False) et placeholders sont écartés.
+    raw = [t for t in trades
+           if t.get("equity", 0) > 0 and t.get("etf_price", 0) > 0 and t.get("date")
+           and (t.get("executed") or t.get("side") is None)]
+    # Un seul point faisant foi par date (la dernière lecture l'emporte)
+    by_date = {}
+    for t in raw:
+        by_date[t["date"]] = t
+    points = [by_date[d] for d in sorted(by_date)]
+    if len(points) < 2:
+        return [], {}
+
+    series = [{"date": points[0]["date"], "equity": points[0]["equity"],
+               "cum_return": 0.0, "period_return": 0.0, "deposit": 0.0}]
+    cum = 1.0
+    total_gain_eur = 0.0
+    total_deposits = 0.0
+    prev = points[0]
+    for t in points[1:]:
+        equity = t["equity"]
+        shares = t.get("current_shares", 0)
+        price = t.get("etf_price", 0)
+
+        # Cash avant le trade précédent, puis flux causé par ce trade
+        prev_cash = prev["equity"] - prev.get("current_shares", 0) * prev.get("etf_price", 0)
+        pside, pqty, pprice = prev.get("side"), prev.get("quantity", 0), prev.get("etf_price", 0)
+        if pside == "buy" and prev.get("executed"):
+            trade_cash = -pqty * pprice
+        elif pside == "sell" and prev.get("executed"):
+            trade_cash = +pqty * pprice * (1 - SELL_FEE)
+        else:
+            trade_cash = 0.0
+
+        # Écart cash inexpliqué = apport/retrait externe (bruit < 5 EUR ignoré)
+        deposit = (equity - shares * price) - (prev_cash + trade_cash)
+        if abs(deposit) < 5.0:
+            deposit = 0.0
+
+        period_gain = equity - prev["equity"] - deposit
+        base = prev["equity"]
+        r = period_gain / base if base > 0 else 0.0
+        cum *= (1 + r)
+        total_gain_eur += period_gain
+        total_deposits += deposit
+        series.append({"date": t["date"], "equity": equity,
+                       "cum_return": cum - 1, "period_return": r, "deposit": deposit})
+        prev = t
+
+    try:
+        d0 = datetime.strptime(points[0]["date"], "%Y-%m-%d")
+        d1 = datetime.strptime(points[-1]["date"], "%Y-%m-%d")
+        days = max((d1 - d0).days, 1)
+        annualized = cum ** (365 / days) - 1
+    except (ValueError, OverflowError):
+        days, annualized = 0, 0.0
+
+    stats = {
+        "cum_return": cum - 1,
+        "total_gain_eur": total_gain_eur,
+        "start_equity": points[0]["equity"],
+        "current_equity": points[-1]["equity"],
+        "total_deposits": total_deposits,
+        "annualized": annualized,
+        "days": days,
+    }
+    return series, stats
 
 
 # ── Serve images ──────────────────────────────────────────
@@ -447,6 +529,7 @@ with ui.element("div").classes("layout"):
             tab_1m = ui.tab("1 Month")
             tab_ndx5 = ui.tab("NDX Top 5")
             tab_ndx20 = ui.tab("NDX Top 20")
+            tab_gain = ui.tab("Gain réel")
             tab_trades = ui.tab("Trades")
             tab_alloc = ui.tab("Allocations")
 
@@ -576,6 +659,91 @@ with ui.element("div").classes("layout"):
                     ui.label("NASDAQ-100 Top 20 — Market Cap & PE").classes("text-base font-semibold")
                     render_ndx_tab(20)
 
+            # ── Gain réel ──
+            with ui.tab_panel(tab_gain):
+                with ui.column().classes("tab-content"):
+                    ui.element("div").classes("w-full h-0.5 bg-black")
+                    ui.label("Gain réel du compte — rendement sur le capital").classes("text-base font-semibold")
+                    perf_series, perf_stats = compute_real_performance(trades)
+                    if not perf_series:
+                        ui.label("Pas encore assez d'historique réel.").classes("text-gray-500")
+                    else:
+                        gcls = "gain-positive" if perf_stats["cum_return"] >= 0 else "gain-negative"
+                        eur_sign = "+" if perf_stats["total_gain_eur"] >= 0 else ""
+
+                        def kpi(label, value, cls=""):
+                            with ui.element("div").classes("card").style("flex:1; text-align:center"):
+                                ui.html(f'<div style="font-size:0.7rem;text-transform:uppercase;'
+                                        f'letter-spacing:0.06em;color:#888">{label}</div>')
+                                ui.html(f'<div class="{cls}" style="font-size:1.6rem;'
+                                        f'font-weight:700;margin-top:6px">{value}</div>')
+
+                        with ui.row().classes("w-full gap-4"):
+                            kpi("Capital actuel", f"{perf_stats['current_equity']:.0f} EUR")
+                            kpi("Gain cumulé", f"{perf_stats['cum_return']*100:+.1f}%", gcls)
+                            kpi("Gain réel", f"{eur_sign}{perf_stats['total_gain_eur']:.0f} EUR", gcls)
+                            kpi("Annualisé", f"{perf_stats['annualized']*100:+.1f}%", gcls)
+
+                        xs = [datetime.strptime(s["date"], "%Y-%m-%d") for s in perf_series]
+                        ys = [s["cum_return"] * 100 for s in perf_series]
+
+                        # Insérer les points de croisement à y=0 pour clipper net
+                        ax, ay = [], []
+                        for i in range(len(xs)):
+                            if i > 0 and ((ys[i-1] < 0 < ys[i]) or (ys[i-1] > 0 > ys[i])):
+                                frac = -ys[i-1] / (ys[i] - ys[i-1])
+                                ax.append(xs[i-1] + (xs[i] - xs[i-1]) * frac)
+                                ay.append(0.0)
+                            ax.append(xs[i])
+                            ay.append(ys[i])
+
+                        pos_fill = [y if y >= 0 else 0.0 for y in ay]
+                        neg_fill = [y if y <= 0 else 0.0 for y in ay]
+                        pos_line = [y if y >= 0 else None for y in ay]
+                        neg_line = [y if y <= 0 else None for y in ay]
+
+                        GREEN, RED = "#2e7d32", "#ef5350"
+                        fig_gain = go.Figure()
+                        # Remplissages (sous la courbe), vert au-dessus / rouge en dessous
+                        fig_gain.add_trace(go.Scatter(
+                            x=ax, y=neg_fill, fill="tozeroy", mode="none",
+                            fillcolor="rgba(239,83,80,0.20)", hoverinfo="skip", showlegend=False))
+                        fig_gain.add_trace(go.Scatter(
+                            x=ax, y=pos_fill, fill="tozeroy", mode="none",
+                            fillcolor="rgba(46,125,50,0.20)", hoverinfo="skip", showlegend=False))
+                        # Lignes colorées par signe (se rejoignent au croisement)
+                        fig_gain.add_trace(go.Scatter(
+                            x=ax, y=neg_line, mode="lines", line=dict(color=RED, width=2),
+                            connectgaps=False, hoverinfo="skip", showlegend=False))
+                        fig_gain.add_trace(go.Scatter(
+                            x=ax, y=pos_line, mode="lines", line=dict(color=GREEN, width=2),
+                            connectgaps=False, hoverinfo="skip", showlegend=False))
+                        # Marqueurs sur les vrais points, colorés par signe + hover
+                        fig_gain.add_trace(go.Scatter(
+                            x=xs, y=ys, mode="markers",
+                            marker=dict(size=6, color=[RED if y < 0 else GREEN for y in ys]),
+                            hovertemplate="%{x|%d %b %Y}<br>%{y:+.2f}%<extra></extra>",
+                            showlegend=False))
+                        fig_gain.add_hline(y=0, line=dict(color="#888", width=1, dash="dot"))
+                        fig_gain.update_layout(
+                            title=dict(text="Rendement cumulé (time-weighted) du compte PEA", x=0.5),
+                            margin=dict(t=46, b=30, l=50, r=20), height=420,
+                            yaxis=dict(title="Gain (%)", ticksuffix="%", zeroline=False),
+                            xaxis=dict(title="", type="date"),
+                            plot_bgcolor="white", hovermode="x unified",
+                        )
+                        ui.plotly(fig_gain).classes("w-full")
+
+                        if abs(perf_stats["total_deposits"]) >= 5.0:
+                            ui.label(
+                                f"Apports/retraits neutralisés : {perf_stats['total_deposits']:+.0f} EUR "
+                                f"(exclus du rendement)"
+                            ).style("font-size:0.75rem; color:#999")
+                        ui.label(
+                            f"Capital initial {perf_stats['start_equity']:.0f} EUR · "
+                            f"{perf_stats['days']} jours · frais de vente (0.5%) inclus"
+                        ).style("font-size:0.75rem; color:#999")
+
             # ── Trades ──
             with ui.tab_panel(tab_trades):
                 with ui.column().classes("tab-content"):
@@ -656,4 +824,4 @@ with ui.element("div").classes("layout"):
                         ui.table(columns=columns, rows=rows, row_key="date").classes("w-full")
 
 
-ui.run(title="Risk-Off Strategy — Gregory Descamps", port=8081, reload=False)
+ui.run(title="Risk-Off Strategy — Gregory Descamps", port=int(os.environ.get("WEBAPP_PORT", 8081)), reload=False)

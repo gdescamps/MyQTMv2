@@ -25,7 +25,10 @@
             "request": "launch",
             "program": "${workspaceFolder}/src/webapp.py",
             "console": "integratedTerminal",
-            "justMyCode": true
+            "justMyCode": true,
+            "env": {
+                "WEBAPP_PORT": "8082"
+            }
         }
     ]
 }
