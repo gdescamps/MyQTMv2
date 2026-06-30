@@ -1172,3 +1172,734 @@ Top 20 features:
   qqq_vol20                      0.0076
 Saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/pit_vs_revised.png
 Email envoye a descamps.gregory@gmail.com: [MyQTM] QQQ 2026-06-23 — alloc 90% (prob 0.745)
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6658 rows (+1 new)  [2000-01-03 → 2026-06-24]
+  ..    SPY                  fetching... 6658 rows (+1 new)  [2000-01-03 → 2026-06-24]
+  ..    ACWI                 fetching... 4589 rows (+1 new)  [2008-03-28 → 2026-06-24]
+  ..    TLT                  fetching... 6014 rows (+1 new)  [2002-07-30 → 2026-06-24]
+  ..    vix_ohlc             fetching... 6660 rows (+1 new)  [2000-01-03 → 2026-06-24]
+
+  ..    fred_baa_spread      fetching... 6620 rows (+1 new)  [2000-01-03 → 2026-06-23]
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6658 rows (up to date)
+  ..    SPY                  fetching... 6658 rows (up to date)
+  ..    ACWI                 fetching... 4589 rows (up to date)
+  ..    TLT                  fetching... 6014 rows (up to date)
+  ..    vix_ohlc             fetching... /home/greg/data_local/code/MyQTMv2/src/risk_off_strategy/backtest.py:779: UserWarning: This figure includes Axes that are not compatible with tight_layout, so results might be incorrect.
+  plt.tight_layout()
+/home/greg/data_local/code/MyQTMv2/src/risk_off_strategy/backtest.py:779: UserWarning: This figure includes Axes that are not compatible with tight_layout, so results might be incorrect.
+  plt.tight_layout()
+6660 rows (up to date)
+
+Toutes les donnees du 2026-06-24 disponibles
+Data up to: 2026-06-24
+
+
+======================================================================
+=== QQQ Crisis-Avoidance Strategy ===
+======================================================================
+
+Features: 99 cols, 5814 rows
+XGBoost device: cuda
+Incremental cache: 5813→5814 rows (+1), reusing 252 steps, computing ~1 new steps
+  Step 1: t=5796 train=5775 features=90/99
+
+Walk-forward: 252 steps total (251 cached, 1 computed), last feature set: 90/99
+
+Top 20 features:
+  vix_x_dd                       0.1441
+  qqq_dd                         0.1327
+  qqq_close                      0.0587
+  vix_x_spread                   0.0361
+  qqq_maxdd50                    0.0349
+  qqq_vs_sma200                  0.0343
+  dd_depth_x_duration            0.0331
+  spread_x_vol20                 0.0318
+  dd_duration                    0.0294
+  tlt                            0.0200
+  vix                            0.0195
+  qqq_vs_sma100                  0.0156
+  qqq_maxdd20                    0.0118
+  qqq_ret10                      0.0102
+  qqq_vs_sma20                   0.0097
+  qqq_vol50                      0.0089
+  qqq_ret50                      0.0087
+  qqq_bband20                    0.0079
+  qqq_kurt20                     0.0078
+  qqq_sma10                      0.0074
+Cache saved: wf_incr_e7bf27f4cb149768.npz (5814 rows)
+
+======================================================================
+Periode: 2005-06-15 -> 2026-06-24 (21.0 ans)
+                                        CAGR    Total    MaxDD
+QQQ Buy & Hold                         15.9%    22.2x   -53.4%
+Oracle (perfect label)                 20.7%    52.1x    -9.9%
+XGB x1.0 net Bourso                    21.5%    60.0x    -7.6%
+XGB x1.5 net Bourso                    33.3%   422.4x   -11.4%
+XGB x1.8 net Bourso                    39.6%  1107.3x   -13.2%
+XGB x2.0 net Bourso                    46.0%  2859.4x   -15.0%
+
+Depuis PUST (2014-05-20 -> 2026-06-24, 12.1 ans):
+                                      CAGR QQQ   DD QQQ   CAGR PUST   DD PUST
+QQQ Buy & Hold                           19.8%    -35.1%
+XGB x1.0                                 27.7%     -6.1%       26.8%     -8.2%
+XGB x1.5                                 43.5%     -9.0%       41.8%    -12.5%
+XGB x1.8                                 51.9%    -10.5%       49.6%    -14.7%
+XGB x2.0                                 60.8%    -11.7%       57.7%    -16.9%
+
+Saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/backtest.png
+  x1.0 PEA PUST proj 5y: 433k net (CAGR 26.8%, impots 59k)
+  x1.5 PEA PUST proj 5y: 737k net (CAGR 41.8%, impots 122k)
+  x1.8 PEA PUST proj 5y: 958k net (CAGR 49.6%, impots 168k)
+  x2.0 PEA PUST proj 5y: 1239k net (CAGR 57.7%, impots 226k)
+Saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/projection.png
+Saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/backtest_1y.png
+Saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/backtest_1m.png
+Signal saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/signal.json (alloc=96%, prob=0.7478)
+/home/greg/data_local/code/MyQTMv2/src/risk_off_strategy/compare_pit.py:190: UserWarning: This figure includes Axes that are not compatible with tight_layout, so results might be incorrect.
+  plt.tight_layout()
+
+============================================================
+  QQQ Point-in-Time vs Revised comparison
+============================================================
+
+Data differences:
+  QQQ price: 6011/6014 rows differ (99.95%), max delta=6.766235
+    2002-07-30: PIT=20.5070  REV=20.4845  delta=-0.0225
+    2002-07-31: PIT=20.1189  REV=20.0969  delta=-0.0221
+    2002-08-01: PIT=19.1741  REV=19.1531  delta=-0.0210
+    2002-08-02: PIT=18.7692  REV=18.7486  delta=-0.0206
+    2002-08-05: PIT=18.0860  REV=18.0661  delta=-0.0199
+    ... (6006 more)
+  VIX: 3/6014 rows differ (0.05%), max delta=2.140001
+    2026-06-15: PIT=16.0400  REV=16.2000  delta=+0.1600
+    2026-06-16: PIT=15.8800  REV=16.4100  delta=+0.5300
+    2026-06-17: PIT=16.3000  REV=18.4400  delta=+2.1400
+  BAA spread: identical (6014 rows)
+  TLT: 192/6014 rows differ (3.19%), max delta=0.110001
+    2002-08-01: PIT=36.6210  REV=36.6211  delta=+0.0000
+    2002-09-03: PIT=39.0119  REV=39.0119  delta=+0.0001
+    2002-09-04: PIT=39.0030  REV=39.0030  delta=+0.0000
+    2002-09-23: PIT=39.9247  REV=39.9246  delta=-0.0000
+    2002-09-26: PIT=39.6013  REV=39.6012  delta=-0.0001
+    ... (187 more)
+
+Running walk-forward on PIT data...
+XGBoost device: cuda
+  Step 1: t=525 train=504 features=99/99
+  Step 51: t=1575 train=1554 features=25/99
+  Step 101: t=2625 train=2604 features=58/99
+  Step 151: t=3675 train=3654 features=66/99
+  Step 201: t=4725 train=4704 features=73/99
+  Step 251: t=5775 train=5754 features=88/99
+
+Walk-forward: 252 steps total (0 cached, 252 computed), last feature set: 90/99
+
+Top 20 features:
+  vix_x_dd                       0.1441
+  qqq_dd                         0.1327
+  qqq_close                      0.0587
+  vix_x_spread                   0.0361
+  qqq_maxdd50                    0.0349
+  qqq_vs_sma200                  0.0343
+  dd_depth_x_duration            0.0331
+  spread_x_vol20                 0.0318
+  dd_duration                    0.0294
+  tlt                            0.0200
+  vix                            0.0195
+  qqq_vs_sma100                  0.0156
+  qqq_maxdd20                    0.0118
+  qqq_ret10                      0.0102
+  qqq_vs_sma20                   0.0097
+  qqq_vol50                      0.0089
+  qqq_ret50                      0.0087
+  qqq_bband20                    0.0079
+  qqq_kurt20                     0.0078
+  qqq_sma10                      0.0074
+
+Running walk-forward on Revised data...
+GPU busy (autre workload détecté) → CPU
+XGBoost device: cpu
+  Step 1: t=525 train=504 features=99/99
+  Step 51: t=1575 train=1554 features=8/99
+  Step 101: t=2625 train=2604 features=47/99
+  Step 151: t=3675 train=3654 features=50/99
+  Step 201: t=4725 train=4704 features=77/99
+  Step 251: t=5775 train=5754 features=85/99
+
+Walk-forward: 252 steps total (0 cached, 252 computed), last feature set: 83/99
+
+Top 20 features:
+  vix_x_dd                       0.1765
+  qqq_dd                         0.1461
+  qqq_vs_sma50                   0.0761
+  dd_depth_x_duration            0.0607
+  qqq_maxdd50                    0.0496
+  vix_x_spread                   0.0159
+  qqq_ret10                      0.0151
+  qqq_maxdd20                    0.0144
+  qqq_vs_sma200                  0.0119
+  qqq_sma50                      0.0099
+  qqq_ret5_vs_ret50              0.0098
+  vix                            0.0097
+  qqq_vs_sma20                   0.0097
+  qqq_sma20                      0.0089
+  qqq_vs_sma100                  0.0088
+  qqq_downvol50                  0.0084
+  qqq_vol50                      0.0080
+  vix_term                       0.0079
+  qqq_bband20                    0.0079
+  qqq_kurt20                     0.0078
+Saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/pit_vs_revised.png
+Email envoye a descamps.gregory@gmail.com: [MyQTM] QQQ 2026-06-24 — alloc 96% (prob 0.748)
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6659 rows (+1 new)  [2000-01-03 → 2026-06-25]
+  ..    SPY                  fetching... 6659 rows (+1 new)  [2000-01-03 → 2026-06-25]
+  ..    ACWI                 fetching... 4590 rows (+1 new)  [2008-03-28 → 2026-06-25]
+  ..    TLT                  fetching... 6015 rows (+1 new)  [2002-07-30 → 2026-06-25]
+  ..    vix_ohlc             fetching... 6661 rows (+1 new)  [2000-01-03 → 2026-06-25]
+
+  ..    fred_baa_spread      fetching... 6621 rows (+1 new)  [2000-01-03 → 2026-06-24]
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6659 rows (up to date)
+  ..    SPY                  fetching... 6659 rows (up to date)
+  ..    ACWI                 fetching... 4590 rows (up to date)
+  ..    TLT                  fetching... 6015 rows (up to date)
+  ..    vix_ohlc             fetching... /home/greg/data_local/code/MyQTMv2/src/risk_off_strategy/backtest.py:779: UserWarning: This figure includes Axes that are not compatible with tight_layout, so results might be incorrect.
+  plt.tight_layout()
+/home/greg/data_local/code/MyQTMv2/src/risk_off_strategy/backtest.py:779: UserWarning: This figure includes Axes that are not compatible with tight_layout, so results might be incorrect.
+  plt.tight_layout()
+6661 rows (up to date)
+
+Toutes les donnees du 2026-06-25 disponibles
+Data up to: 2026-06-25
+
+
+======================================================================
+=== QQQ Crisis-Avoidance Strategy ===
+======================================================================
+
+Features: 99 cols, 5815 rows
+XGBoost device: cuda
+Incremental cache: 5814→5815 rows (+1), reusing 252 steps, computing ~1 new steps
+  Step 1: t=5796 train=5775 features=90/99
+
+Walk-forward: 252 steps total (251 cached, 1 computed), last feature set: 90/99
+
+Top 20 features:
+  vix_x_dd                       0.1441
+  qqq_dd                         0.1327
+  qqq_close                      0.0587
+  vix_x_spread                   0.0361
+  qqq_maxdd50                    0.0349
+  qqq_vs_sma200                  0.0343
+  dd_depth_x_duration            0.0331
+  spread_x_vol20                 0.0318
+  dd_duration                    0.0294
+  tlt                            0.0200
+  vix                            0.0195
+  qqq_vs_sma100                  0.0156
+  qqq_maxdd20                    0.0118
+  qqq_ret10                      0.0102
+  qqq_vs_sma20                   0.0097
+  qqq_vol50                      0.0089
+  qqq_ret50                      0.0087
+  qqq_bband20                    0.0079
+  qqq_kurt20                     0.0078
+  qqq_sma10                      0.0074
+Cache saved: wf_incr_e7bf27f4cb149768.npz (5815 rows)
+
+======================================================================
+Periode: 2005-06-15 -> 2026-06-25 (21.0 ans)
+                                        CAGR    Total    MaxDD
+QQQ Buy & Hold                         15.9%    22.4x   -53.4%
+Oracle (perfect label)                 20.7%    52.5x    -9.9%
+XGB x1.0 net Bourso                    21.5%    60.5x    -7.6%
+XGB x1.5 net Bourso                    33.4%   427.6x   -11.4%
+XGB x1.8 net Bourso                    39.7%  1123.0x   -13.2%
+XGB x2.0 net Bourso                    46.1%  2905.7x   -15.0%
+
+Depuis PUST (2014-05-20 -> 2026-06-25, 12.1 ans):
+                                      CAGR QQQ   DD QQQ   CAGR PUST   DD PUST
+QQQ Buy & Hold                           19.8%    -35.1%
+XGB x1.0                                 27.8%     -6.1%       26.8%     -8.2%
+XGB x1.5                                 43.6%     -9.0%       41.7%    -12.5%
+XGB x1.8                                 52.1%    -10.5%       49.6%    -14.7%
+XGB x2.0                                 61.0%    -11.7%       57.7%    -16.9%
+
+Saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/backtest.png
+  x1.0 PEA PUST proj 5y: 433k net (CAGR 26.8%, impots 59k)
+  x1.5 PEA PUST proj 5y: 736k net (CAGR 41.7%, impots 122k)
+  x1.8 PEA PUST proj 5y: 957k net (CAGR 49.6%, impots 168k)
+  x2.0 PEA PUST proj 5y: 1238k net (CAGR 57.7%, impots 226k)
+Saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/projection.png
+Saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/backtest_1y.png
+Saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/backtest_1m.png
+Signal saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/signal.json (alloc=100%, prob=0.7553)
+/home/greg/data_local/code/MyQTMv2/src/risk_off_strategy/compare_pit.py:190: UserWarning: This figure includes Axes that are not compatible with tight_layout, so results might be incorrect.
+  plt.tight_layout()
+
+============================================================
+  QQQ Point-in-Time vs Revised comparison
+============================================================
+
+Data differences:
+  QQQ price: 6011/6015 rows differ (99.93%), max delta=6.766235
+    2002-07-30: PIT=20.5070  REV=20.4845  delta=-0.0225
+    2002-07-31: PIT=20.1189  REV=20.0968  delta=-0.0221
+    2002-08-01: PIT=19.1741  REV=19.1531  delta=-0.0210
+    2002-08-02: PIT=18.7692  REV=18.7486  delta=-0.0206
+    2002-08-05: PIT=18.0860  REV=18.0661  delta=-0.0199
+    ... (6006 more)
+  VIX: 4/6015 rows differ (0.07%), max delta=2.140001
+    2026-06-15: PIT=16.0400  REV=16.2000  delta=+0.1600
+    2026-06-16: PIT=15.8800  REV=16.4100  delta=+0.5300
+    2026-06-17: PIT=16.3000  REV=18.4400  delta=+2.1400
+    2026-06-25: PIT=18.9000  REV=18.8900  delta=-0.0100
+  BAA spread: identical (6015 rows)
+  TLT: 191/6015 rows differ (3.18%), max delta=0.110001
+    2002-08-09: PIT=37.4505  REV=37.4506  delta=+0.0000
+    2002-08-14: PIT=38.2888  REV=38.2889  delta=+0.0000
+    2002-08-19: PIT=37.6446  REV=37.6447  delta=+0.0000
+    2002-08-21: PIT=37.8608  REV=37.8609  delta=+0.0001
+    2002-09-12: PIT=38.9809  REV=38.9808  delta=-0.0000
+    ... (186 more)
+
+Running walk-forward on PIT data...
+XGBoost device: cuda
+  Step 1: t=525 train=504 features=99/99
+  Step 51: t=1575 train=1554 features=25/99
+  Step 101: t=2625 train=2604 features=58/99
+  Step 151: t=3675 train=3654 features=66/99
+  Step 201: t=4725 train=4704 features=73/99
+  Step 251: t=5775 train=5754 features=88/99
+
+Walk-forward: 252 steps total (0 cached, 252 computed), last feature set: 90/99
+
+Top 20 features:
+  vix_x_dd                       0.1441
+  qqq_dd                         0.1327
+  qqq_close                      0.0587
+  vix_x_spread                   0.0361
+  qqq_maxdd50                    0.0349
+  qqq_vs_sma200                  0.0343
+  dd_depth_x_duration            0.0331
+  spread_x_vol20                 0.0318
+  dd_duration                    0.0294
+  tlt                            0.0200
+  vix                            0.0195
+  qqq_vs_sma100                  0.0156
+  qqq_maxdd20                    0.0118
+  qqq_ret10                      0.0102
+  qqq_vs_sma20                   0.0097
+  qqq_vol50                      0.0089
+  qqq_ret50                      0.0087
+  qqq_bband20                    0.0079
+  qqq_kurt20                     0.0078
+  qqq_sma10                      0.0074
+
+Running walk-forward on Revised data...
+GPU busy (autre workload détecté) → CPU
+XGBoost device: cpu
+  Step 1: t=525 train=504 features=99/99
+  Step 51: t=1575 train=1554 features=8/99
+  Step 101: t=2625 train=2604 features=45/99
+  Step 151: t=3675 train=3654 features=50/99
+  Step 201: t=4725 train=4704 features=77/99
+  Step 251: t=5775 train=5754 features=85/99
+
+Walk-forward: 252 steps total (0 cached, 252 computed), last feature set: 83/99
+
+Top 20 features:
+  vix_x_dd                       0.1813
+  qqq_dd                         0.1508
+  dd_depth_x_duration            0.0611
+  qqq_maxdd50                    0.0491
+  qqq_vs_sma50                   0.0356
+  vix_x_spread                   0.0155
+  qqq_maxdd20                    0.0145
+  qqq_vs_sma200                  0.0129
+  qqq_ret10                      0.0127
+  qqq_vs_sma100                  0.0117
+  qqq_ret5_vs_ret50              0.0105
+  qqq_sma50                      0.0102
+  qqq_downvol50                  0.0093
+  qqq_vs_sma20                   0.0092
+  qqq_vol50                      0.0092
+  vix                            0.0090
+  qqq_sma20                      0.0088
+  spread_x_vol20                 0.0084
+  qqq_kurt20                     0.0083
+  vix_term                       0.0081
+Saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/pit_vs_revised.png
+Email envoye a descamps.gregory@gmail.com: [MyQTM] QQQ 2026-06-25 — alloc 100% (prob 0.755)
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6660 rows (+1 new)  [2000-01-03 → 2026-06-26]
+  ..    SPY                  fetching... 6660 rows (+1 new)  [2000-01-03 → 2026-06-26]
+  ..    ACWI                 fetching... 4591 rows (+1 new)  [2008-03-28 → 2026-06-26]
+  ..    TLT                  fetching... 6016 rows (+1 new)  [2002-07-30 → 2026-06-26]
+  ..    vix_ohlc             fetching... 6662 rows (+1 new)  [2000-01-03 → 2026-06-26]
+
+  ..    fred_baa_spread      fetching... 6622 rows (+1 new)  [2000-01-03 → 2026-06-25]
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6660 rows (up to date)
+  ..    SPY                  fetching... 6660 rows (up to date)
+  ..    ACWI                 fetching... 4591 rows (up to date)
+  ..    TLT                  fetching... 6016 rows (up to date)
+  ..    vix_ohlc             fetching... /home/greg/data_local/code/MyQTMv2/src/risk_off_strategy/backtest.py:779: UserWarning: This figure includes Axes that are not compatible with tight_layout, so results might be incorrect.
+  plt.tight_layout()
+/home/greg/data_local/code/MyQTMv2/src/risk_off_strategy/backtest.py:779: UserWarning: This figure includes Axes that are not compatible with tight_layout, so results might be incorrect.
+  plt.tight_layout()
+6662 rows (up to date)
+
+Toutes les donnees du 2026-06-26 disponibles
+Data up to: 2026-06-26
+
+
+======================================================================
+=== QQQ Crisis-Avoidance Strategy ===
+======================================================================
+
+Features: 99 cols, 5816 rows
+XGBoost device: cuda
+Incremental cache: 5815→5816 rows (+1), reusing 252 steps, computing ~1 new steps
+  Step 1: t=5796 train=5775 features=90/99
+
+Walk-forward: 252 steps total (251 cached, 1 computed), last feature set: 90/99
+
+Top 20 features:
+  vix_x_dd                       0.1441
+  qqq_dd                         0.1327
+  qqq_close                      0.0587
+  vix_x_spread                   0.0361
+  qqq_maxdd50                    0.0349
+  qqq_vs_sma200                  0.0343
+  dd_depth_x_duration            0.0331
+  spread_x_vol20                 0.0318
+  dd_duration                    0.0294
+  tlt                            0.0200
+  vix                            0.0195
+  qqq_vs_sma100                  0.0156
+  qqq_maxdd20                    0.0118
+  qqq_ret10                      0.0102
+  qqq_vs_sma20                   0.0097
+  qqq_vol50                      0.0089
+  qqq_ret50                      0.0087
+  qqq_bband20                    0.0079
+  qqq_kurt20                     0.0078
+  qqq_sma10                      0.0074
+Cache saved: wf_incr_e7bf27f4cb149768.npz (5816 rows)
+
+======================================================================
+Periode: 2005-06-15 -> 2026-06-26 (21.0 ans)
+                                        CAGR    Total    MaxDD
+QQQ Buy & Hold                         15.9%    22.1x   -53.4%
+Oracle (perfect label)                 20.6%    51.8x    -9.9%
+XGB x1.0 net Bourso                    21.5%    60.2x    -7.6%
+XGB x1.5 net Bourso                    33.3%   424.4x   -11.4%
+XGB x1.8 net Bourso                    39.6%  1113.1x   -13.2%
+XGB x2.0 net Bourso                    46.0%  2876.6x   -15.0%
+
+Depuis PUST (2014-05-20 -> 2026-06-26, 12.1 ans):
+                                      CAGR QQQ   DD QQQ   CAGR PUST   DD PUST
+QQQ Buy & Hold                           19.7%    -35.1%
+XGB x1.0                                 27.7%     -6.1%       26.7%     -8.2%
+XGB x1.5                                 43.5%     -9.0%       41.6%    -12.5%
+XGB x1.8                                 52.0%    -10.5%       49.5%    -14.7%
+XGB x2.0                                 60.9%    -11.7%       57.6%    -16.9%
+
+Saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/backtest.png
+  x1.0 PEA PUST proj 5y: 432k net (CAGR 26.7%, impots 59k)
+  x1.5 PEA PUST proj 5y: 734k net (CAGR 41.6%, impots 121k)
+  x1.8 PEA PUST proj 5y: 953k net (CAGR 49.5%, impots 167k)
+  x2.0 PEA PUST proj 5y: 1233k net (CAGR 57.6%, impots 225k)
+Saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/projection.png
+Saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/backtest_1y.png
+Saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/backtest_1m.png
+Signal saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/signal.json (alloc=0%, prob=0.6976)
+/home/greg/data_local/code/MyQTMv2/src/risk_off_strategy/compare_pit.py:190: UserWarning: This figure includes Axes that are not compatible with tight_layout, so results might be incorrect.
+  plt.tight_layout()
+
+============================================================
+  QQQ Point-in-Time vs Revised comparison
+============================================================
+
+Data differences:
+  QQQ price: 6011/6016 rows differ (99.92%), max delta=6.766235
+    2002-07-30: PIT=20.5070  REV=20.4845  delta=-0.0225
+    2002-07-31: PIT=20.1189  REV=20.0968  delta=-0.0221
+    2002-08-01: PIT=19.1741  REV=19.1531  delta=-0.0210
+    2002-08-02: PIT=18.7692  REV=18.7486  delta=-0.0206
+    2002-08-05: PIT=18.0860  REV=18.0661  delta=-0.0199
+    ... (6006 more)
+  VIX: 4/6016 rows differ (0.07%), max delta=2.140001
+    2026-06-15: PIT=16.0400  REV=16.2000  delta=+0.1600
+    2026-06-16: PIT=15.8800  REV=16.4100  delta=+0.5300
+    2026-06-17: PIT=16.3000  REV=18.4400  delta=+2.1400
+    2026-06-25: PIT=18.9000  REV=18.8900  delta=-0.0100
+  BAA spread: identical (6016 rows)
+  TLT: 171/6016 rows differ (2.84%), max delta=0.110001
+    2002-08-27: PIT=37.6976  REV=37.6976  delta=-0.0000
+    2002-09-25: PIT=39.6943  REV=39.6943  delta=+0.0000
+    2002-09-26: PIT=39.6013  REV=39.6012  delta=-0.0000
+    2002-10-07: PIT=39.8810  REV=39.8810  delta=+0.0000
+    2002-10-18: PIT=37.9728  REV=37.9728  delta=+0.0000
+    ... (166 more)
+
+Running walk-forward on PIT data...
+XGBoost device: cuda
+  Step 1: t=525 train=504 features=99/99
+  Step 51: t=1575 train=1554 features=25/99
+  Step 101: t=2625 train=2604 features=58/99
+  Step 151: t=3675 train=3654 features=66/99
+  Step 201: t=4725 train=4704 features=73/99
+  Step 251: t=5775 train=5754 features=88/99
+
+Walk-forward: 252 steps total (0 cached, 252 computed), last feature set: 90/99
+
+Top 20 features:
+  vix_x_dd                       0.1441
+  qqq_dd                         0.1327
+  qqq_close                      0.0587
+  vix_x_spread                   0.0361
+  qqq_maxdd50                    0.0349
+  qqq_vs_sma200                  0.0343
+  dd_depth_x_duration            0.0331
+  spread_x_vol20                 0.0318
+  dd_duration                    0.0294
+  tlt                            0.0200
+  vix                            0.0195
+  qqq_vs_sma100                  0.0156
+  qqq_maxdd20                    0.0118
+  qqq_ret10                      0.0102
+  qqq_vs_sma20                   0.0097
+  qqq_vol50                      0.0089
+  qqq_ret50                      0.0087
+  qqq_bband20                    0.0079
+  qqq_kurt20                     0.0078
+  qqq_sma10                      0.0074
+
+Running walk-forward on Revised data...
+GPU busy (autre workload détecté) → CPU
+XGBoost device: cpu
+  Step 1: t=525 train=504 features=99/99
+  Step 51: t=1575 train=1554 features=8/99
+  Step 101: t=2625 train=2604 features=47/99
+  Step 151: t=3675 train=3654 features=50/99
+  Step 201: t=4725 train=4704 features=77/99
+  Step 251: t=5775 train=5754 features=85/99
+
+Walk-forward: 252 steps total (0 cached, 252 computed), last feature set: 83/99
+
+Top 20 features:
+  vix_x_dd                       0.1812
+  qqq_dd                         0.1508
+  dd_depth_x_duration            0.0611
+  qqq_maxdd50                    0.0490
+  qqq_vs_sma50                   0.0356
+  vix_x_spread                   0.0155
+  qqq_maxdd20                    0.0145
+  qqq_vs_sma200                  0.0129
+  qqq_ret10                      0.0127
+  qqq_vs_sma100                  0.0117
+  qqq_ret5_vs_ret50              0.0105
+  qqq_sma50                      0.0102
+  qqq_downvol50                  0.0093
+  qqq_vs_sma20                   0.0092
+  qqq_vol50                      0.0092
+  vix                            0.0090
+  qqq_sma20                      0.0088
+  spread_x_vol20                 0.0084
+  vix_term                       0.0081
+  qqq_kurt20                     0.0081
+Saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/pit_vs_revised.png
+Email envoye a descamps.gregory@gmail.com: [MyQTM] QQQ 2026-06-26 — alloc 0% (prob 0.698)
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6661 rows (+1 new)  [2000-01-03 → 2026-06-29]
+  ..    SPY                  fetching... 6661 rows (+1 new)  [2000-01-03 → 2026-06-29]
+  ..    ACWI                 fetching... 4592 rows (+1 new)  [2008-03-28 → 2026-06-29]
+  ..    TLT                  fetching... 6017 rows (+1 new)  [2002-07-30 → 2026-06-29]
+  ..    vix_ohlc             fetching... 6663 rows (+1 new)  [2000-01-03 → 2026-06-29]
+
+  ..    fred_baa_spread      fetching... 6623 rows (+1 new)  [2000-01-03 → 2026-06-26]
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6661 rows (up to date)
+  ..    SPY                  fetching... 6661 rows (up to date)
+  ..    ACWI                 fetching... 4592 rows (up to date)
+  ..    TLT                  fetching... 6017 rows (up to date)
+  ..    vix_ohlc             fetching... /home/greg/data_local/code/MyQTMv2/src/risk_off_strategy/backtest.py:779: UserWarning: This figure includes Axes that are not compatible with tight_layout, so results might be incorrect.
+  plt.tight_layout()
+/home/greg/data_local/code/MyQTMv2/src/risk_off_strategy/backtest.py:779: UserWarning: This figure includes Axes that are not compatible with tight_layout, so results might be incorrect.
+  plt.tight_layout()
+6663 rows (up to date)
+
+Toutes les donnees du 2026-06-29 disponibles
+Data up to: 2026-06-29
+
+
+======================================================================
+=== QQQ Crisis-Avoidance Strategy ===
+======================================================================
+
+Features: 99 cols, 5817 rows
+XGBoost device: cuda
+Incremental cache: 5816→5817 rows (+1), reusing 252 steps, computing ~1 new steps
+  Step 1: t=5796 train=5775 features=90/99
+
+Walk-forward: 252 steps total (251 cached, 1 computed), last feature set: 90/99
+
+Top 20 features:
+  vix_x_dd                       0.1441
+  qqq_dd                         0.1327
+  qqq_close                      0.0587
+  vix_x_spread                   0.0361
+  qqq_maxdd50                    0.0349
+  qqq_vs_sma200                  0.0343
+  dd_depth_x_duration            0.0331
+  spread_x_vol20                 0.0318
+  dd_duration                    0.0294
+  tlt                            0.0200
+  vix                            0.0195
+  qqq_vs_sma100                  0.0156
+  qqq_maxdd20                    0.0118
+  qqq_ret10                      0.0102
+  qqq_vs_sma20                   0.0097
+  qqq_vol50                      0.0089
+  qqq_ret50                      0.0087
+  qqq_bband20                    0.0079
+  qqq_kurt20                     0.0078
+  qqq_sma10                      0.0074
+Cache saved: wf_incr_e7bf27f4cb149768.npz (5817 rows)
+
+======================================================================
+Periode: 2005-06-15 -> 2026-06-29 (21.0 ans)
+                                        CAGR    Total    MaxDD
+QQQ Buy & Hold                         16.0%    22.6x   -53.4%
+Oracle (perfect label)                 20.8%    53.1x    -9.9%
+XGB x1.0 net Bourso                    21.6%    61.7x    -7.6%
+XGB x1.5 net Bourso                    33.6%   440.2x   -11.4%
+XGB x1.8 net Bourso                    39.9%  1161.5x   -13.2%
+XGB x2.0 net Bourso                    46.4%  3019.6x   -15.0%
+
+Depuis PUST (2014-05-20 -> 2026-06-29, 12.1 ans):
+                                      CAGR QQQ   DD QQQ   CAGR PUST   DD PUST
+QQQ Buy & Hold                           19.9%    -35.1%
+XGB x1.0                                 28.0%     -6.1%       26.7%     -8.2%
+XGB x1.5                                 43.9%     -9.0%       41.6%    -12.5%
+XGB x1.8                                 52.5%    -10.5%       49.5%    -14.7%
+XGB x2.0                                 61.5%    -11.7%       57.5%    -16.9%
+
+Saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/backtest.png
+  x1.0 PEA PUST proj 5y: 431k net (CAGR 26.7%, impots 58k)
+  x1.5 PEA PUST proj 5y: 733k net (CAGR 41.6%, impots 121k)
+  x1.8 PEA PUST proj 5y: 952k net (CAGR 49.5%, impots 167k)
+  x2.0 PEA PUST proj 5y: 1231k net (CAGR 57.5%, impots 225k)
+Saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/projection.png
+Saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/backtest_1y.png
+Saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/backtest_1m.png
+Signal saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/signal.json (alloc=100%, prob=0.7845)
+/home/greg/data_local/code/MyQTMv2/src/risk_off_strategy/compare_pit.py:190: UserWarning: This figure includes Axes that are not compatible with tight_layout, so results might be incorrect.
+  plt.tight_layout()
+
+============================================================
+  QQQ Point-in-Time vs Revised comparison
+============================================================
+
+Data differences:
+  QQQ price: 6011/6017 rows differ (99.90%), max delta=6.766235
+    2002-07-30: PIT=20.5070  REV=20.4845  delta=-0.0225
+    2002-07-31: PIT=20.1189  REV=20.0968  delta=-0.0221
+    2002-08-01: PIT=19.1741  REV=19.1531  delta=-0.0211
+    2002-08-02: PIT=18.7692  REV=18.7486  delta=-0.0206
+    2002-08-05: PIT=18.0860  REV=18.0661  delta=-0.0199
+    ... (6006 more)
+  VIX: 4/6017 rows differ (0.07%), max delta=2.140001
+    2026-06-15: PIT=16.0400  REV=16.2000  delta=+0.1600
+    2026-06-16: PIT=15.8800  REV=16.4100  delta=+0.5300
+    2026-06-17: PIT=16.3000  REV=18.4400  delta=+2.1400
+    2026-06-25: PIT=18.9000  REV=18.8900  delta=-0.0100
+  BAA spread: identical (6017 rows)
+  TLT: 164/6017 rows differ (2.73%), max delta=0.110001
+    2002-07-30: PIT=35.9680  REV=35.9680  delta=+0.0000
+    2002-08-28: PIT=37.8873  REV=37.8873  delta=+0.0000
+    2002-09-26: PIT=39.6013  REV=39.6012  delta=-0.0000
+    2002-10-03: PIT=39.6897  REV=39.6898  delta=+0.0000
+    2002-10-07: PIT=39.8810  REV=39.8810  delta=+0.0000
+    ... (159 more)
+
+Running walk-forward on PIT data...
+XGBoost device: cuda
+  Step 1: t=525 train=504 features=99/99
+  Step 51: t=1575 train=1554 features=25/99
+  Step 101: t=2625 train=2604 features=58/99
+  Step 151: t=3675 train=3654 features=66/99
+  Step 201: t=4725 train=4704 features=73/99
+  Step 251: t=5775 train=5754 features=88/99
+
+Walk-forward: 252 steps total (0 cached, 252 computed), last feature set: 90/99
+
+Top 20 features:
+  vix_x_dd                       0.1441
+  qqq_dd                         0.1327
+  qqq_close                      0.0587
+  vix_x_spread                   0.0361
+  qqq_maxdd50                    0.0349
+  qqq_vs_sma200                  0.0343
+  dd_depth_x_duration            0.0331
+  spread_x_vol20                 0.0318
+  dd_duration                    0.0294
+  tlt                            0.0200
+  vix                            0.0195
+  qqq_vs_sma100                  0.0156
+  qqq_maxdd20                    0.0118
+  qqq_ret10                      0.0102
+  qqq_vs_sma20                   0.0097
+  qqq_vol50                      0.0089
+  qqq_ret50                      0.0087
+  qqq_bband20                    0.0079
+  qqq_kurt20                     0.0078
+  qqq_sma10                      0.0074
+
+Running walk-forward on Revised data...
+GPU busy (autre workload détecté) → CPU
+XGBoost device: cpu
+  Step 1: t=525 train=504 features=99/99
+  Step 51: t=1575 train=1554 features=8/99
+  Step 101: t=2625 train=2604 features=45/99
+  Step 151: t=3675 train=3654 features=52/99
+  Step 201: t=4725 train=4704 features=77/99
+  Step 251: t=5775 train=5754 features=85/99
+
+Walk-forward: 252 steps total (0 cached, 252 computed), last feature set: 83/99
+
+Top 20 features:
+  vix_x_dd                       0.1743
+  qqq_dd                         0.1450
+  qqq_vs_sma50                   0.0762
+  dd_depth_x_duration            0.0597
+  qqq_maxdd50                    0.0490
+  vix_x_spread                   0.0155
+  qqq_ret10                      0.0151
+  qqq_maxdd20                    0.0141
+  qqq_vs_sma200                  0.0117
+  qqq_sma50                      0.0099
+  qqq_ret5_vs_ret50              0.0094
+  qqq_vs_sma100                  0.0094
+  vix                            0.0090
+  qqq_sma20                      0.0088
+  qqq_vol50                      0.0088
+  qqq_vs_sma20                   0.0088
+  qqq_kurt20                     0.0081
+  qqq_downvol50                  0.0081
+  qqq_vol20                      0.0081
+  qqq_bband20                    0.0079
+Saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/pit_vs_revised.png
+Email envoye a descamps.gregory@gmail.com: [MyQTM] QQQ 2026-06-29 — alloc 100% (prob 0.785)

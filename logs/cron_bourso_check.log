@@ -48,3 +48,81 @@ Verification quotidienne de bourso-cli
    A jour: patch base sur v0.5.3 (pin 0b5e336, v0.5.3) = dernier tag azerpas.
 
 Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   16 passed, 1 skipped, 1 xfailed in 0.18s
+
+2. Connexion compte reel (trade summary PEA/PUST): OK — PUST 104.2200 EUR — PEA: 63.65 EUR especes, 6 part(s)
+
+3. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.3 (pin 0b5e336, v0.5.3) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   16 passed, 1 skipped, 1 xfailed in 0.16s
+
+2. Connexion compte reel (trade summary PEA/PUST): OK — PUST 103.4600 EUR — PEA: 63.65 EUR especes, 6 part(s)
+
+3. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.3 (pin 0b5e336, v0.5.3) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   16 passed, 1 skipped, 1 xfailed in 0.14s
+
+2. Connexion compte reel (trade summary PEA/PUST): OK — PUST 103.1400 EUR — PEA: 63.65 EUR especes, 6 part(s)
+
+3. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.3 (pin 0b5e336, v0.5.3) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   16 passed, 1 skipped, 1 xfailed in 0.16s
+
+2. Connexion compte reel (trade summary PEA/PUST): OK — PUST 103.1400 EUR — PEA: 63.65 EUR especes, 6 part(s)
+
+3. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.3 (pin 0b5e336, v0.5.3) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   16 passed, 1 skipped, 1 xfailed in 0.16s
+
+2. Connexion compte reel (trade summary PEA/PUST): OK — PUST 103.1400 EUR — PEA: 63.65 EUR especes, 6 part(s)
+
+3. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.3 (pin 0b5e336, v0.5.3) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   16 passed, 1 skipped, 1 xfailed in 0.18s
+
+2. Connexion compte reel (trade summary PEA/PUST): OK — PUST 103.5600 EUR — PEA: 679.16 EUR especes, 0 part(s)
+
+3. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.3 (pin 0b5e336, v0.5.3) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK

@@ -37,3 +37,141 @@ Email envoye a descamps.gregory@gmail.com: [MyQTM] DRY-RUN ACHAT 2x PUST @ 104.1
   Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
 
 Termine.
+============================================================
+PEA PUST (Nasdaq x1) — 2026-06-24
+Mode: LIVE
+============================================================
+Signal du 2026-06-23 (status=ok, age: 7.3h)
+  Probabilite: 0.7452
+  Allocation:  90%
+
+PEA PEA DESCAMPS:
+  Especes:       63.65 EUR
+  Titres:       625.56 EUR
+  Total:        689.21 EUR
+  PUST:     6 parts @ 104.26 EUR
+
+Allocation:
+  Actuelle: 90.8% (6 parts, 626 EUR)
+  Cible:    90.4% (623 EUR)
+  Delta:    -0.3% (-2 EUR)
+
+Decision: Aucune action (dans la marge d'1 part)
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA PUST (Nasdaq x1) — 2026-06-25
+Mode: LIVE
+============================================================
+Signal du 2026-06-24 (status=ok, age: 10.6h)
+  Probabilite: 0.7478
+  Allocation:  96%
+
+PEA PEA DESCAMPS:
+  Especes:       63.65 EUR
+  Titres:       632.04 EUR
+  Total:        695.69 EUR
+  PUST:     6 parts @ 105.34 EUR
+
+Allocation:
+  Actuelle: 90.9% (6 parts, 632 EUR)
+  Cible:    95.6% (665 EUR)
+  Delta:    +4.7% (+33 EUR)
+
+Decision: Aucune action (dans la marge d'1 part)
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA PUST (Nasdaq x1) — 2026-06-26
+Mode: LIVE
+============================================================
+Signal du 2026-06-25 (status=ok, age: 10.6h)
+  Probabilite: 0.7553
+  Allocation:  100%
+
+PEA PEA DESCAMPS:
+  Especes:       63.65 EUR
+  Titres:       617.76 EUR
+  Total:        681.41 EUR
+  PUST:     6 parts @ 102.96 EUR
+
+Allocation:
+  Actuelle: 90.7% (6 parts, 618 EUR)
+  Cible:    100.0% (681 EUR)
+  Delta:    +9.3% (+64 EUR)
+
+Decision: Aucune action (dans la marge d'1 part)
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA PUST (Nasdaq x1) — 2026-06-29
+Mode: LIVE
+============================================================
+Signal du 2026-06-26 (status=ok, age: 58.6h)
+  Probabilite: 0.6976
+  Allocation:  0%
+
+PEA PEA DESCAMPS:
+  Especes:       63.65 EUR
+  Titres:       618.48 EUR
+  Total:        682.13 EUR
+  PUST:     6 parts @ 103.08 EUR
+
+Allocation:
+  Actuelle: 90.7% (6 parts, 618 EUR)
+  Cible:    0.0% (0 EUR)
+  Delta:    -90.7% (-618 EUR)
+
+Decision: Vendre 6 parts (-90.7%, frais ~3.1 EUR)
+  [EXECUTE] VENTE 6x PUST
+  [OK] INFO bourso_cli: Welcome to BoursoBank CLI 👋
+ INFO bourso_cli: ℹ️ - Version 0.5.3. Make sure you're running the latest version: https://github.com/azerpas/bourso-api
+ INFO bourso_cli: We'll try to log you in with your customer id: 70967054
+ INFO bourso_cli: If you want to change it, run `bourso config --username <customer_id>`
+ INFO bourso_cli: We'll need your password to log you in. It will not be stored anywhere and will be asked everytime you run a command. The password will be hidden while typing.
+ INFO bourso_api::client: 🔓 You are now logged in with user: 2fd785cade53ab8
+ INFO bourso_cli: Login successful ✅
+ INFO bourso_api::client::trade::order: Order for 6 1rTPUST successfully passed with ID F26F29004167 at price Some(103.08) ✅
+Email envoye a descamps.gregory@gmail.com: [MyQTM] LIVE VENTE 6x PUST @ 103.08
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA PUST (Nasdaq x1) — 2026-06-30
+Mode: LIVE
+============================================================
+Signal du 2026-06-29 (status=ok, age: 10.6h)
+  Probabilite: 0.7845
+  Allocation:  100%
+
+PEA PEA DESCAMPS:
+  Especes:      679.16 EUR
+  Titres:         0.00 EUR
+  Total:        679.16 EUR
+  PUST:     0 parts @ 105.06 EUR
+
+Allocation:
+  Actuelle: 0.0% (0 parts, 0 EUR)
+  Cible:    100.0% (679 EUR)
+  Delta:    +100.0% (+679 EUR)
+
+Decision: Acheter 6 parts (+100.0%)
+  [EXECUTE] ACHAT 6x PUST
+  [ERREUR] bourso-cli code 1: INFO bourso_cli: Welcome to BoursoBank CLI 👋
+ INFO bourso_cli: ℹ️ - Version 0.5.3. Make sure you're running the latest version: https://github.com/azerpas/bourso-api
+ INFO bourso_cli: We'll try to log you in with your customer id: 70967054
+ INFO bourso_cli: If you want to change it, run `bourso config --username <customer_id>`
+ INFO bourso_cli: We'll need your password to log you in. It will not be stored anywhere and will be asked everytime you run a command. The password will be hidden while typing.
+ INFO bourso_api::client: 🔓 You are now logged in with user: 2fd785cade53ab8
+ INFO bourso_cli: Login successful ✅
+Error: Failed to parse order prepare response. Response: {"resourceId":"59a9a334b0394","isPcc":false,"pccRights":{"allocate":false,"force":false},"hasRightToAssign":false,"hasRightToForce":false,"position":{"cash":679.16,"srdCoverage":679.16,"quantity":0,"srdQuantity":0},"account":{"hasPfm":false,"rib":"40618 80610 00088465900 69","iban":"FR7640618806100008846590069","bic":"BOUSFRPPXXX","accountNumber":"00088465900","name":"PEA DESCAMPS","balance":679.16,"internal":true,"currency":"EUR","type":"PEA","professional":false,"subtype":"OMS_ACCOUNT_ISA","role":"titular","bankId":"1","bankName":"BoursoBank","cashOut":0,"cashIn":1,"accountKey":"faab190372918f26c5d2d518fd307d05","pfmAccountKey":null,"typeCategory":"TRADING","hasUnregularOperations":false,"shortName":"PEA DESCAMPS","minor":false,"contactIdOwner":null,"isKADOR":false,"profileType":null,"details":{"firstCashTransferDate":"2026-06-16","gainLossesPercent":0,"doneGainLossesPercent":0,"cash":679.16,"gainLosses":0,"doneGainLosses":0,"clearanceBalance":0,"stocks":0,"date":"2026-06-30","isDmc":false,"nextLiquidationDate":"2026-07-28"},"hasIncident":false},"accountFiscality":{"latGL":0,"realGL":-20.84},"accountFeesProfile":"DECOUVERTE","pendingExecutedOrders":{"pending":0,"executed":3},"acceptabilityMessages":[],"symbol":{"exchangeLabel":"Euronext Paris","symbol":"1rTPUST","nbDecimals":4,"currency":"EUR","label":"Amundi PEA Nasdaq-100 UCITS ETF Acc","isin":"FR0011871110","lastPrice":105.06,"fundMorningStarPdfUrl":"https:\/\/doc.morningstar.com\/LatestDoc.aspx?clientid=boursorama&key=507703e53b7dec23&language=454&investmentid=F00000TNQV&documenttype=299&market=1443&investmenttype=1&frame=0","directIssuerKidUrl":null,"priipsKidUrl":null,"allowTacticalOrders":true,"details":{"opcvm":false,"affiliated":false,"directIssuer":false,"tracker":true,"turbo":false,"warrant":false,"euronext":true},"extendedHours":{"associatedSymbol":"","loxSymbol":"","isEligible":false,"loxExchangeId":"","isOst":false,"isOpen":false}},"prepareOrderData":{"minExpireTm":"2026-06-30","maxExpireTm":"2027-06-29","invalidDatesList":["2026-12-25","2027-01-01"],"listOrdType":{"b":["ATP","LIM","STP","SLM","TSO"],"s":["ATP","LIM","STP","SLM","TSO"]},"listRiskMd":["CPT"],"sideList":["B","S"],"configOrdType":{"ATP":"Au march\u00e9 (ex ATP)","LIM":"Ordre limit\u00e9","STP":"Seuil de d\u00e9clenchement","SLM":"Plage de d\u00e9clenchement","TSO":"Ordre Suiveur","OCO":"Ordre Alternatif","TAL":"Trade At Last"}},"prefillOrderData":{"orderRiskMode":"CPT","orderAmount":105.06,"orderQuantity":null,"orderPriceLimit":null,"orderType":"LIM","orderValidity":"2026-06-30","alternativeOrder":{"orderType":"LIM"},"securedOrder":{"orderType":"LIM"}},"opcvmMessage":"","diciMessage":"\n     En confirmant le passage d'ordre, je reconnais avoir pris connaissance du <a href=\"https:\/\/doc.morningstar.com\/LatestDoc.aspx?clientid=boursorama&key=507703e53b7dec23&language=454&investmentid=F00000TNQV&documenttype=299&market=1443&investmenttype=1&frame=0\" target=\"_blank\" rel=\"noreferrer noopener\">DIC<\/a>.\n    ","performanceUrl":"https:\/\/www.boursobank.com\/static\/file\/default\/179864425\/i\/bourse\/performance.jpg","executionPolicyUrl":"https:\/\/bourse.boursobank.com\/bourse\/politique-execution\/"}
+
+Caused by:
+    invalid type: floating point `-20.84`, expected i64 at line 1 column 1109
+Email envoye a descamps.gregory@gmail.com: [MyQTM] LIVE ACHAT 6x PUST @ 105.06
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
