@@ -27,11 +27,15 @@ FRED_BASE = "https://api.stlouisfed.org/fred/series/observations"
 
 # Series needed for QQQ strategy
 FRED_SERIES = {
-    "DBAA":  "baa_spread",   # Moody's BAA corporate bond yield spread
+    # series_id : (label, units)   units="lin" brut, "pc1" = variation sur 1 an (YoY %)
+    "DBAA":     ("baa_spread", "lin"),   # Moody's BAA corporate bond yield spread
+    "NFCI":     ("nfci", "lin"),         # Chicago Fed National Financial Conditions Index (hebdo)
+    "CPIAUCSL": ("cpi", "pc1"),          # IPC global, YoY % (garde-fou inflation)
+    "CPILFESL": ("cpi_core", "pc1"),     # IPC sous-jacent (core), YoY %
 }
 
 
-def fetch_fred(series_id: str, label: str, force: bool = False) -> None:
+def fetch_fred(series_id: str, label: str, force: bool = False, units: str = "lin") -> None:
     if not FRED_KEY:
         print("  [SKIP] FRED_API_KEY not set — add it to .env")
         return
@@ -50,7 +54,7 @@ def fetch_fred(series_id: str, label: str, force: bool = False) -> None:
         "api_key": FRED_KEY,
         "file_type": "json",
         "observation_start": "2000-01-01",
-        "units": "lin",
+        "units": units,
     }
     try:
         r = requests.get(FRED_BASE, params=params, timeout=30)
@@ -99,8 +103,9 @@ def main():
         print("Then add FRED_API_KEY=your_key to .env")
         return
 
-    for series_id, label in FRED_SERIES.items():
-        fetch_fred(series_id, label)
+    for series_id, spec in FRED_SERIES.items():
+        label, units = spec if isinstance(spec, (tuple, list)) else (spec, "lin")
+        fetch_fred(series_id, label, units=units)
         time.sleep(0.1)
 
     print("\nDone.")
