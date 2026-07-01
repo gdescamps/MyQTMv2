@@ -81,7 +81,9 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, save_path=None, ticker="QQQ
     em, cagr_m, dd_m, sh_m = _window_metrics(ret, pos_m, w0)
     ebh, cagr_bh, dd_bh, sh_bh = _window_metrics(ret, pos_bh, w0)
     eref, _, dd_ref, sh_ref = _window_metrics(ret, pos_ref, w0)
-    sma_reb = (s / s[w0])[w0:]
+    # SMA250 rebasee sur le PRIX au debut de fenetre (meme base que le B&H rebasee),
+    # sinon elle est mal positionnee dans les vues fenetrees (1y/1m).
+    sma_reb = (s / p[w0])[w0:]
 
     npan = 3 + (nfci is not None) + (cpi is not None)
     ratios = [2.6, 1.1, 1.1] + [1.1] * (npan - 3)
