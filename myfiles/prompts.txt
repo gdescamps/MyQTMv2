@@ -1894,3 +1894,79 @@ outputs/qqq_strategy/pit_vs_revised.png
 car les 2 courbes point in time diverge en 2008
 hors l'idée est de garder les données téléchager le jour J 
 pour verifier si la donnée telechargée le jour j changer a j+10 par exemple (revision)
+
+
+-----------------------------------------------
+
+est ce que tu peux implementer dans bourso-cli
+les connection pour passer les ordres au marché, ou limit avec une tolerance
+en dehors des heures d'ouverture 
+dans la branch post_order
+
+-----------------------------------------------
+
+simplifier le backtest 
+backtester uniquement le qqq en close to close
+suprime le cache 
+supprime le backtest PUST 
+supprime le level 
+supprime la projection 
+close to close signitfie qu'on 
+peut calculer la proba close et l'executer 5 min avant la fin du marche 
+supprimer le compare_pit 
+supprimer le calcul des fees 
+
+
+
+dans src/risk_off_strategy/backtest.py est ce que tu peux
+isolé la fonction de backtest pure comptage du rendement 
+auditable facilement par un etre humain 
+
+avec en entrée le dictionnaire
+ les clés etant le jour (date)
+ {
+  proba de la cloture vs allocation calculé sur la cloture du jour 
+  prix de cloture du qqq
+  prix d'ouverture du pust le lendemain
+ }
+ les seuils proba on/off 
+
+le backtest compte le rendement de facon naive avec une boucle trivial
+ 
+bien sur la préparation du dictionnaire doit etre naive et auditable egalement 
+
+-----------------------------------------------
+
+creer un src/debug_label.py
+pour créer un plot affichant 
+qqq
+oracle 
+le vix
+
+-----------------------------------------------
+
+entrainer cet oracle en walkforward 
+
+-----------------------------------------------
+
+question est ce qu'on connait les volumes des mouvements des institutionnels sur le qqq?
+autres questions est ce qu'on pourrais Analyser le parallèle entre les annonces sémantiques et les mouvements institutionnels pour détecter une crise.
+Mon but est toujours de rester investi sur le Nasdaq. Mais de détecter les crises.
+
+-----------------------------------------------
+
+quel serait l'indicateur qu'on peut 
+tracé qui indique le mieux les bear lent
+
+tracer dans outputs/qqq_strategy/debug_slow_bear.png
+
+-----------------------------------------------
+
+essayer d'ameliorer le signal crossing de la sma150 ou sma200
+En regardant la pente lors du croisement entre le prix et la moving average.
+Normalement plus la pente présente des angles différents avec le moving average.
+Plus le signal devrait être fort.
+Également en associant le volume du croisement descendant ou ascendant et la pente.
+
+tracer dans outputs/qqq_strategy/debug_trend_improved.png
+
