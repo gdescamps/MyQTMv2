@@ -1,0 +1,11 @@
+PATH=/home/greg/.local/bin:/usr/local/bin:/usr/bin:/bin
+DIR=/home/greg/data_local/code/MyQTMv2
+
+# Risk-off QQQ daily backtest + PIT comparison + email recap (weekdays 22:30, GPU si libre sinon CPU)
+30 22 * * 1-5 cd $DIR && XGBOOST_DEVICE=auto ./venv/bin/python -m src.risk_off_strategy.run QQQ >> logs/cron_backtest.log 2>&1 && XGBOOST_DEVICE=auto ./venv/bin/python -m src.risk_off_strategy.compare_pit QQQ >> logs/cron_backtest.log 2>&1; ./venv/bin/python -m src.bourso.notify --recap >> logs/cron_backtest.log 2>&1
+
+# PEA PUST execution (weekdays 09:05, ouverture Euronext Paris, exécution réelle)
+5 9 * * 1-5 cd $DIR && ./venv/bin/python -m src.real_bourso --execute >> logs/cron_pea.log 2>&1
+
+# bourso-cli daily check (tous les jours 20:00) : tests dry-run + nouveaux commits upstream + email rapport
+0 20 * * * cd $DIR && ./venv/bin/python -m src.bourso.check_cli >> logs/cron_bourso_check.log 2>&1
