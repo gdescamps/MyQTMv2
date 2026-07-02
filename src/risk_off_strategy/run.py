@@ -151,6 +151,7 @@ def run_ticker(ticker):
     alloc = compute_allocation(price.values, nfci, cpi)
 
     m = plot_backtest(price, alloc, nfci, cpi, save_path=str(OUT / "backtest.png"), ticker=ticker)
+    plot_backtest(price, alloc, nfci, cpi, save_path=str(OUT / "backtest_10y.png"), ticker=ticker, last_days=10 * 252)
     plot_backtest(price, alloc, nfci, cpi, save_path=str(OUT / "backtest_1y.png"), ticker=ticker, last_days=252)
     plot_backtest(price, alloc, nfci, cpi, save_path=str(OUT / "backtest_1m.png"), ticker=ticker, last_days=21)
 

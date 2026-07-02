@@ -81,6 +81,16 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, save_path=None, ticker="QQQ
     em, cagr_m, dd_m, sh_m = _window_metrics(ret, pos_m, w0)
     ebh, cagr_bh, dd_bh, sh_bh = _window_metrics(ret, pos_bh, w0)
     eref, _, dd_ref, sh_ref = _window_metrics(ret, pos_ref, w0)
+
+    # variante LEVIER 1->1.5 (deployable PEA via blend LQQ x2 + PUST x1, rebalance quotidien) :
+    # au-dessus de la MA, expo = 1 + 0.5*clip(gap/0.15,0,1) ; sinon = alloc x1 (macro-off inclus).
+    gap = p / s - 1.0
+    lev = alloc.copy()
+    above = (p > s) & (alloc > 0)
+    lev[above] = 1.0 + 0.5 * np.clip(gap[above] / 0.15, 0, 1)
+    pos_lev = np.concatenate([[0.0], lev[:-1]])
+    elev, cagr_lev, dd_lev, sh_lev = _window_metrics(ret, pos_lev, w0)
+
     # SMA250 rebasee sur le PRIX au debut de fenetre (meme base que le B&H rebasee),
     # sinon elle est mal positionnee dans les vues fenetrees (1y/1m).
     sma_reb = (s / p[w0])[w0:]
@@ -98,7 +108,9 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, save_path=None, ticker="QQQ
     a1.semilogy(d, eref, color="grey", lw=1.0, ls="--",
                 label=f"trend150+VM ref (Sh {sh_ref:.2f}, DD {dd_ref*100:.0f}%)")
     a1.semilogy(d, em, color="crimson", lw=1.5,
-                label=f"strategie (CAGR {cagr_m*100:.1f}%, DD {dd_m*100:.0f}%, Sh {sh_m:.2f})")
+                label=f"strategie x1 (CAGR {cagr_m*100:.1f}%, DD {dd_m*100:.0f}%, Sh {sh_m:.2f})")
+    a1.semilogy(d, elev, color="darkorange", lw=1.4,
+                label=f"levier 1->1.5 LQQ+PUST (CAGR {cagr_lev*100:.1f}%, DD {dd_lev*100:.0f}%, Sh {sh_lev:.2f})")
     a1.set_ylabel("Equity (log, base 1)")
     a1.legend(loc="upper left", fontsize=9); a1.grid(True, which="both", alpha=0.2)
     span = (f"depuis {d[0].date()}" if last_days is None
@@ -113,9 +125,11 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, save_path=None, ticker="QQQ
     a2.legend(loc="upper left", fontsize=8); a2.grid(True, alpha=0.2)
 
     a3 = next(ax)
-    a3.fill_between(d, alloc[w0:], color="steelblue", alpha=0.35, step="mid")
-    a3.plot(d, alloc[w0:], color="steelblue", lw=0.5)
-    a3.set_ylabel("allocation", fontsize=9); a3.set_ylim(-0.05, 1.05); a3.grid(True, alpha=0.2)
+    a3.fill_between(d, alloc[w0:], color="steelblue", alpha=0.35, step="mid", label="x1")
+    a3.plot(d, lev[w0:], color="darkorange", lw=0.7, alpha=0.9, label="levier (LQQ+PUST)")
+    a3.axhline(1.0, color="grey", ls=":", lw=0.6); a3.axhline(1.5, color="red", ls=":", lw=0.6, alpha=0.5)
+    a3.set_ylabel("allocation", fontsize=9); a3.set_ylim(-0.05, 1.6); a3.grid(True, alpha=0.2)
+    a3.legend(loc="upper left", fontsize=7, ncol=2)
 
     if nfci is not None:
         an = next(ax)
