@@ -1,15 +1,17 @@
 """
 Strategie deployee : trend-following long + vol-managed + garde-fous anticrise.
 
-Cœur (x1, close-to-close) :
-    s      = SMA(prix, 250)
-    vol    = Yang-Zhang(OHLC, 10j) annualisee  (integre les gaps overnight -> plus
-             precoce que le close-to-close ; fallback rvol20 close si pas d'OHLC)
-    decay  = clip(1 + (prix/s - 1) / GAP_CUTOFF, 0, 1)     # ecrase l'expo quand
-                                                            # le prix est tres sous la MA
-    above  = clip(ABOVE_CAP / vol, 0, 1)   # RISK-OFF PRECOCE : coupe deja au-dessus
-                                            # de la MA quand la vol s'emballe (=1 si OHLC absent)
-    alloc  = where(prix > s, above, BELOW_SCALE * clip(VOL_TARGET/vol, 0, 1) * decay)
+Cœur (x1, close-to-close), gap = prix/s - 1 :
+    s          = SMA(prix, 250)
+    vol        = Yang-Zhang(OHLC, 10j) annualisee  (integre les gaps overnight -> plus
+                 precoce que le close-to-close ; fallback rvol20 close si pas d'OHLC)
+    decay_down = clip(1 + gap / GAP_CUTOFF, 0, 1)          # SOUS la MA : coupe l'expo
+                                                            # en s'enfoncant sous la MA
+    decay_up   = clip(1 - max(0, gap - GAP2_START)/GAP2_SPAN, DECAY2_FLOOR, 1)  # AU-DESSUS :
+                                            # trim la sur-extension (reversion des extremes)
+    above      = clip(ABOVE_CAP / vol, 0, 1) * decay_up    # RISK-OFF PRECOCE : coupe deja
+                                            # au-dessus de la MA (vol + sur-extension ; =1 si OHLC absent)
+    alloc      = where(prix > s, above, BELOW_SCALE * clip(VOL_TARGET/vol, 0, 1) * decay_down)
 
 Garde-fous macro (cash total, ignores si la donnee est absente) :
     NFCI    > NFCI_OFF   -> stress credit (capte 2008)
@@ -41,6 +43,11 @@ ABOVE_CAP = 0.18     # risk-off precoce : vol annualisee au-dela de laquelle on 
                      #  bien sur 2013-2026, Calmar 1.01 vs optimum 1.06). Courbe monotone.
                      #  CAGR 11.1% / Sharpe 0.88 / Calmar 0.58 / maxDD -19% vs -36% baseline
                      #  (cote ~1 pt de CAGR vs 0.25 en echange de la protection max).
+GAP2_START = 0.15    # decay_up : gap (prix/s-1) au-dela duquel on trim l'expo AU-DESSUS de la MA
+                     #  (sur-extension = 75e percentile du gap). Symetrique du decay_down.
+GAP2_SPAN = 0.20     # decay_up : plage de rampe du trim (de 1 au plancher)
+DECAY2_FLOOR = 0.4   # decay_up : plancher (on ne descend pas sous 40% de l'expo cappee)
+                     #  Gain robuste 2 moities : Sharpe 0.88->0.94, Calmar x2 0.61->0.64, maxDD ~stable.
 
 
 def realized_vol(ret, w=20):
@@ -85,15 +92,18 @@ def compute_allocation(price, nfci=None, cpi=None, high=None, low=None, open_=No
     """
     p = np.asarray(price, dtype=float)
     s = pd.Series(p).rolling(SMA_LONG, min_periods=1).mean().values
+    gap = p / s - 1.0
+    decay_down = np.clip(1.0 + gap / GAP_CUTOFF, 0, 1)          # sous la MA : coupe en s'enfoncant
+    decay_up = np.clip(1.0 - np.maximum(0.0, gap - GAP2_START) / GAP2_SPAN,
+                       DECAY2_FLOOR, 1.0)                        # au-dessus : trim la sur-extension
     if high is not None and low is not None and open_ is not None:
-        rv = yang_zhang_vol(open_, high, low, p)     # vol precoce (gaps overnight)
-        above = np.clip(above_cap / rv, 0, 1)         # coupe deja au-dessus de la MA
+        rv = yang_zhang_vol(open_, high, low, p)                # vol precoce (gaps overnight)
+        above = np.clip(above_cap / rv, 0, 1) * decay_up        # cap-vol + trim sur-extension
     else:
         ret = pd.Series(p).pct_change().fillna(0).values
-        rv = realized_vol(ret)                        # fallback close-to-close
-        above = np.ones_like(p)                       # comportement historique
-    decay = np.clip(1.0 + (p / s - 1.0) / GAP_CUTOFF, 0, 1)
-    below = BELOW_SCALE * np.clip(VOL_TARGET / rv, 0, 1) * decay
+        rv = realized_vol(ret)                                  # fallback close-to-close
+        above = np.ones_like(p)                                 # comportement historique
+    below = BELOW_SCALE * np.clip(VOL_TARGET / rv, 0, 1) * decay_down
     alloc = np.clip(np.where(p > s, above, below), 0, 1)
     if nfci is not None:
         alloc = np.where(np.nan_to_num(np.asarray(nfci, float), nan=-9) > NFCI_OFF, 0.0, alloc)
