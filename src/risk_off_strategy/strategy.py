@@ -37,12 +37,11 @@ GAP_CUTOFF = 0.15    # G : alloc -> 0 lorsque le prix est G en dessous de la MA
 NFCI_OFF = 0.5       # coupe-circuit conditions financieres (NFCI)
 CPI_OFF = 7.0        # coupe-circuit inflation (IPC YoY, %)
 VOL_WINDOW = 10      # fenetre Yang-Zhang (10j ~= 20j close-to-close en bruit, 2x plus reactif)
-ABOVE_CAP = 0.18     # risk-off precoce : vol annualisee au-dela de laquelle on coupe deja
-                     #  au-dessus de la MA. Reglage le plus defensif : max-Calmar full-sample
-                     #  ET optimum de la moitie de crise 2000-2013 (validation croisee : voyage
-                     #  bien sur 2013-2026, Calmar 1.01 vs optimum 1.06). Courbe monotone.
-                     #  CAGR 11.1% / Sharpe 0.88 / Calmar 0.58 / maxDD -19% vs -36% baseline
-                     #  (cote ~1 pt de CAGR vs 0.25 en echange de la protection max).
+ABOVE_CAP = 0.15     # risk-off precoce : vol annualisee au-dela de laquelle on coupe deja
+                     #  au-dessus de la MA. Genou de la courbe etendue : sous 0.15 le Calmar
+                     #  plafonne (0.62) et le maxDD ne s'ameliore plus (-17% -> -16%), on ne
+                     #  fait plus que de-lever. Protection quasi-maximale. Avec decay_up :
+                     #  CAGR 10.6% / Sharpe 0.95 / Calmar 0.62 / maxDD -17% vs -36% baseline.
 GAP2_START = 0.15    # decay_up : gap (prix/s-1) au-dela duquel on trim l'expo AU-DESSUS de la MA
                      #  (sur-extension = 75e percentile du gap). Symetrique du decay_down.
 GAP2_SPAN = 0.20     # decay_up : plage de rampe du trim (de 1 au plancher)
