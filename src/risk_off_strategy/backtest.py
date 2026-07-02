@@ -17,7 +17,21 @@ import matplotlib.dates as mdates
 
 from src.risk_off_strategy.strategy import (
     realized_vol, SMA_LONG, VOL_TARGET, NFCI_OFF, CPI_OFF, ANN,
+    ABOVE_CAP, BELOW_SCALE, GAP_CUTOFF, GAP2_START, GAP2_SPAN, DECAY2_FLOOR,
 )
+
+
+def _formula_text():
+    """Formule d'allocation (auto-synchronisee sur les constantes de strategy.py)."""
+    return (
+        f"alloc x1 = 0  si  NFCI > {NFCI_OFF} ou IPC YoY > {CPI_OFF:.0f}%      sinon :   "
+        f"close > SMA{SMA_LONG}  ->  min({ABOVE_CAP:.2f} / vol, 1) . decay_up      "
+        f"close <= SMA{SMA_LONG}  ->  {BELOW_SCALE:.1f} . min({VOL_TARGET:.2f} / vol, 1) . decay_down\n"
+        f"vol = Yang-Zhang(OHLC, 10j) annualisee        gap = close / SMA{SMA_LONG} - 1        "
+        f"decay_up = clip(1 - max(0, gap - {GAP2_START:.2f}) / {GAP2_SPAN:.2f}, {DECAY2_FLOOR:.1f}, 1)        "
+        f"decay_down = clip(1 + gap / {GAP_CUTOFF:.2f}, 0, 1)\n"
+        f"x2.0 = 2 . alloc x1 (via LQQ)        exec_lag = 1 : decision au close du soir, execution le lendemain matin"
+    )
 
 
 def _sma(a, w):
@@ -223,7 +237,10 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, pe=None, save_path=None, ti
             lbl.set_rotation(30); lbl.set_ha("right")
     axes[-1].set_xlabel("Date")
 
-    fig.tight_layout()
+    fig.tight_layout(rect=[0, 0.05, 1, 1])
+    fig.text(0.5, 0.008, _formula_text(), ha="center", va="bottom", fontsize=8,
+             family="monospace", linespacing=1.6,
+             bbox=dict(boxstyle="round", fc="#f5f5f5", ec="#cccccc", alpha=0.95))
     if save_path:
         fig.savefig(save_path, dpi=110, bbox_inches="tight")
     plt.close(fig)
