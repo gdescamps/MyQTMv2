@@ -105,9 +105,15 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, pe=None, save_path=None, ti
     ax = iter(axes[1:])
 
     # ── panneau resultats (grand tableau) ──
+    # CAGR/Calmar n'ont de sens qu'annualises sur >= 1 an ; sur une fenetre courte
+    # (1 mois) l'annualisation "e**(252/21)" explose -> on les masque.
+    annualize = last_days is None or last_days >= ANN
+
     def _row(name, e, cagr, dd, sh):
-        return [name, f"{cagr*100:+.1f}%", f"{(e[-1]-1)*100:+.0f}%",
-                f"{dd*100:.0f}%", f"{sh:.2f}", f"{cagr/abs(dd):.2f}" if dd < 0 else "-"]
+        cagr_s = f"{cagr*100:+.1f}%" if annualize else "-"
+        cal_s = (f"{cagr/abs(dd):.2f}" if dd < 0 else "-") if annualize else "-"
+        return [name, cagr_s, f"{(e[-1]-1)*100:+.0f}%",
+                f"{dd*100:.0f}%", f"{sh:.2f}", cal_s]
     table_rows = [
         _row("B&H", ebh, cagr_bh, dd_bh, sh_bh),
         _row("strategie x1", em, cagr_m, dd_m, sh_m),

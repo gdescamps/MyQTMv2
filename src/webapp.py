@@ -31,6 +31,8 @@ SIDEBAR_IMAGE = ASSETS_DIR / "sidebar.jpg"
 
 # Backtest images
 BACKTEST_FULL = QQQ_OUT / "backtest.png"
+BACKTEST_10Y = QQQ_OUT / "backtest_10y.png"
+BACKTEST_5Y = QQQ_OUT / "backtest_5y.png"
 BACKTEST_1Y = QQQ_OUT / "backtest_1y.png"
 BACKTEST_1M = QQQ_OUT / "backtest_1m.png"
 PE_CHART = PE_OUT / "ndx_top5_pe_daily.png"
@@ -225,6 +227,14 @@ app.add_static_files("/assets", str(ASSETS_DIR))
 @app.get("/img/backtest_full")
 def _bf():
     return _serve(BACKTEST_FULL)
+
+@app.get("/img/backtest_10y")
+def _b10y():
+    return _serve(BACKTEST_10Y)
+
+@app.get("/img/backtest_5y")
+def _b5y():
+    return _serve(BACKTEST_5Y)
 
 @app.get("/img/backtest_1y")
 def _b1y():
@@ -525,6 +535,8 @@ with ui.element("div").classes("layout"):
         # Tabs
         with ui.tabs().classes("w-full custom-tabs").props("dense") as tabs:
             tab_full = ui.tab("Backtest")
+            tab_10y = ui.tab("10 Years")
+            tab_5y = ui.tab("5 Years")
             tab_1y = ui.tab("1 Year")
             tab_1m = ui.tab("1 Month")
             tab_ndx5 = ui.tab("NDX Top 5")
@@ -544,6 +556,22 @@ with ui.element("div").classes("layout"):
                         ui.image("/img/backtest_full").classes("w-full rounded-lg shadow-lg")
                     else:
                         ui.label("Run: python src/risk_off_strategy/run.py QQQ").classes("text-gray-500")
+
+            # ── 10Y ──
+            with ui.tab_panel(tab_10y):
+                with ui.column().classes("tab-content"):
+                    ui.element("div").classes("w-full h-0.5 bg-black")
+                    ui.label("Last 10 Years").classes("text-base font-semibold")
+                    if BACKTEST_10Y.exists():
+                        ui.image("/img/backtest_10y").classes("w-full rounded-lg shadow-lg")
+
+            # ── 5Y ──
+            with ui.tab_panel(tab_5y):
+                with ui.column().classes("tab-content"):
+                    ui.element("div").classes("w-full h-0.5 bg-black")
+                    ui.label("Last 5 Years").classes("text-base font-semibold")
+                    if BACKTEST_5Y.exists():
+                        ui.image("/img/backtest_5y").classes("w-full rounded-lg shadow-lg")
 
             # ── 1Y ──
             with ui.tab_panel(tab_1y):
