@@ -24,13 +24,13 @@ from src.risk_off_strategy.strategy import (
 def _formula_text():
     """Formule d'allocation (auto-synchronisee sur les constantes de strategy.py)."""
     return (
-        f"alloc x1 = 0  si  NFCI > {NFCI_OFF} ou IPC YoY > {CPI_OFF:.0f}%      sinon :   "
-        f"close > SMA{SMA_LONG}  ->  min({ABOVE_CAP:.2f} / vol, 1) . decay_up      "
-        f"close <= SMA{SMA_LONG}  ->  {BELOW_SCALE:.1f} . min({VOL_TARGET:.2f} / vol, 1) . decay_down\n"
-        f"vol = Yang-Zhang(OHLC, 10j) annualisee        gap = close / SMA{SMA_LONG} - 1        "
+        f"alloc x1 :   NFCI > {NFCI_OFF}  ou  IPC YoY > {CPI_OFF:.0f}%   ->   0        (garde-fous macro ; sinon :)\n"
+        f"   close > SMA{SMA_LONG}   ->   min({ABOVE_CAP:.2f} / vol, 1) . decay_up          [risk-off precoce]\n"
+        f"   close <= SMA{SMA_LONG}   ->   {BELOW_SCALE:.1f} . min({VOL_TARGET:.2f} / vol, 1) . decay_down\n"
+        f"vol = Yang-Zhang(OHLC, 10j) ann.        gap = close / SMA{SMA_LONG} - 1\n"
         f"decay_up = clip(1 - max(0, gap - {GAP2_START:.2f}) / {GAP2_SPAN:.2f}, {DECAY2_FLOOR:.1f}, 1)        "
         f"decay_down = clip(1 + gap / {GAP_CUTOFF:.2f}, 0, 1)\n"
-        f"x2.0 = 2 . alloc x1 (via LQQ)        exec_lag = 1 : decision au close du soir, execution le lendemain matin"
+        f"x2.0 = 2 . alloc x1 (via LQQ)          exec_lag = 1 : close du soir  ->  execution J+1"
     )
 
 
@@ -128,14 +128,20 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, pe=None, save_path=None, ti
     span = (f"depuis {d[0].date()}" if last_days is None
             else f"{last_days}j : {d[0].date()} -> {d[-1].date()}")
 
-    # Table des resultats en haut + panneaux data en dessous (via gridspec)
+    # Titre (suptitle) + formule + tableau en haut, panneaux data en dessous
     npan = 3 + (nfci is not None) + (cpi is not None) + (pe is not None)
     ratios = [2.6, 1.1, 1.1] + [1.1] * (npan - 3)
-    fig = plt.figure(figsize=(15, 2.4 * npan + 5))
-    gs = fig.add_gridspec(npan + 1, 1, height_ratios=[1.9] + ratios)
-    ax_tbl = fig.add_subplot(gs[0])
-    a1 = fig.add_subplot(gs[1])
-    axes = [a1] + [fig.add_subplot(gs[i], sharex=a1) for i in range(2, npan + 1)]
+    fig = plt.figure(figsize=(15, 2.4 * npan + 5.5))
+    fig.suptitle(f"{ticker} — resultats des strategies  ({span})",
+                 fontsize=15, weight="bold", y=0.995)
+    gs = fig.add_gridspec(npan + 2, 1, height_ratios=[1.6, 0.9] + ratios, hspace=0.18)
+    ax_form = fig.add_subplot(gs[0]); ax_form.axis("off")
+    ax_form.text(0.5, 0.5, _formula_text(), ha="center", va="center", fontsize=11,
+                 family="monospace", linespacing=1.7,
+                 bbox=dict(boxstyle="round", fc="#f5f5f5", ec="#bbbbbb", alpha=0.95))
+    ax_tbl = fig.add_subplot(gs[1])
+    a1 = fig.add_subplot(gs[2])
+    axes = [a1] + [fig.add_subplot(gs[i], sharex=a1) for i in range(3, npan + 2)]
     ax = iter(axes[1:])
 
     # ── panneau resultats (grand tableau) ──
@@ -155,10 +161,9 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, pe=None, save_path=None, ti
     ]
     row_colors = ["black", "crimson", "purple"]
     ax_tbl.axis("off")
-    ax_tbl.set_title(f"{ticker} — resultats des strategies  ({span})", fontsize=14, weight="bold", pad=12)
     tbl = ax_tbl.table(cellText=table_rows,
                        colLabels=["strategie", "CAGR", "rendement total", "maxDD", "Sharpe", "Calmar"],
-                       loc="center", cellLoc="center")
+                       loc="lower center", cellLoc="center")
     tbl.auto_set_font_size(False); tbl.set_fontsize(13); tbl.scale(1, 2.4)
     for (r, c), cell in tbl.get_celld().items():
         cell.set_edgecolor("#cccccc")
@@ -237,10 +242,7 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, pe=None, save_path=None, ti
             lbl.set_rotation(30); lbl.set_ha("right")
     axes[-1].set_xlabel("Date")
 
-    fig.tight_layout(rect=[0, 0.05, 1, 1])
-    fig.text(0.5, 0.008, _formula_text(), ha="center", va="bottom", fontsize=8,
-             family="monospace", linespacing=1.6,
-             bbox=dict(boxstyle="round", fc="#f5f5f5", ec="#cccccc", alpha=0.95))
+    fig.tight_layout(rect=[0, 0, 1, 0.98])
     if save_path:
         fig.savefig(save_path, dpi=110, bbox_inches="tight")
     plt.close(fig)
