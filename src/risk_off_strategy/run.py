@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
-from src.risk_off_strategy.data import load_price, load_macro
+from src.risk_off_strategy.data import load_price, load_macro, load_pe
 from src.risk_off_strategy.strategy import compute_allocation, NFCI_OFF, CPI_OFF
 from src.risk_off_strategy.backtest import plot_backtest
 
@@ -148,12 +148,14 @@ def run_ticker(ticker):
 
     price = load_price(ticker, START, END)
     nfci, cpi = load_macro(price.index)
+    pe = load_pe(price.index) if ticker == "QQQ" else None
     alloc = compute_allocation(price.values, nfci, cpi)
 
-    m = plot_backtest(price, alloc, nfci, cpi, save_path=str(OUT / "backtest.png"), ticker=ticker)
-    plot_backtest(price, alloc, nfci, cpi, save_path=str(OUT / "backtest_10y.png"), ticker=ticker, last_days=10 * 252)
-    plot_backtest(price, alloc, nfci, cpi, save_path=str(OUT / "backtest_1y.png"), ticker=ticker, last_days=252)
-    plot_backtest(price, alloc, nfci, cpi, save_path=str(OUT / "backtest_1m.png"), ticker=ticker, last_days=21)
+    m = plot_backtest(price, alloc, nfci, cpi, pe, save_path=str(OUT / "backtest.png"), ticker=ticker)
+    plot_backtest(price, alloc, nfci, cpi, pe, save_path=str(OUT / "backtest_10y.png"), ticker=ticker, last_days=10 * 252)
+    plot_backtest(price, alloc, nfci, cpi, pe, save_path=str(OUT / "backtest_5y.png"), ticker=ticker, last_days=5 * 252)
+    plot_backtest(price, alloc, nfci, cpi, pe, save_path=str(OUT / "backtest_1y.png"), ticker=ticker, last_days=252)
+    plot_backtest(price, alloc, nfci, cpi, pe, save_path=str(OUT / "backtest_1m.png"), ticker=ticker, last_days=21)
 
     last_alloc = float(alloc[-1])
     macro_off = bool(

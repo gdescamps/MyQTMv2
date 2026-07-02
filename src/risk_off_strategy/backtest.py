@@ -59,7 +59,7 @@ def _window_metrics(ret, pos, w0):
     return e, cagr, dd, sh
 
 
-def plot_backtest(price, alloc, nfci=None, cpi=None, save_path=None, ticker="QQQ",
+def plot_backtest(price, alloc, nfci=None, cpi=None, pe=None, save_path=None, ticker="QQQ",
                   last_days=None):
     dates = price.index
     p = price.values
@@ -75,12 +75,8 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, save_path=None, ticker="QQQ
     # positions (exec_lag=1)
     pos_m = np.concatenate([[0.0], alloc[:-1]])
     pos_bh = np.ones(n)
-    alloc_ref = np.where(p > _sma(p, 150), 1.0, np.clip(0.12 / rv, 0, 1))
-    pos_ref = np.concatenate([[0.0], alloc_ref[:-1]])
-
     em, cagr_m, dd_m, sh_m = _window_metrics(ret, pos_m, w0)
     ebh, cagr_bh, dd_bh, sh_bh = _window_metrics(ret, pos_bh, w0)
-    eref, _, dd_ref, sh_ref = _window_metrics(ret, pos_ref, w0)
 
     # variante LEVIER 1->1.5 (deployable PEA via blend LQQ x2 + PUST x1, rebalance quotidien) :
     # au-dessus de la MA, expo = 1 + 0.5*clip(gap/0.15,0,1) ; sinon = alloc x1 (macro-off inclus).
@@ -95,27 +91,49 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, save_path=None, ticker="QQQ
     # sinon elle est mal positionnee dans les vues fenetrees (1y/1m).
     sma_reb = (s / p[w0])[w0:]
 
-    npan = 3 + (nfci is not None) + (cpi is not None)
-    ratios = [2.6, 1.1, 1.1] + [1.1] * (npan - 3)
-    fig, axes = plt.subplots(npan, 1, figsize=(15, 2.4 * npan + 3), sharex=True,
-                             gridspec_kw={"height_ratios": ratios})
-    ax = iter(axes)
-
-    a1 = next(ax)
-    a1.semilogy(d, ebh, color="black", lw=1.0,
-                label=f"B&H (CAGR {cagr_bh*100:.1f}%, DD {dd_bh*100:.0f}%, Sh {sh_bh:.2f})")
-    a1.semilogy(d, sma_reb, color="green", lw=0.9, alpha=0.8, label=f"SMA{SMA_LONG} (rebase)")
-    a1.semilogy(d, eref, color="grey", lw=1.0, ls="--",
-                label=f"trend150+VM ref (Sh {sh_ref:.2f}, DD {dd_ref*100:.0f}%)")
-    a1.semilogy(d, em, color="crimson", lw=1.5,
-                label=f"strategie x1 (CAGR {cagr_m*100:.1f}%, DD {dd_m*100:.0f}%, Sh {sh_m:.2f})")
-    a1.semilogy(d, elev, color="darkorange", lw=1.4,
-                label=f"levier 1->1.5 LQQ+PUST (CAGR {cagr_lev*100:.1f}%, DD {dd_lev*100:.0f}%, Sh {sh_lev:.2f})")
-    a1.set_ylabel("Equity (log, base 1)")
-    a1.legend(loc="upper left", fontsize=9); a1.grid(True, which="both", alpha=0.2)
     span = (f"depuis {d[0].date()}" if last_days is None
             else f"{last_days}j : {d[0].date()} -> {d[-1].date()}")
-    a1.set_title(f"{ticker} — strategie deployee (trend{SMA_LONG} + vol-managed + garde-fous macro)  {span}")
+
+    # Table des resultats en haut + panneaux data en dessous (via gridspec)
+    npan = 3 + (nfci is not None) + (cpi is not None) + (pe is not None)
+    ratios = [2.6, 1.1, 1.1] + [1.1] * (npan - 3)
+    fig = plt.figure(figsize=(15, 2.4 * npan + 5))
+    gs = fig.add_gridspec(npan + 1, 1, height_ratios=[1.9] + ratios)
+    ax_tbl = fig.add_subplot(gs[0])
+    a1 = fig.add_subplot(gs[1])
+    axes = [a1] + [fig.add_subplot(gs[i], sharex=a1) for i in range(2, npan + 1)]
+    ax = iter(axes[1:])
+
+    # ── panneau resultats (grand tableau) ──
+    def _row(name, e, cagr, dd, sh):
+        return [name, f"{cagr*100:+.1f}%", f"{(e[-1]-1)*100:+.0f}%",
+                f"{dd*100:.0f}%", f"{sh:.2f}", f"{cagr/abs(dd):.2f}" if dd < 0 else "-"]
+    table_rows = [
+        _row("B&H", ebh, cagr_bh, dd_bh, sh_bh),
+        _row("strategie x1", em, cagr_m, dd_m, sh_m),
+        _row("strategie x1.5", elev, cagr_lev, dd_lev, sh_lev),
+    ]
+    row_colors = ["black", "crimson", "darkorange"]
+    ax_tbl.axis("off")
+    ax_tbl.set_title(f"{ticker} — resultats des strategies  ({span})", fontsize=14, weight="bold", pad=12)
+    tbl = ax_tbl.table(cellText=table_rows,
+                       colLabels=["strategie", "CAGR", "rendement total", "maxDD", "Sharpe", "Calmar"],
+                       loc="center", cellLoc="center")
+    tbl.auto_set_font_size(False); tbl.set_fontsize(13); tbl.scale(1, 2.4)
+    for (r, c), cell in tbl.get_celld().items():
+        cell.set_edgecolor("#cccccc")
+        if r == 0:
+            cell.set_text_props(weight="bold"); cell.set_facecolor("#e8e8e8")
+        elif c == 0:
+            cell.set_text_props(weight="bold", color=row_colors[r - 1])
+
+    # ── P1 equity : SMA250, B&H, x1, x1.5 ──
+    a1.semilogy(d, ebh, color="black", lw=1.0, label="B&H")
+    a1.semilogy(d, sma_reb, color="green", lw=0.9, alpha=0.8, label=f"SMA{SMA_LONG}")
+    a1.semilogy(d, em, color="crimson", lw=1.5, label="strategie x1")
+    a1.semilogy(d, elev, color="darkorange", lw=1.4, label="strategie x1.5 (LQQ+PUST)")
+    a1.set_ylabel("Equity (log, base 1)")
+    a1.legend(loc="upper left", fontsize=9, ncol=2); a1.grid(True, which="both", alpha=0.2)
 
     a2 = next(ax)
     a2.plot(d, rv[w0:] * 100, color="purple", lw=0.7, label="vol realisee 20j (ann.)")
@@ -143,6 +161,14 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, save_path=None, ticker="QQQ
         ac.axhline(2, color="grey", ls=":", lw=0.7, alpha=0.7)
         ac.axhline(CPI_OFF, color="red", ls="--", lw=0.9, alpha=0.8, label=f"OFF > {CPI_OFF:.0f}%")
         ac.set_ylabel("inflation (%)", fontsize=9); ac.legend(loc="upper left", fontsize=8); ac.grid(True, alpha=0.2)
+    if pe is not None:
+        ap = next(ax)
+        pe_w = np.asarray(pe, float)[w0:]
+        ap.semilogy(d, pe_w, color="teal", lw=0.8, label="PE cap-weighted top-5 NDX")
+        for lvl in (20, 40):
+            ap.axhline(lvl, color="grey", ls=":", lw=0.7, alpha=0.6)
+        ap.set_ylabel("PE (log)", fontsize=9); ap.legend(loc="upper left", fontsize=8)
+        ap.grid(True, which="both", alpha=0.2)
 
     if last_days is None:
         for axx in axes:

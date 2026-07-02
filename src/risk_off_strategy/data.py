@@ -37,3 +37,13 @@ def load_macro(dates, nfci_lag=NFCI_LAG, cpi_lag=CPI_LAG):
     nfci = _load_fred("fred_nfci.parquet", "nfci", dates, nfci_lag)
     cpi = _load_fred("fred_cpi.parquet", "cpi", dates, cpi_lag)
     return nfci, cpi
+
+
+def load_pe(dates):
+    """PE cap-weighted du top-5 NASDAQ-100, aligne sur `dates` (contexte
+    valorisation, pas dans la strategie). None si le fichier est absent."""
+    fp = DATA_DIR / "pe" / "pe_top5_daily.parquet"
+    if not fp.exists():
+        return None
+    s = pd.read_parquet(fp)["pe_top5_daily"]
+    return s.reindex(dates.union(s.index)).sort_index().ffill().reindex(dates).values
