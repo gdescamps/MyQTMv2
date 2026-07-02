@@ -11,7 +11,9 @@ Cœur (x1, close-to-close), gap = prix/s - 1 :
                                             # trim la sur-extension (reversion des extremes)
     above      = clip(ABOVE_CAP / vol, 0, 1) * decay_up    # RISK-OFF PRECOCE : coupe deja
                                             # au-dessus de la MA (vol + sur-extension ; =1 si OHLC absent)
-    alloc      = where(prix > s, above, BELOW_SCALE * clip(VOL_TARGET/vol, 0, 1) * decay_down)
+    slope_up   = s > s(il y a SLOPE_K jours)               # FILTRE DE PENTE : le bras "above"
+                                            # exige une MA montante (coupe le chop sur MA plate)
+    alloc      = where(prix > s ET slope_up, above, BELOW_SCALE * clip(VOL_TARGET/vol, 0, 1) * decay_down)
 
 Garde-fous macro (cash total, ignores si la donnee est absente) :
     NFCI    > NFCI_OFF   -> stress credit (capte 2008)
@@ -47,6 +49,14 @@ GAP2_START = 0.15    # decay_up : gap (prix/s-1) au-dela duquel on trim l'expo A
 GAP2_SPAN = 0.20     # decay_up : plage de rampe du trim (de 1 au plancher)
 DECAY2_FLOOR = 0.4   # decay_up : plancher (on ne descend pas sous 40% de l'expo cappee)
                      #  Gain robuste 2 moities : Sharpe 0.88->0.94, Calmar x2 0.61->0.64, maxDD ~stable.
+SLOPE_K = 40         # filtre de pente : le bras "above" exige SMA250 > sa valeur d'il y a
+                     #  SLOPE_K jours (sinon bras below). Coupe les regimes de chop -- prix
+                     #  oscillant au-dessus d'une MA plate (2015-16, sommet dot-com) -- la ou
+                     #  se logent les pires maxDD ; complementaire du risk-off precoce (crashs
+                     #  rapides sous MA montante : 2018/2025). Plateau robuste k=30-50, valide
+                     #  sur 2 moities + net d'execution (cf. myfiles/x2_calmar_finalists_test.py).
+                     #  x1 : Calmar 0.62->0.70, maxDD -17%->-15% ; x2 : 0.66->0.72, -31.5%->-29% ;
+                     #  CAGR inchange dans les deux cas.
 
 
 def realized_vol(ret, w=20):
@@ -91,6 +101,9 @@ def compute_allocation(price, nfci=None, cpi=None, high=None, low=None, open_=No
     """
     p = np.asarray(price, dtype=float)
     s = pd.Series(p).rolling(SMA_LONG, min_periods=1).mean().values
+    slope_up = np.ones(len(p), dtype=bool)                       # filtre de pente : MA montante
+    if len(p) > SLOPE_K:
+        slope_up[SLOPE_K:] = s[SLOPE_K:] > s[:-SLOPE_K]
     gap = p / s - 1.0
     decay_down = np.clip(1.0 + gap / GAP_CUTOFF, 0, 1)          # sous la MA : coupe en s'enfoncant
     decay_up = np.clip(1.0 - np.maximum(0.0, gap - GAP2_START) / GAP2_SPAN,
@@ -103,7 +116,7 @@ def compute_allocation(price, nfci=None, cpi=None, high=None, low=None, open_=No
         rv = realized_vol(ret)                                  # fallback close-to-close
         above = np.ones_like(p)                                 # comportement historique
     below = BELOW_SCALE * np.clip(VOL_TARGET / rv, 0, 1) * decay_down
-    alloc = np.clip(np.where(p > s, above, below), 0, 1)
+    alloc = np.clip(np.where((p > s) & slope_up, above, below), 0, 1)
     if nfci is not None:
         alloc = np.where(np.nan_to_num(np.asarray(nfci, float), nan=-9) > NFCI_OFF, 0.0, alloc)
     if cpi is not None:

@@ -18,6 +18,7 @@ import matplotlib.dates as mdates
 from src.risk_off_strategy.strategy import (
     realized_vol, SMA_LONG, VOL_TARGET, NFCI_OFF, CPI_OFF, ANN,
     ABOVE_CAP, BELOW_SCALE, GAP_CUTOFF, GAP2_START, GAP2_SPAN, DECAY2_FLOOR,
+    SLOPE_K,
 )
 
 
@@ -25,8 +26,8 @@ def _formula_text():
     """Formule d'allocation (auto-synchronisee sur les constantes de strategy.py)."""
     return (
         f"alloc x1 :   NFCI > {NFCI_OFF}  ou  IPC YoY > {CPI_OFF:.0f}%   ->   0        (garde-fous macro ; sinon :)\n"
-        f"   close > SMA{SMA_LONG}   ->   min({ABOVE_CAP:.2f} / vol, 1) . decay_up          [risk-off precoce]\n"
-        f"   close <= SMA{SMA_LONG}   ->   {BELOW_SCALE:.1f} . min({VOL_TARGET:.2f} / vol, 1) . decay_down\n"
+        f"   close > SMA{SMA_LONG} et SMA{SMA_LONG} montante ({SLOPE_K}j)   ->   min({ABOVE_CAP:.2f} / vol, 1) . decay_up   [risk-off precoce]\n"
+        f"   sinon (sous la MA ou MA plate/baissiere)   ->   {BELOW_SCALE:.1f} . min({VOL_TARGET:.2f} / vol, 1) . decay_down\n"
         f"vol = Yang-Zhang(OHLC, 10j) ann.        gap = close / SMA{SMA_LONG} - 1\n"
         f"decay_up = clip(1 - max(0, gap - {GAP2_START:.2f}) / {GAP2_SPAN:.2f}, {DECAY2_FLOOR:.1f}, 1)        "
         f"decay_down = clip(1 + gap / {GAP_CUTOFF:.2f}, 0, 1)\n"
