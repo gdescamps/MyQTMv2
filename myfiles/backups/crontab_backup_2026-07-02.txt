@@ -1,0 +1,11 @@
+PATH=/home/greg/.local/bin:/usr/local/bin:/usr/bin:/bin
+DIR=/home/greg/data_local/code/MyQTMv2
+
+# 22:30 (lun-ven) — strategie hand-made QQQ (signal.json + charts) + email recap
+30 22 * * 1-5 cd $DIR && ./venv/bin/python -m src.risk_off_strategy.run QQQ >> logs/cron_backtest.log 2>&1; ./venv/bin/python -m src.bourso.notify --recap >> logs/cron_backtest.log 2>&1
+
+# 09:05 (lun-ven) — execution PEA PUST a l'ouverture Euronext Paris (reel)
+5 9 * * 1-5 cd $DIR && ./venv/bin/python -m src.real_bourso --execute >> logs/cron_pea.log 2>&1
+
+# 20:00 (tous les jours) — check bourso-cli : tests dry-run + commits upstream + email
+0 20 * * * cd $DIR && ./venv/bin/python -m src.bourso.check_cli >> logs/cron_bourso_check.log 2>&1
