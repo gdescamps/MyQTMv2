@@ -3,7 +3,7 @@ Backtest + graphiques de la strategie deployee (trend250 + vol-managed + garde-f
 
 x1, close-to-close, sans frais, exec_lag=1. Historique depuis 2000.
   plot_backtest(..., last_days=None) : chart 5 panneaux (equity+SMA250, vol,
-  allocation, NFCI, inflation), bandes rouges = bears lents.
+  allocation, NFCI, inflation), bandes rouges = top-5 crises (bears les + profonds).
   last_days=252 / 21 -> meme mise en page, fenetree sur la derniere annee / mois
   (indicateurs calcules sur tout l'historique pour le warmup, puis fenetres ;
   equity rebasee au debut de la fenetre, metriques recalculees sur la fenetre).
@@ -24,25 +24,42 @@ def _sma(a, w):
     return pd.Series(a).rolling(w, min_periods=1).mean().values
 
 
-def swing_slow(price, dates, thr=0.25):
-    """Bears lents = swings pic->creux >= thr, duree >= 100j, profondeur <= -15%."""
+def top_crises(price, dates, k=5, drop=0.15, rebound=0.20, merge_gap=200):
+    """Les k pires crises = drawdowns pic-local -> creux, fusionnes en episodes.
+
+    Detecte les swings de baisse (>= `drop` depuis un pic local, clotures par un
+    rebond >= `rebound` depuis le creux), fusionne les jambes proches (< `merge_gap`
+    jours) en une seule crise -- sinon le dot-com, en dents de scie, monopolise le
+    classement -- puis garde les k plus profondes. Attrape les krachs lents
+    (dot-com, 2008) comme rapides (Covid). Renvoie une liste de (pic, creux).
+    """
     p = np.asarray(price, float)
-    eps, hi, lo, mode = [], 0, 0, "up"
+    swings, peak, trough, start, in_ep = [], 0, 0, 0, False
     for i in range(1, len(p)):
-        if mode == "up":
-            if p[i] > p[hi]:
-                hi = i
-            elif p[i] <= p[hi] * (1 - thr):
-                lo, mode = i, "down"
+        if not in_ep:
+            if p[i] >= p[peak]:
+                peak = i
+            elif p[i] <= p[peak] * (1 - drop):
+                in_ep, start, trough = True, peak, i
         else:
-            if p[i] < p[lo]:
-                lo = i
-            elif p[i] >= p[lo] * (1 + thr):
-                eps.append((hi, lo)); hi, mode = i, "up"
-    if mode == "down":
-        eps.append((hi, lo))
-    return [(a, b) for a, b in eps
-            if (dates[b] - dates[a]).days >= 100 and p[b] / p[a] - 1 <= -0.15]
+            if p[i] < p[trough]:
+                trough = i
+            elif p[i] >= p[trough] * (1 + rebound):
+                swings.append((start, trough)); peak, in_ep = i, False
+    if in_ep:
+        swings.append((start, trough))
+    if not swings:
+        return []
+    # fusion des jambes contigues (les multiples jambes du dot-com -> une crise)
+    merged = [list(swings[0])]
+    for a, b in swings[1:]:
+        if (dates[a] - dates[merged[-1][1]]).days < merge_gap:
+            merged[-1][1] = b
+        else:
+            merged.append([a, b])
+    crises = [(a, a + int(np.argmin(p[a:b + 1]))) for a, b in merged]  # (pic, plus-bas)
+    crises.sort(key=lambda ab: p[ab[1]] / p[ab[0]])
+    return crises[:k]
 
 
 def _window_metrics(ret, pos, w0):
@@ -176,13 +193,23 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, pe=None, save_path=None, ti
         ap.set_ylabel("PE (log)", fontsize=9); ap.legend(loc="upper left", fontsize=8)
         ap.grid(True, which="both", alpha=0.2)
 
-    if last_days is None:
+    # top-5 crises = les 5 drawdowns les plus profonds (pic-local -> creux) sur
+    # tout l'historique. Memes bandes rouges verticales sur toutes les vues,
+    # tronquees a la fenetre affichee (sinon une crise hors fenetre etirerait
+    # l'axe des vues 1y/1m).
+    xmin, xmax = d[0], d[-1]
+    for a, b in top_crises(p, dates):
+        ca, cb = dates[a], dates[b]
+        if cb < xmin or ca > xmax:
+            continue
         for axx in axes:
-            for a, b in swing_slow(p, dates):
-                axx.axvspan(dates[a], dates[b], color="red", alpha=0.10, lw=0)
+            axx.axvspan(max(ca, xmin), min(cb, xmax), color="red", alpha=0.10, lw=0)
+
+    if last_days is None:
         axes[-1].xaxis.set_major_locator(mdates.YearLocator(2))
         axes[-1].xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
     else:
+        axes[-1].set_xlim(xmin, xmax)
         axes[-1].xaxis.set_major_locator(mdates.AutoDateLocator())
         axes[-1].xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d" if last_days <= 21 else "%Y-%m"))
         for lbl in axes[-1].get_xticklabels():
@@ -197,8 +224,6 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, pe=None, save_path=None, ti
     # metriques plein-echantillon (pour le log de run.py) quand chart complet
     if last_days is None:
         _, cagr_f, dd_f, sh_f = _window_metrics(ret, pos_m, 0)
-        yrs = n / ANN
-        peak = np.maximum.accumulate(np.cumprod(1 + ret * pos_m))
         return {"cagr": cagr_f, "maxdd": dd_f, "sharpe": sh_f,
                 "calmar": cagr_f / abs(dd_f) if dd_f < 0 else np.inf}
     return None
