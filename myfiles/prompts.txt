@@ -1987,3 +1987,14 @@ faire varier la parametre pour voir
 
 -----------------------------------------------
 
+est ce qu'il est ppossible d'afficher le qqq + hawk/dove score.
+
+sources : 
+Ce qui existe en score pré-calculé
+🥇 FedLock — le plus complet et directement visualisable
+Un corpus de 4 479 discours de politique monétaire de 69 membres du FOMC de 1995 à 2026, scorés via LLM-as-judge (Gemini 2.0 Flash). Les sources incluent federalreserve.gov, FRASER, et les sites des Fed régionales. Le site est public : jnathan9.github.io/fedlock Jnathan9
+🥈 MacroMicro — index hawk/dove sur les statements FOMC
+Le MM AI FOMC Statement Hawkish-Dovish Index mesure le positionnement de politique monétaire de la Fed — un index plus élevé indique une posture hawkish (taux en hausse, réduction du bilan), un index plus bas indique une posture dovish. Visualisable sur macromicro.me, mais l'export nécessite un abonnement payant. MacroMicro
+🥉 gtfintechlab/fomc_communication — Hugging Face
+Dataset annoté du paper "Trillion Dollar Words" (Georgia Tech), avec les phrases FOMC labellisées hawkish/dovish/neutre depuis 1996. Pas un score agrégé par réunion, mais tu peux le calculer toi-même.
+
