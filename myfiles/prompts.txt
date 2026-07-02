@@ -1970,3 +1970,15 @@ Plus le signal devrait être fort.
 
 tracer dans outputs/qqq_strategy/debug_trend_improved.png
 
+-----------------------------------------------
+
+tester dans la strategie un levier 
+en messurant l'ecart entre le prix et la ma250
+quand le prix traverse la ma250 levier 1
+au plus le prix s'ecart au va jusqu'a 1.5 de levier
+quand le prix revient vers ma250 on revient vers 1
+
+afficher les rendements dans le backtest sur les 10 dernieres années 
+
+
+
