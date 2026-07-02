@@ -133,15 +133,14 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, pe=None, save_path=None, ti
     ratios = [2.6, 1.1, 1.1] + [1.1] * (npan - 3)
     fig = plt.figure(figsize=(15, 2.4 * npan + 5.5))
     fig.suptitle(f"{ticker} — resultats des strategies  ({span})",
-                 fontsize=15, weight="bold", y=0.995)
-    gs = fig.add_gridspec(npan + 2, 1, height_ratios=[1.6, 0.9] + ratios, hspace=0.18)
-    ax_form = fig.add_subplot(gs[0]); ax_form.axis("off")
-    ax_form.text(0.5, 0.5, _formula_text(), ha="center", va="center", fontsize=11,
-                 family="monospace", linespacing=1.7,
-                 bbox=dict(boxstyle="round", fc="#f5f5f5", ec="#bbbbbb", alpha=0.95))
-    ax_tbl = fig.add_subplot(gs[1])
-    a1 = fig.add_subplot(gs[2])
-    axes = [a1] + [fig.add_subplot(gs[i], sharex=a1) for i in range(3, npan + 2)]
+                 fontsize=15, weight="bold", y=0.985)
+    fig.text(0.5, 0.958, _formula_text(), ha="center", va="top", fontsize=11,
+             family="monospace", linespacing=1.6,
+             bbox=dict(boxstyle="round", fc="#f5f5f5", ec="#bbbbbb", alpha=0.95))
+    gs = fig.add_gridspec(npan + 1, 1, height_ratios=[1.0] + ratios, hspace=0.18)
+    ax_tbl = fig.add_subplot(gs[0])
+    a1 = fig.add_subplot(gs[1])
+    axes = [a1] + [fig.add_subplot(gs[i], sharex=a1) for i in range(2, npan + 1)]
     ax = iter(axes[1:])
 
     # ── panneau resultats (grand tableau) ──
@@ -242,7 +241,7 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, pe=None, save_path=None, ti
             lbl.set_rotation(30); lbl.set_ha("right")
     axes[-1].set_xlabel("Date")
 
-    fig.tight_layout(rect=[0, 0, 1, 0.98])
+    fig.tight_layout(rect=[0, 0, 1, 0.865])
     if save_path:
         fig.savefig(save_path, dpi=110, bbox_inches="tight")
     plt.close(fig)
