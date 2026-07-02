@@ -77,11 +77,11 @@ def _window_metrics(ret, pos, w0):
 
 
 def plot_backtest(price, alloc, nfci=None, cpi=None, pe=None, save_path=None, ticker="QQQ",
-                  last_days=None):
+                  last_days=None, vol=None, above_cap=None):
     dates = price.index
     p = price.values
     ret = price.pct_change().fillna(0).values
-    rv = realized_vol(ret)
+    rv = np.asarray(vol, float) if vol is not None else realized_vol(ret)
     s = _sma(p, SMA_LONG)
     n = len(p)
     alloc = np.asarray(alloc, float)
@@ -95,14 +95,17 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, pe=None, save_path=None, ti
     em, cagr_m, dd_m, sh_m = _window_metrics(ret, pos_m, w0)
     ebh, cagr_bh, dd_bh, sh_bh = _window_metrics(ret, pos_bh, w0)
 
-    # variante LEVIER 1->1.5 (deployable PEA via blend LQQ x2 + PUST x1, rebalance quotidien) :
-    # au-dessus de la MA, expo = 1 + 0.5*clip(gap/0.15,0,1) ; sinon = alloc x1 (macro-off inclus).
-    gap = p / s - 1.0
-    lev = alloc.copy()
-    above = (p > s) & (alloc > 0)
-    lev[above] = 1.0 + 0.5 * np.clip(gap[above] / 0.15, 0, 1)
-    pos_lev = np.concatenate([[0.0], lev[:-1]])
-    elev, cagr_lev, dd_lev, sh_lev = _window_metrics(ret, pos_lev, w0)
+    # variante LEVIER x2.0 : on detient LQQ (Nasdaq x2) dimensionne par l'alloc x1
+    # (risk-off precoce inclus) -> multiplicateur PLAT 2 sur l'expo. Rendement
+    # quotidien = 2 * alloc * ret : le decay de levier emerge du compounding
+    # quotidien. Rebalance quotidien, SANS frais ni cout de financement -> optimiste
+    # pour le levier (LQQ reel : ~0.6%/an de frais + portage du financement x2).
+    def _lever(L):
+        pos = np.concatenate([[0.0], alloc[:-1]])
+        e, cg, dd, sh = _window_metrics(ret * L, pos, w0)
+        return alloc * L, e, cg, dd, sh
+
+    lev20, e20, cagr20, dd20, sh20 = _lever(2.0)
 
     # SMA250 rebasee sur le PRIX au debut de fenetre (meme base que le B&H rebasee),
     # sinon elle est mal positionnee dans les vues fenetrees (1y/1m).
@@ -134,9 +137,9 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, pe=None, save_path=None, ti
     table_rows = [
         _row("B&H", ebh, cagr_bh, dd_bh, sh_bh),
         _row("strategie x1", em, cagr_m, dd_m, sh_m),
-        _row("strategie x1.5", elev, cagr_lev, dd_lev, sh_lev),
+        _row("strategie x2.0 (LQQ)", e20, cagr20, dd20, sh20),
     ]
-    row_colors = ["black", "crimson", "darkorange"]
+    row_colors = ["black", "crimson", "purple"]
     ax_tbl.axis("off")
     ax_tbl.set_title(f"{ticker} — resultats des strategies  ({span})", fontsize=14, weight="bold", pad=12)
     tbl = ax_tbl.table(cellText=table_rows,
@@ -150,26 +153,30 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, pe=None, save_path=None, ti
         elif c == 0:
             cell.set_text_props(weight="bold", color=row_colors[r - 1])
 
-    # ── P1 equity : SMA250, B&H, x1, x1.5 ──
+    # ── P1 equity : SMA250, B&H, x1, x2.0 ──
     a1.semilogy(d, ebh, color="black", lw=1.0, label="B&H")
     a1.semilogy(d, sma_reb, color="green", lw=0.9, alpha=0.8, label=f"SMA{SMA_LONG}")
     a1.semilogy(d, em, color="crimson", lw=1.5, label="strategie x1")
-    a1.semilogy(d, elev, color="darkorange", lw=1.4, label="strategie x1.5 (LQQ+PUST)")
+    a1.semilogy(d, e20, color="purple", lw=1.2, label="strategie x2.0 (LQQ)")
     a1.set_ylabel("Equity (log, base 1)")
     a1.legend(loc="upper left", fontsize=9, ncol=2); a1.grid(True, which="both", alpha=0.2)
 
     a2 = next(ax)
-    a2.plot(d, rv[w0:] * 100, color="purple", lw=0.7, label="vol realisee 20j (ann.)")
-    a2.axhline(VOL_TARGET * 100, color="grey", ls="--", lw=0.9, label=f"V = {VOL_TARGET*100:.0f}%")
+    vol_lbl = "vol Yang-Zhang 10j (ann.)" if vol is not None else "vol realisee 20j (ann.)"
+    a2.plot(d, rv[w0:] * 100, color="purple", lw=0.7, label=vol_lbl)
+    a2.axhline(VOL_TARGET * 100, color="grey", ls="--", lw=0.9, label=f"V sous MA = {VOL_TARGET*100:.0f}%")
+    if above_cap is not None:
+        a2.axhline(above_cap * 100, color="red", ls="--", lw=0.9, label=f"cap sur MA = {above_cap*100:.0f}%")
     a2.set_ylabel("vol (%)", fontsize=9)
     a2.set_ylim(0, max(rv[w0:].max() * 105, 30))
     a2.legend(loc="upper left", fontsize=8); a2.grid(True, alpha=0.2)
 
     a3 = next(ax)
-    a3.fill_between(d, alloc[w0:], color="steelblue", alpha=0.35, step="mid", label="x1")
-    a3.plot(d, lev[w0:], color="darkorange", lw=0.7, alpha=0.9, label="levier (LQQ+PUST)")
-    a3.axhline(1.0, color="grey", ls=":", lw=0.6); a3.axhline(1.5, color="red", ls=":", lw=0.6, alpha=0.5)
-    a3.set_ylabel("allocation", fontsize=9); a3.set_ylim(-0.05, 1.6); a3.grid(True, alpha=0.2)
+    a3.fill_between(d, alloc[w0:], color="steelblue", alpha=0.35, step="mid", label="allocation x1")
+    a3.plot(d, lev20[w0:], color="purple", lw=0.7, alpha=0.9, label="expo x2.0 (LQQ)")
+    a3.axhline(1.0, color="grey", ls=":", lw=0.6)
+    a3.axhline(2.0, color="purple", ls=":", lw=0.5, alpha=0.5)
+    a3.set_ylabel("allocation / expo", fontsize=9); a3.set_ylim(-0.05, 2.15); a3.grid(True, alpha=0.2)
     a3.legend(loc="upper left", fontsize=7, ncol=2)
 
     if nfci is not None:

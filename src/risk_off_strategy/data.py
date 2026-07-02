@@ -22,6 +22,14 @@ def load_price(ticker="QQQ", start="2000-01-01", end=None):
     return price.dropna().sort_index()
 
 
+def load_ohlc(ticker="QQQ", start="2000-01-01", end=None):
+    """OHLC (open/high/low/close) d'un ticker -> DataFrame trie, sans NaN.
+    Requis par la vol Yang-Zhang / le risk-off precoce."""
+    df = pd.read_parquet(DATA_DIR / f"{ticker}.parquet")[["open", "high", "low", "close"]]
+    df = df.loc[start:end] if end else df.loc[start:]
+    return df.dropna().sort_index()
+
+
 def _load_fred(fname, col, dates, lag):
     fp = DATA_DIR / fname
     if not fp.exists():
