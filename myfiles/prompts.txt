@@ -1980,5 +1980,10 @@ quand le prix revient vers ma250 on revient vers 1
 
 afficher les rendements dans le backtest sur les 10 dernieres années 
 
+-----------------------------------------------
 
+essayer de remplacer la sma250 par ema250 
+faire varier la parametre pour voir 
+
+-----------------------------------------------
 
