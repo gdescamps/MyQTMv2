@@ -5,16 +5,20 @@ Workflow:
   22:30  cron backtest (run.py) → outputs/qqq_strategy/signal.json
   09:05  this script → reads signal, checks PEA, executes PUST at Euronext open
 
-ETF: PUST (Amundi PEA Nasdaq-100 UCITS ETF, FR0011871110)
-Leverage: x1 only (no LQQ)
+Instrument (switch): PUST (Nasdaq x1, defaut prod) ou LQQ (Nasdaq x2 leverage).
+Bascule via l'env TRADE_INSTRUMENT=LQQ. Le SIGNAL (allocation) est identique ;
+seul l'instrument tradé change : LQQ donne 2x l'expo pour la meme fraction de
+capital (= la variante "strategie x2.0" du backtest). x1 reste en prod par defaut.
 
 Usage:
-  python -m src.real_bourso                  # dry-run
+  python -m src.real_bourso                  # dry-run (instrument = $TRADE_INSTRUMENT ou PUST)
   python -m src.real_bourso --execute        # live execution
+  TRADE_INSTRUMENT=LQQ python -m src.real_bourso   # dry-run en x2 (LQQ)
 """
 
 import argparse
 import json
+import os
 import sys
 import time
 from datetime import datetime, date, timedelta
@@ -27,6 +31,27 @@ LOG_DIR = ROOT / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 TRADE_LOG = LOG_DIR / "trades.jsonl"
 OVERRIDE_FILE = LOG_DIR / "emergency_off.json"
+
+# ── Switch d'instrument : x1 PUST (prod) <-> x2 LQQ ───────────────────────
+# Le signal (allocation) ne change pas : seul l'instrument tradé change. LQQ
+# (Amundi Nasdaq-100 x2 Leveraged, PEA) donne 2x l'expo pour la meme fraction
+# de capital. Bascule via l'env TRADE_INSTRUMENT=LQQ ; defaut PUST (x1 en prod).
+# ATTENTION a la bascule : liquider d'abord l'ancien instrument (sinon on
+# detient PUST ET LQQ) -- le script ne trade que l'instrument actif.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(ROOT / ".env")
+except Exception:
+    pass
+INSTRUMENTS = {
+    "PUST": {"leverage": 1.0, "label": "Nasdaq x1"},
+    "LQQ": {"leverage": 2.0, "label": "Nasdaq x2 (leverage)"},
+}
+INSTRUMENT = os.environ.get("TRADE_INSTRUMENT", "PUST").strip().upper()
+if INSTRUMENT not in INSTRUMENTS:
+    print(f"[WARN] TRADE_INSTRUMENT='{INSTRUMENT}' inconnu -> PUST (x1)")
+    INSTRUMENT = "PUST"
+LEVERAGE = INSTRUMENTS[INSTRUMENT]["leverage"]
 
 SELL_THRESHOLD = 0.20  # only sell if delta_alloc >= 20% (0.5% fee on sells)
 # Signal must be fresh enough, but tolerate weekend/holiday gaps so Monday (and
@@ -101,10 +126,10 @@ def load_signal():
 
 
 def get_pea_state():
-    """Get PEA cash and PUST position via bourso-cli prepare."""
+    """Get PEA cash and position (instrument actif) via bourso-cli prepare."""
     from src.bourso.prepare import prepare_order, PEA_ACCOUNT_ID, SYMBOLS
 
-    data = prepare_order(PEA_ACCOUNT_ID, SYMBOLS["PUST"])
+    data = prepare_order(PEA_ACCOUNT_ID, SYMBOLS[INSTRUMENT])
     acct = data["account"]
     sym = data["symbol"]
 
@@ -112,16 +137,17 @@ def get_pea_state():
         "cash": acct["cash"],
         "stocks": acct["stocks"],
         "equity": acct["cash"] + acct["stocks"],
-        "pust_price": sym["last_price"],
-        "pust_shares": data["quantity_held"],
-        "pust_value": data["quantity_held"] * sym["last_price"],
+        "etf_price": sym["last_price"],
+        "etf_shares": data["quantity_held"],
+        "etf_value": data["quantity_held"] * sym["last_price"],
     }
 
     print(f"\nPEA {acct['name']}:")
     print(f"  Especes:  {state['cash']:>10.2f} EUR")
     print(f"  Titres:   {state['stocks']:>10.2f} EUR")
     print(f"  Total:    {state['equity']:>10.2f} EUR")
-    print(f"  PUST:     {state['pust_shares']} parts @ {state['pust_price']:.2f} EUR")
+    print(f"  {INSTRUMENT}:  {state['etf_shares']} parts @ {state['etf_price']:.2f} EUR "
+          f"({INSTRUMENTS[INSTRUMENT]['label']})")
     return state
 
 
@@ -142,8 +168,8 @@ def is_emergency_off():
 def compute_orders(target_alloc, pea_state):
     """Compute buy/sell orders to reach target allocation."""
     equity = pea_state["equity"]
-    price = pea_state["pust_price"]
-    current_shares = pea_state["pust_shares"]
+    price = pea_state["etf_price"]
+    current_shares = pea_state["etf_shares"]
     current_value = current_shares * price
     current_alloc = current_value / equity if equity > 0 else 0
 
@@ -182,7 +208,7 @@ def execute_order(side, quantity, dry_run=True):
     """Execute order via bourso-cli."""
     from src.bourso.prepare import PEA_ACCOUNT_ID, SYMBOLS, _run_cli_raw
 
-    action = f"{'ACHAT' if side == 'buy' else 'VENTE'} {quantity}x PUST"
+    action = f"{'ACHAT' if side == 'buy' else 'VENTE'} {quantity}x {INSTRUMENT}"
 
     if dry_run:
         print(f"  [DRY-RUN] {action}")
@@ -193,7 +219,7 @@ def execute_order(side, quantity, dry_run=True):
         "trade", "order", "new",
         "--side", side,
         "--account", PEA_ACCOUNT_ID,
-        "--symbol", SYMBOLS["PUST"],
+        "--symbol", SYMBOLS[INSTRUMENT],
         "--quantity", str(quantity),
     )
 
@@ -220,7 +246,7 @@ def main():
     args = parser.parse_args()
 
     print(f"{'='*60}")
-    print(f"PEA PUST (Nasdaq x1) — {date.today()}")
+    print(f"PEA {INSTRUMENT} ({INSTRUMENTS[INSTRUMENT]['label']}) — {date.today()}")
     print(f"Mode: {'LIVE' if args.execute else 'DRY-RUN'}")
     print(f"{'='*60}")
 
@@ -269,11 +295,12 @@ def main():
             from src.bourso.notify import send_email
             action = "ACHAT" if side == "buy" else "VENTE"
             mode = "LIVE" if args.execute else "DRY-RUN"
-            subject = f"[MyQTM] {mode} {action} {quantity}x PUST @ {pea_state['pust_price']:.2f}"
+            subject = f"[MyQTM] {mode} {action} {quantity}x {INSTRUMENT} @ {pea_state['etf_price']:.2f}"
             body = (
                 f"PEA — {date.today()}\n\n"
-                f"  Action:      {action} {quantity} parts PUST\n"
-                f"  Prix:        {pea_state['pust_price']:.2f} EUR\n"
+                f"  Instrument:  {INSTRUMENT} ({INSTRUMENTS[INSTRUMENT]['label']})\n"
+                f"  Action:      {action} {quantity} parts {INSTRUMENT}\n"
+                f"  Prix:        {pea_state['etf_price']:.2f} EUR\n"
                 f"  Allocation:  {target_alloc*100:.0f}%\n"
                 f"  Probabilite: {signal['probability']:.4f}\n"
                 f"  Signal du:   {signal['date']}\n\n"
@@ -291,11 +318,13 @@ def main():
         "model_date": signal["date"],
         "probability": signal["probability"],
         "target_alloc": target_alloc,
+        "instrument": INSTRUMENT,
+        "leverage": LEVERAGE,
         "side": side,
         "quantity": quantity,
-        "etf_price": pea_state["pust_price"],
+        "etf_price": pea_state["etf_price"],
         "equity": pea_state["equity"],
-        "current_shares": pea_state["pust_shares"],
+        "current_shares": pea_state["etf_shares"],
         "executed": args.execute,
         "reason": reason,
         "result": result,
