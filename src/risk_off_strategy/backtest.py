@@ -2,12 +2,13 @@
 Backtest + graphiques de la strategie deployee (trend250 + vol-managed + garde-fous).
 
 x1, close-to-close, sans frais, exec_lag=1. Historique depuis 2000.
-  plot_backtest(..., last_days=None) : chart 5 panneaux (equity+SMA250, vol,
-  allocation, NFCI, inflation), bandes rouges = top-5 crises (bears les + profonds).
+  plot_backtest(..., last_days=None) : chart 6 panneaux (equity+SMA250, vol,
+  allocation, NFCI, inflation, CAPE/ECY S&P Shiller), bandes rouges = top-5 crises.
   last_days=252 / 21 -> meme mise en page, fenetree sur la derniere annee / mois
   (indicateurs calcules sur tout l'historique pour le warmup, puis fenetres ;
   equity rebasee au debut de la fenetre, metriques recalculees sur la fenetre).
 """
+import warnings
 import numpy as np
 import pandas as pd
 import matplotlib
@@ -91,8 +92,8 @@ def _window_metrics(ret, pos, w0):
     return e, cagr, dd, sh
 
 
-def plot_backtest(price, alloc, nfci=None, cpi=None, pe=None, save_path=None, ticker="QQQ",
-                  last_days=None, vol=None, above_cap=None):
+def plot_backtest(price, alloc, nfci=None, cpi=None, cape=None, ecy=None, save_path=None,
+                  ticker="QQQ", last_days=None, vol=None, above_cap=None):
     dates = price.index
     p = price.values
     ret = price.pct_change().fillna(0).values
@@ -130,7 +131,7 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, pe=None, save_path=None, ti
             else f"{last_days}j : {d[0].date()} -> {d[-1].date()}")
 
     # Titre (suptitle) + formule + tableau en haut, panneaux data en dessous
-    npan = 3 + (nfci is not None) + (cpi is not None) + (pe is not None)
+    npan = 3 + (nfci is not None) + (cpi is not None) + (cape is not None)
     ratios = [2.6, 1.1, 1.1] + [1.1] * (npan - 3)
     fig = plt.figure(figsize=(15, 2.4 * npan + 5.5))
     fig.suptitle(f"{ticker} — resultats des strategies  ({span})",
@@ -210,14 +211,24 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, pe=None, save_path=None, ti
         ac.axhline(2, color="grey", ls=":", lw=0.7, alpha=0.7)
         ac.axhline(CPI_OFF, color="red", ls="--", lw=0.9, alpha=0.8, label=f"OFF > {CPI_OFF:.0f}%")
         ac.set_ylabel("inflation (%)", fontsize=9); ac.legend(loc="upper left", fontsize=8); ac.grid(True, alpha=0.2)
-    if pe is not None:
+    if cape is not None:
         ap = next(ax)
-        pe_w = np.asarray(pe, float)[w0:]
-        ap.semilogy(d, pe_w, color="teal", lw=0.8, label="PE cap-weighted top-5 NDX")
-        for lvl in (20, 40):
+        cape_w = np.asarray(cape, float)[w0:]
+        ap.semilogy(d, cape_w, color="teal", lw=0.9, label="CAPE S&P (Shiller P/E10)")
+        for lvl in (16, 30, 44):
             ap.axhline(lvl, color="grey", ls=":", lw=0.7, alpha=0.6)
-        ap.set_ylabel("PE (log)", fontsize=9); ap.legend(loc="upper left", fontsize=8)
+        ap.set_ylabel("CAPE (log)", fontsize=9, color="teal")
+        ap.tick_params(axis="y", labelcolor="teal")
         ap.grid(True, which="both", alpha=0.2)
+        ap.legend(loc="upper left", fontsize=8)
+        if ecy is not None:
+            ae = ap.twinx()
+            ecy_w = np.asarray(ecy, float)[w0:] * 100
+            ae.plot(d, ecy_w, color="darkorange", lw=0.9, label="Excess CAPE Yield (%)")
+            ae.axhline(0, color="darkorange", ls="--", lw=0.7, alpha=0.5)
+            ae.set_ylabel("ECY (%)", fontsize=9, color="darkorange")
+            ae.tick_params(axis="y", labelcolor="darkorange")
+            ae.legend(loc="lower left", fontsize=8)
 
     # top-5 crises = les 5 drawdowns les plus profonds (pic-local -> creux) sur
     # tout l'historique. Memes bandes rouges verticales sur toutes les vues,
@@ -242,7 +253,10 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, pe=None, save_path=None, ti
             lbl.set_rotation(30); lbl.set_ha("right")
     axes[-1].set_xlabel("Date")
 
-    fig.tight_layout(rect=[0, 0, 1, 0.865])
+    with warnings.catch_warnings():
+        # le twinx du panneau CAPE/ECY n'est pas compatible tight_layout (rendu OK)
+        warnings.simplefilter("ignore", UserWarning)
+        fig.tight_layout(rect=[0, 0, 1, 0.865])
     if save_path:
         fig.savefig(save_path, dpi=110, bbox_inches="tight")
     plt.close(fig)

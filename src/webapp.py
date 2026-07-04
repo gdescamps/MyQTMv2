@@ -36,11 +36,32 @@ BACKTEST_5Y = QQQ_OUT / "backtest_5y.png"
 BACKTEST_1Y = QQQ_OUT / "backtest_1y.png"
 BACKTEST_1M = QQQ_OUT / "backtest_1m.png"
 PE_CHART = PE_OUT / "ndx_top5_pe_daily.png"
+CAPE_CHART = OUTPUTS / "shiller" / "cape_ecy.png"
 
 
 # ── Data loaders ──────────────────────────────────────────
 
 PE_DIR = ROOT / "data" / "pe"
+SHILLER_DIR = ROOT / "data" / "shiller"
+
+
+def load_cape_ecy_latest():
+    """Dernier CAPE / ECY (S&P, Shiller) + rang percentile du CAPE sur tout
+    l'historique. None si le parquet est absent (lancer download_shiller_cape)."""
+    fp = SHILLER_DIR / "cape_ecy.parquet"
+    if not fp.exists():
+        return None
+    import pandas as pd
+    df = pd.read_parquet(fp)
+    cape = df["cape"].dropna()
+    ecy = df["ecy"].dropna()
+    if cape.empty:
+        return None
+    return {"cape": float(cape.iloc[-1]),
+            "ecy": float(ecy.iloc[-1]) if not ecy.empty else None,
+            "date": str(cape.index.max().date()),
+            "cape_pct": float((cape <= cape.iloc[-1]).mean() * 100),
+            "cape_median": float(cape.median())}
 
 
 def load_ndx_top(n=20):
@@ -247,6 +268,10 @@ def _b1m():
 @app.get("/img/pe_chart")
 def _pe():
     return _serve(PE_CHART)
+
+@app.get("/img/cape_ecy")
+def _cape():
+    return _serve(CAPE_CHART)
 
 
 # ── Styles (same as dashboard) ────────────────────────────
@@ -541,6 +566,7 @@ with ui.element("div").classes("layout"):
             tab_1m = ui.tab("1 Month")
             tab_ndx5 = ui.tab("NDX Top 5")
             tab_ndx20 = ui.tab("NDX Top 20")
+            tab_val = ui.tab("Valorisation")
             tab_gain = ui.tab("Gain réel")
             tab_trades = ui.tab("Trades")
             tab_alloc = ui.tab("Allocations")
@@ -686,6 +712,32 @@ with ui.element("div").classes("layout"):
                     ui.element("div").classes("w-full h-0.5 bg-black")
                     ui.label("NASDAQ-100 Top 20 — Market Cap & PE").classes("text-base font-semibold")
                     render_ndx_tab(20)
+
+            # ── Valorisation (CAPE / ECY S&P, Shiller) ──
+            with ui.tab_panel(tab_val):
+                with ui.column().classes("tab-content"):
+                    ui.element("div").classes("w-full h-0.5 bg-black")
+                    ui.label("Valorisation — CAPE & Excess CAPE Yield (S&P 500, Shiller)") \
+                        .classes("text-base font-semibold")
+                    val = load_cape_ecy_latest()
+                    if not val:
+                        ui.label("Pas de données. Lancer : python -m src.download_shiller_cape") \
+                            .classes("text-gray-500")
+                    else:
+                        ecy_s = f"{val['ecy']*100:+.2f}%" if val["ecy"] is not None else "—"
+                        with ui.row().classes("gap-6 items-baseline"):
+                            ui.label(f"CAPE {val['cape']:.1f}").classes("text-lg font-semibold")
+                            ui.label(f"percentile {val['cape_pct']:.0f} "
+                                     f"(médiane {val['cape_median']:.1f})") \
+                                .style("font-size: 0.8rem; color: #999")
+                            ui.label(f"ECY {ecy_s}").classes("text-lg font-semibold")
+                            ui.label(f"données Shiller au {val['date']}") \
+                                .style("font-size: 0.8rem; color: #999")
+                        ui.label("Valorisation ajustée des taux, comparable entre époques "
+                                 "(≠ PE brut). Contexte — hors stratégie.") \
+                            .style("font-size: 0.8rem; color: #666")
+                    if CAPE_CHART.exists():
+                        ui.image("/img/cape_ecy").classes("w-full rounded-lg shadow-lg")
 
             # ── Gain réel ──
             with ui.tab_panel(tab_gain):

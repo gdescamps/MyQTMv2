@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
-from src.risk_off_strategy.data import load_ohlc, load_macro, load_pe
+from src.risk_off_strategy.data import load_ohlc, load_macro, load_cape_ecy
 from src.risk_off_strategy.strategy import (
     compute_allocation, yang_zhang_vol, NFCI_OFF, CPI_OFF, ABOVE_CAP,
 )
@@ -152,16 +152,16 @@ def run_ticker(ticker):
     price = ohlc["close"]
     o, h, l = ohlc["open"].values, ohlc["high"].values, ohlc["low"].values
     nfci, cpi = load_macro(price.index)
-    pe = load_pe(price.index) if ticker == "QQQ" else None
+    cape, ecy = load_cape_ecy(price.index) if ticker == "QQQ" else (None, None)
     alloc = compute_allocation(price.values, nfci, cpi, high=h, low=l, open_=o)
     vol = yang_zhang_vol(o, h, l, price.values)   # meme vol pour le panneau du chart
 
     kw = dict(ticker=ticker, vol=vol, above_cap=ABOVE_CAP)
-    m = plot_backtest(price, alloc, nfci, cpi, pe, save_path=str(OUT / "backtest.png"), **kw)
-    plot_backtest(price, alloc, nfci, cpi, pe, save_path=str(OUT / "backtest_10y.png"), last_days=10 * 252, **kw)
-    plot_backtest(price, alloc, nfci, cpi, pe, save_path=str(OUT / "backtest_5y.png"), last_days=5 * 252, **kw)
-    plot_backtest(price, alloc, nfci, cpi, pe, save_path=str(OUT / "backtest_1y.png"), last_days=252, **kw)
-    plot_backtest(price, alloc, nfci, cpi, pe, save_path=str(OUT / "backtest_1m.png"), last_days=21, **kw)
+    m = plot_backtest(price, alloc, nfci, cpi, cape, ecy, save_path=str(OUT / "backtest.png"), **kw)
+    plot_backtest(price, alloc, nfci, cpi, cape, ecy, save_path=str(OUT / "backtest_10y.png"), last_days=10 * 252, **kw)
+    plot_backtest(price, alloc, nfci, cpi, cape, ecy, save_path=str(OUT / "backtest_5y.png"), last_days=5 * 252, **kw)
+    plot_backtest(price, alloc, nfci, cpi, cape, ecy, save_path=str(OUT / "backtest_1y.png"), last_days=252, **kw)
+    plot_backtest(price, alloc, nfci, cpi, cape, ecy, save_path=str(OUT / "backtest_1m.png"), last_days=21, **kw)
 
     last_alloc = float(alloc[-1])
     macro_off = bool(

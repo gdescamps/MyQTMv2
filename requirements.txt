@@ -6,6 +6,8 @@ scikit-optimize==0.10.2
 cma==4.4.4
 optuna>=4.0.0
 pyarrow>=16.0.0
+xlrd>=2.0.1
+lxml>=5.0.0
 yfinance>=0.2.50
 python-dotenv>=1.0.0
 dvc-gs==3.0.2

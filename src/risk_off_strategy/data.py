@@ -7,6 +7,7 @@ Chargement des donnees pour la strategie deployee (trend + vol-managed + macro).
                 Renvoie None pour un arm si le fichier est absent (degrade
                 gracieusement : le garde-fou correspondant est simplement ignore).
 """
+import numpy as np
 import pandas as pd
 from pathlib import Path
 
@@ -47,11 +48,29 @@ def load_macro(dates, nfci_lag=NFCI_LAG, cpi_lag=CPI_LAG):
     return nfci, cpi
 
 
-def load_pe(dates):
-    """PE cap-weighted du top-5 NASDAQ-100, aligne sur `dates` (contexte
-    valorisation, pas dans la strategie). None si le fichier est absent."""
-    fp = DATA_DIR / "pe" / "pe_top5_daily.parquet"
+def load_cape_ecy(dates, lag_days=5):
+    """CAPE (P/E10) et Excess CAPE Yield du S&P 500, mensuels, alignes sur `dates`
+    (ffill intra-mois) et decales de `lag_days` (petite marge d'honnetete ; le CAPE
+    multpl du mois courant est estime en direct). Historique complet -> aujourd'hui.
+
+    Variable de CONTEXTE de valorisation, ajustee des taux et comparable entre
+    epoques -- PAS dans la strategie (meme statut que l'ancien PE top-5). La serie
+    s'arrete a la derniere date Shiller reelle : au-dela, NaN (pas de prolongation
+    a plat). Renvoie (None, None) si le fichier est absent (degrade gracieusement).
+    """
+    fp = DATA_DIR / "shiller" / "cape_ecy.parquet"
     if not fp.exists():
-        return None
-    s = pd.read_parquet(fp)["pe_top5_daily"]
-    return s.reindex(dates.union(s.index)).sort_index().ffill().reindex(dates).values
+        return None, None
+    df = pd.read_parquet(fp)
+
+    def _align(col):
+        s = df[col].dropna()
+        if s.empty:
+            return None
+        last = s.index.max()
+        a = s.reindex(dates.union(s.index)).sort_index().ffill().reindex(dates)
+        a = a.shift(lag_days)              # lag de publication (~1 mois)
+        a[a.index > last] = np.nan         # ne pas prolonger a plat au-dela de Shiller
+        return a.values
+
+    return _align("cape"), _align("ecy")
