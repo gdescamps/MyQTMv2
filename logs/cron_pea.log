@@ -175,3 +175,36 @@ Email envoye a descamps.gregory@gmail.com: [MyQTM] LIVE ACHAT 6x PUST @ 105.06
   Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
 
 Termine.
+============================================================
+PEA PUST (Nasdaq x1) — 2026-07-03
+Mode: LIVE
+============================================================
+Signal du 2026-07-02 (status=ok, age: 8.8h)
+  Probabilite: 0.4588
+  Allocation:  46%
+
+PEA PEA DESCAMPS:
+  Especes:       46.13 EUR
+  Titres:       622.80 EUR
+  Total:        668.93 EUR
+  PUST:  6 parts @ 103.80 EUR (Nasdaq x1)
+
+Allocation:
+  Actuelle: 93.1% (6 parts, 623 EUR)
+  Cible:    45.9% (307 EUR)
+  Delta:    -47.2% (-316 EUR)
+
+Decision: Vendre 3 parts (-47.2%, frais ~1.6 EUR)
+  [EXECUTE] VENTE 3x PUST
+  [OK] INFO bourso_cli: Welcome to BoursoBank CLI 👋
+ INFO bourso_cli: ℹ️ - Version 0.5.3. Make sure you're running the latest version: https://github.com/azerpas/bourso-api
+ INFO bourso_cli: We'll try to log you in with your customer id: 70967054
+ INFO bourso_cli: If you want to change it, run `bourso config --username <customer_id>`
+ INFO bourso_cli: We'll need your password to log you in. It will not be stored anywhere and will be asked everytime you run a command. The password will be hidden while typing.
+ INFO bourso_api::client: 🔓 You are now logged in with user: 2fd785cade53ab8
+ INFO bourso_cli: Login successful ✅
+ INFO bourso_api::client::trade::order: Order for 3 1rTPUST (Limit) successfully passed with ID F26G03005889 at price Some(103.8) ✅
+Email envoye a descamps.gregory@gmail.com: [MyQTM] LIVE VENTE 3x PUST @ 103.80
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.

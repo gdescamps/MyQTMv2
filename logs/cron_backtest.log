@@ -1903,3 +1903,85 @@ Top 20 features:
   qqq_bband20                    0.0079
 Saved: /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/pit_vs_revised.png
 Email envoye a descamps.gregory@gmail.com: [MyQTM] QQQ 2026-06-29 — alloc 100% (prob 0.785)
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6664 rows (up to date)
+  ..    SPY                  fetching... 6664 rows (up to date)
+  ..    ACWI                 fetching... 4595 rows (up to date)
+  ..    TLT                  fetching... 6020 rows (up to date)
+  ..    vix_ohlc             fetching... 6666 rows (up to date)
+
+  ..    fred_baa_spread      fetching... 6626 rows (up to date)
+  ..    fred_nfci            fetching... 1382 rows (up to date)
+  ..    fred_cpi             fetching... 328 rows (up to date)
+  ..    fred_cpi_core        fetching... 328 rows (up to date)
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6664 rows (up to date)
+  ..    SPY                  fetching... 6664 rows (up to date)
+  ..    ACWI                 fetching... 4595 rows (up to date)
+  ..    TLT                  fetching... 6020 rows (up to date)
+  ..    vix_ohlc             fetching... 6666 rows (up to date)
+
+Toutes les donnees du 2026-07-02 disponibles
+Data up to: 2026-07-02
+
+
+======================================================================
+=== QQQ — strategie deployee (trend250 + VM + garde-fous) ===
+======================================================================
+
+Backtest 2000-01-03->2026-07-02  CAGR 11.1%  maxDD -19%  Sharpe 0.88  Calmar 0.58
+Signal: alloc=55%  macro_off=False  -> /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/signal.json
+Email envoye a descamps.gregory@gmail.com: [MyQTM] QQQ 2026-07-02 — alloc 55% (prob 0.551)
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6664 rows (up to date)
+  ..    SPY                  fetching... 6664 rows (up to date)
+  ..    ACWI                 fetching... 4595 rows (up to date)
+  ..    TLT                  fetching... 6020 rows (up to date)
+  ..    vix_ohlc             fetching... 6667 rows (+1 new)  [2000-01-03 → 2026-07-03]
+
+  ..    fred_baa_spread      fetching... 6626 rows (up to date)
+  ..    fred_nfci            fetching... 1382 rows (up to date)
+  ..    fred_cpi             fetching... [ERROR] CPIAUCSL: 502 Server Error: Bad Gateway for url: https://api.stlouisfed.org/fred/series/observations?series_id=CPIAUCSL&api_key=a71b85f54eec74a47883539bd867b48b&file_type=json&observation_start=2000-01-01&units=pc1
+  ..    fred_cpi_core        fetching... 328 rows (up to date)
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6664 rows (up to date)
+  ..    SPY                  fetching... 6664 rows (up to date)
+  ..    ACWI                 fetching... 4595 rows (up to date)
+  ..    TLT                  fetching... 6020 rows (up to date)
+  ..    vix_ohlc             fetching... 6667 rows (up to date)
+
+[ATTENTE] Donnees 2026-07-03 manquantes: QQQ, SPY, ACWI, TLT. Retry 300s...
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6664 rows (up to date)
+  ..    SPY                  fetching... 6664 rows (up to date)
+  ..    ACWI                 fetching... 4595 rows (up to date)
+  ..    TLT                  fetching... 6020 rows (up to date)
+  ..    vix_ohlc             fetching... 6667 rows (up to date)
+
+[ATTENTE] Donnees 2026-07-03 manquantes: QQQ, SPY, ACWI, TLT. Retry 300s...
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6664 rows (up to date)
+  ..    SPY                  fetching... 6664 rows (up to date)
+  ..    ACWI                 fetching... 4595 rows (up to date)
+  ..    TLT                  fetching... 6020 rows (up to date)
+  ..    vix_ohlc             fetching... /home/greg/data_local/code/MyQTMv2/src/risk_off_strategy/backtest.py:245: UserWarning: This figure includes Axes that are not compatible with tight_layout, so results might be incorrect.
+  fig.tight_layout(rect=[0, 0, 1, 0.865])
+6667 rows (up to date)
+
+[INFO] Donnees 2026-07-03 indisponibles — probable jour ferie US
+Data up to: 2026-07-02
+
+
+======================================================================
+=== QQQ — strategie deployee (trend250 + VM + garde-fous) ===
+======================================================================
+
+Backtest 2000-01-03->2026-07-02  CAGR 10.5%  maxDD -15%  Sharpe 0.96  Calmar 0.70
+Signal: alloc=46%  macro_off=False  -> /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/signal.json
+Email envoye a descamps.gregory@gmail.com: [MyQTM] QQQ 2026-07-02 — alloc 46% (prob 0.459)
