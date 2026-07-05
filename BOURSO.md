@@ -209,7 +209,10 @@ Le backtest ecrit `outputs/qqq_strategy/signal.json` :
 ## Frais et seuils
 
 - **Achat**: 0% (ETF gratuit sur Bourso PEA)
-- **Vente**: 0.5% → vente seulement si delta allocation >= 20% (`SELL_THRESHOLD`)
+- **Bande de non-action asymetrique** (importee de `strategy.py`, meme calibrage que le backtest net) :
+  - **Achat** (gratuit) : seulement si delta allocation >= +25% (`BUY_THR_ALLOC`)
+  - **Vente** (0.5%) : seulement si delta allocation <= −50% (`SELL_THR_ALLOC`) → on ne DE-lève que par grands pas
+  - **Force cash** : un passage a 0% (garde-fous macro / emergency) liquide TOUJOURS, meme sous le seuil de vente ; une premiere entree depuis le cash total s'execute meme sous le seuil d'achat.
 - **Emergency OFF**: creer `logs/emergency_off.json` avec `{"active": true}` pour forcer allocation a 0%
 
 ## Scripts

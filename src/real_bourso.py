@@ -53,7 +53,12 @@ if INSTRUMENT not in INSTRUMENTS:
     INSTRUMENT = "PUST"
 LEVERAGE = INSTRUMENTS[INSTRUMENT]["leverage"]
 
-SELL_THRESHOLD = 0.20  # only sell if delta_alloc >= 20% (0.5% fee on sells)
+# Bande de non-action ASYMETRIQUE, source unique = la strategie backtestee
+# (strategy.py). En espace POIDS de portefeuille (= ce que compute_orders manipule),
+# le seuil vaut BUY_/SELL_THR_ALLOC quel que soit l'instrument : pour LQQ l'expo = 2x
+# le poids, mais le seuil d'expo du backtest = seuil_alloc . levier, donc en poids on
+# retombe sur seuil_alloc. => achat si delta >= 0.25 (gratuit), vente si delta <= -0.50.
+from src.risk_off_strategy.strategy import BUY_THR_ALLOC, SELL_THR_ALLOC
 # Signal must be fresh enough, but tolerate weekend/holiday gaps so Monday (and
 # post-long-weekend) mornings still execute. The backtest runs each weekday
 # evening, so the worst legitimate gap is a Monday morning reading Friday's
@@ -182,7 +187,25 @@ def compute_orders(target_alloc, pea_state):
     print(f"  Cible:    {target_alloc*100:.1f}% ({target_value:.0f} EUR)")
     print(f"  Delta:    {delta_alloc*100:+.1f}% ({delta_value:+.0f} EUR)")
 
-    if delta_value > price:
+    # FORCE vers/depuis le cash, comme le backtest (clause `force` de simulate_net) :
+    # un passage a 0% (garde-fous macro NFCI/IPC, emergency-off) doit TOUJOURS liquider,
+    # meme si le delta est sous le seuil de vente ; et une premiere entree depuis le cash
+    # total doit s'executer meme sous le seuil d'achat. Sinon une crise laisserait la
+    # position ouverte (0.30 < seuil 0.50).
+    to_cash = target_alloc <= 1e-9 and current_shares > 0
+    from_cash = current_shares == 0 and target_alloc > 0
+    if to_cash:
+        fee = current_shares * price * 0.005
+        return "sell", current_shares, (f"Vendre TOUT {current_shares} parts -> cash "
+                                        f"({delta_alloc*100:.1f}%, frais ~{fee:.1f} EUR)")
+
+    # Bande asymetrique (cf. strategy.py) : on ne re-monte l'expo que si delta >=
+    # BUY_THR_ALLOC (achats gratuits) et on ne la baisse que si delta <= -SELL_THR_ALLOC
+    # (vente 0.5% -> on ne DE-lève que par grands pas). Rebalancement vers la cible
+    # (int parts) une fois la bande franchie ; marge d'1 part = plancher pratique.
+    if delta_alloc >= BUY_THR_ALLOC or from_cash:
+        if delta_value <= price:
+            return None, 0, f"Achat dans la marge d'1 part (+{delta_alloc*100:.1f}%)"
         quantity = int(delta_value / price)
         # Check cash available
         if quantity * price > pea_state["cash"]:
@@ -191,17 +214,20 @@ def compute_orders(target_alloc, pea_state):
                 return None, 0, "Cash insuffisant pour acheter"
         return "buy", quantity, f"Acheter {quantity} parts (+{delta_alloc*100:.1f}%)"
 
-    elif delta_value < -price and abs(delta_alloc) >= SELL_THRESHOLD:
+    elif delta_value > price:
+        return None, 0, f"Achat ignore: delta +{delta_alloc*100:.1f}% < seuil {BUY_THR_ALLOC*100:.0f}%"
+
+    elif abs(delta_alloc) >= SELL_THR_ALLOC and delta_value < -price:
         quantity = int(abs(delta_value) / price)
         quantity = min(quantity, current_shares)
         fee = quantity * price * 0.005
         return "sell", quantity, f"Vendre {quantity} parts ({delta_alloc*100:.1f}%, frais ~{fee:.1f} EUR)"
 
     elif delta_value < -price:
-        return None, 0, f"Vente ignoree: delta {abs(delta_alloc)*100:.1f}% < seuil {SELL_THRESHOLD*100:.0f}%"
+        return None, 0, f"Vente ignoree: delta {abs(delta_alloc)*100:.1f}% < seuil {SELL_THR_ALLOC*100:.0f}%"
 
     else:
-        return None, 0, "Aucune action (dans la marge d'1 part)"
+        return None, 0, "Aucune action (dans la bande de non-action)"
 
 
 def execute_order(side, quantity, dry_run=True):
