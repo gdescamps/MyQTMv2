@@ -48,6 +48,20 @@ def load_macro(dates, nfci_lag=NFCI_LAG, cpi_lag=CPI_LAG):
     return nfci, cpi
 
 
+def load_ndx_excess_snapshot():
+    """Snapshot courant de l'excess earnings yield NDX top-5/top-10 (trailing +
+    forward vs taux reel), produit par download_ndx_excess_yield. Contexte du
+    panneau valorisation. None si le JSON est absent."""
+    import json
+    fp = DATA_DIR / "pe" / "ndx_excess_yield.json"
+    if not fp.exists():
+        return None
+    try:
+        return json.loads(fp.read_text())
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def load_cape_ecy(dates, lag_days=5):
     """CAPE (P/E10) et Excess CAPE Yield du S&P 500, mensuels, alignes sur `dates`
     (ffill intra-mois) et decales de `lag_days` (petite marge d'honnetete ; le CAPE

@@ -92,8 +92,8 @@ def _window_metrics(ret, pos, w0):
     return e, cagr, dd, sh
 
 
-def plot_backtest(price, alloc, nfci=None, cpi=None, cape=None, ecy=None, save_path=None,
-                  ticker="QQQ", last_days=None, vol=None, above_cap=None):
+def plot_backtest(price, alloc, nfci=None, cpi=None, cape=None, ecy=None, ndx_ey=None,
+                  save_path=None, ticker="QQQ", last_days=None, vol=None, above_cap=None):
     dates = price.index
     p = price.values
     ret = price.pct_change().fillna(0).values
@@ -228,7 +228,18 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, cape=None, ecy=None, save_p
             ae.axhline(0, color="darkorange", ls="--", lw=0.7, alpha=0.5)
             ae.set_ylabel("ECY (%)", fontsize=9, color="darkorange")
             ae.tick_params(axis="y", labelcolor="darkorange")
-            ae.legend(loc="lower left", fontsize=8)
+            # leaders Nasdaq AUJOURD'HUI (snapshot) : lignes de reference sur la meme
+            # echelle "rendement - taux reel" que l'ECY S&P, pour situer le top-5 du jour.
+            if ndx_ey:
+                t5 = ndx_ey.get("top5", {})
+                et, ef = t5.get("excess_trailing"), t5.get("excess_forward")
+                if et is not None:
+                    ae.axhline(et * 100, color="steelblue", ls=":", lw=1.1, alpha=0.85,
+                               label=f"NDX top-5 excess trailing auj. ({et*100:+.1f}%)")
+                if ef is not None:
+                    ae.axhline(ef * 100, color="green", ls=":", lw=1.1, alpha=0.85,
+                               label=f"NDX top-5 excess forward auj. ({ef*100:+.1f}%)")
+            ae.legend(loc="lower left", fontsize=7)
 
     # top-5 crises = les 5 drawdowns les plus profonds (pic-local -> creux) sur
     # tout l'historique. Memes bandes rouges verticales sur toutes les vues,

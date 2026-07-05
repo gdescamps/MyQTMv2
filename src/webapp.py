@@ -64,6 +64,18 @@ def load_cape_ecy_latest():
             "cape_median": float(cape.median())}
 
 
+def load_ndx_excess_yield():
+    """Excess earnings yield NDX top-5/top-10 (trailing + forward vs taux reel).
+    None si le JSON est absent (lancer download_ndx_excess_yield)."""
+    fp = PE_DIR / "ndx_excess_yield.json"
+    if not fp.exists():
+        return None
+    try:
+        return json.loads(fp.read_text())
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def load_ndx_top(n=20):
     """Load top N NDX constituents with latest PE and PE date."""
     constituents_file = PE_DIR / "ndx_constituents.json"
@@ -738,6 +750,42 @@ with ui.element("div").classes("layout"):
                             .style("font-size: 0.8rem; color: #666")
                     if CAPE_CHART.exists():
                         ui.image("/img/cape_ecy").classes("w-full rounded-lg shadow-lg")
+
+                    # ── Leaders Nasdaq : excess earnings yield top-5 / top-10 ──
+                    ney = load_ndx_excess_yield()
+                    if ney:
+                        ui.element("div").classes("w-full h-0.5 bg-black mt-4")
+                        ui.label("Leaders Nasdaq — Excess earnings yield (top-5 / top-10)") \
+                            .classes("text-base font-semibold")
+                        rr = ney["real_rate"] * 100
+                        ui.label(f"rendement bénéfices cap-pondéré − taux réel 10 ans "
+                                 f"({rr:.2f} %, DFII10) · au {ney['date']}") \
+                            .style("font-size: 0.8rem; color: #999")
+
+                        def _p(x):
+                            return f"{x*100:+.2f}%" if x is not None else "—"
+
+                        cols = [
+                            {"name": "b", "label": "Panier", "field": "b", "align": "left"},
+                            {"name": "et", "label": "Excess (trailing)", "field": "et", "align": "right"},
+                            {"name": "ef", "label": "Excess (forward)", "field": "ef", "align": "right"},
+                            {"name": "g", "label": "Δ croissance", "field": "g", "align": "right"},
+                        ]
+                        rws = []
+                        for lbl, key in [("Top-5", "top5"), ("Top-10", "top10")]:
+                            b = ney[key]
+                            et, ef = b["excess_trailing"], b["excess_forward"]
+                            gap = (ef - et) if (et is not None and ef is not None) else None
+                            rws.append({"b": lbl, "et": _p(et), "ef": _p(ef), "g": _p(gap)})
+                        if val and val.get("ecy") is not None:
+                            rws.append({"b": "S&P 500 (ECY, réf.)",
+                                        "et": f"{val['ecy']*100:+.2f}%", "ef": "—", "g": "—"})
+                        ui.table(columns=cols, rows=rws, row_key="b").classes("w-full")
+                        ui.label("Trailing = bénéfices actuels ; forward = bénéfices attendus "
+                                 "(estimations analystes, optimistes) ; le Δ croissance chiffre le "
+                                 "« crédit IA ». Marges proches de records → le trailing peut flatter. "
+                                 "≠ CAPE lissé (inutilisable sur des compounders). Contexte — hors stratégie.") \
+                            .style("font-size: 0.8rem; color: #666")
 
             # ── Gain réel ──
             with ui.tab_panel(tab_gain):
