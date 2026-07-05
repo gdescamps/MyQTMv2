@@ -14,7 +14,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
-from src.risk_off_strategy.data import load_ohlc, load_macro, load_cape_ecy, load_ndx_excess_snapshot
+from src.risk_off_strategy.data import (
+    load_ohlc, load_macro, load_cape_ecy, load_ndx_excess_snapshot, load_funding,
+)
 from src.risk_off_strategy.strategy import (
     compute_allocation, yang_zhang_vol, NFCI_OFF, CPI_OFF, ABOVE_CAP,
 )
@@ -174,10 +176,11 @@ def run_ticker(ticker):
     nfci, cpi = load_macro(price.index)
     cape, ecy = load_cape_ecy(price.index) if ticker == "QQQ" else (None, None)
     ndx_ey = load_ndx_excess_snapshot() if ticker == "QQQ" else None
+    funding = load_funding(price.index)           # taux court -> financement LQQ (net de frais)
     alloc = compute_allocation(price.values, nfci, cpi, high=h, low=l, open_=o)
     vol = yang_zhang_vol(o, h, l, price.values)   # meme vol pour le panneau du chart
 
-    kw = dict(ticker=ticker, vol=vol, above_cap=ABOVE_CAP, ndx_ey=ndx_ey)
+    kw = dict(ticker=ticker, vol=vol, above_cap=ABOVE_CAP, ndx_ey=ndx_ey, funding=funding)
     m = plot_backtest(price, alloc, nfci, cpi, cape, ecy, save_path=str(OUT / "backtest.png"), **kw)
     plot_backtest(price, alloc, nfci, cpi, cape, ecy, save_path=str(OUT / "backtest_10y.png"), last_days=10 * 252, **kw)
     plot_backtest(price, alloc, nfci, cpi, cape, ecy, save_path=str(OUT / "backtest_5y.png"), last_days=5 * 252, **kw)
@@ -201,9 +204,12 @@ def run_ticker(ticker):
     with open(signal_path, "w") as f:
         json.dump(signal, f, indent=2)
 
+    net_tag = ""
+    if m.get("net"):
+        net_tag = (f"  [NET x1 : frais {m['fees_yr']:.2f}%/an, {m['revis_yr']:.0f} revis/an]")
     print(f"Backtest {price.index[0].date()}->{price.index[-1].date()}  "
           f"CAGR {m['cagr']*100:.1f}%  maxDD {m['maxdd']*100:.0f}%  "
-          f"Sharpe {m['sharpe']:.2f}  Calmar {m['calmar']:.2f}")
+          f"Sharpe {m['sharpe']:.2f}  Calmar {m['calmar']:.2f}{net_tag}")
     print(f"Signal: alloc={last_alloc*100:.0f}%  macro_off={macro_off}  -> {signal_path}")
     return price, alloc
 

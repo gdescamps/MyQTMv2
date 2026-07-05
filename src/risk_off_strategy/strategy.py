@@ -124,6 +124,74 @@ def compute_allocation(price, nfci=None, cpi=None, high=None, low=None, open_=No
     return alloc
 
 
+# ── Frais reels (backtest net) ────────────────────────────
+TER_PUST = 0.0030     # frais courants PUST (Amundi PEA Nasdaq-100, x1)
+TER_LQQ = 0.0060      # frais courants LQQ (Amundi Nasdaq-100 Daily 2x)
+SWAP_SPREAD = 0.0040  # spread de financement du swap LQQ au-dela du taux court
+SELL_FEE = 0.005      # frais de vente Bourso (0.5%) ; achats gratuits
+SELL_THR_ALLOC = 0.20  # seuil de revente en alloc x1 (= expo/levier) -> limite les revisions
+
+
+def simulate_net(price, alloc, leverage=1, funding=None, cash_rate=0.0,
+                 sell_thr=None, exec_lag=1):
+    """Backtest NET DE FRAIS, execution discretisee a la Bourso.
+
+    Modele des instruments (espace index QQQ, cf. convention du repo) :
+      PUST : r = ret − TER_PUST/252
+      LQQ  : r = 2·ret − (funding + SWAP_SPREAD + TER_LQQ)/252   (levier finance au taux court)
+      cash : r = cash_rate/252   (0 par defaut = cash PEA non remunere ; €STR ≈ funding)
+
+    Realisation drag-minimale de l'exposition cible E = leverage·alloc ∈ [0, 2] :
+      E ≤ 1 : PUST=E,   LQQ=0,   cash=1−E     (aucun drag de levier sous 100%)
+      E > 1 : PUST=2−E, LQQ=E−1, cash=0       (LQQ ne porte que la part >100%)
+
+    Execution : on ne rebalance que si |E_cible − E_effective| ≥ sell_thr (bande de
+    non-action -> limite le nombre de revisions) ou passage a/depuis le cash total.
+    Frais de 0.5% sur le notionnel VENDU seulement. exec_lag=1 (close J -> J+1).
+
+    funding requis si leverage>1 (financement LQQ) ; sinon renvoie None (le backtest
+    retombe sur le brut). Renvoie (equity_full, fees_yr_%, revis_yr)."""
+    p = np.asarray(price, float)
+    ret = pd.Series(p).pct_change().fillna(0).values
+    a = np.asarray(alloc, float)
+    n = len(p)
+    if leverage > 1 and funding is None:
+        return None
+    fund = np.zeros(n) if funding is None else np.asarray(funding, float)
+    if sell_thr is None:
+        sell_thr = SELL_THR_ALLOC * leverage       # 0.20 en alloc -> 0.40 en expo x2
+
+    r_pust = ret - TER_PUST / ANN
+    r_lqq = 2 * ret - (fund + SWAP_SPREAD + TER_LQQ) / ANN
+    r_cash = cash_rate / ANN
+
+    E = np.clip(leverage * a, 0.0, 2.0)
+    Etgt = np.concatenate([np.zeros(exec_lag), E[:-exec_lag]]) if exec_lag else E
+    vp = vl = 0.0
+    vc = 1.0
+    eq = np.empty(n)
+    fees_frac = 0.0
+    revis = 0
+    for t in range(n):
+        vp *= (1 + r_pust[t]); vl *= (1 + r_lqq[t]); vc *= (1 + r_cash)
+        V = vp + vl + vc
+        e_eff = (vp + 2 * vl) / V if V > 0 else 0.0
+        et = Etgt[t]
+        force = (et == 0.0 and e_eff > 1e-9) or (e_eff == 0.0 and et > 1e-9)
+        if abs(et - e_eff) >= sell_thr or force:
+            wl = max(0.0, et - 1.0)
+            wp = et if et <= 1.0 else 2.0 - et
+            tp, tl = wp * V, wl * V
+            fee = SELL_FEE * (max(0.0, vp - tp) + max(0.0, vl - tl))   # ventes seulement
+            fees_frac += fee / V
+            V -= fee
+            vp, vl, vc = wp * V, wl * V, max(0.0, 1.0 - et) * V
+            revis += 1
+        eq[t] = V
+    yrs = n / ANN
+    return eq, fees_frac / yrs * 100.0, revis / yrs
+
+
 def simulate(price, alloc, exec_lag=1):
     """Backtest x1, close-to-close, sans frais. Renvoie un dict de metriques + equity.
 

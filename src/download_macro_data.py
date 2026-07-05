@@ -32,6 +32,7 @@ FRED_SERIES = {
     "NFCI":     ("nfci", "lin"),         # Chicago Fed National Financial Conditions Index (hebdo)
     "CPIAUCSL": ("cpi", "pc1"),          # IPC global, YoY % (garde-fou inflation)
     "CPILFESL": ("cpi_core", "pc1"),     # IPC sous-jacent (core), YoY %
+    "DFF":      ("dff", "lin"),          # Fed funds effectif (%) — cout de financement du levier LQQ (backtest net)
 }
 
 

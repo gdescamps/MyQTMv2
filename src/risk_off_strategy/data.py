@@ -48,6 +48,18 @@ def load_macro(dates, nfci_lag=NFCI_LAG, cpi_lag=CPI_LAG):
     return nfci, cpi
 
 
+def load_funding(dates):
+    """Taux court USD (FRED DFF, Fed funds) aligne sur `dates`, ffill, en FRACTION
+    annuelle. Cout de financement du levier LQQ pour le backtest net de frais.
+    None si le fichier est absent (le backtest net retombe alors sur le brut)."""
+    fp = DATA_DIR / "fred_dff.parquet"
+    if not fp.exists():
+        return None
+    s = pd.read_parquet(fp)["dff"]
+    s = s.reindex(dates.union(s.index)).sort_index().ffill().reindex(dates).bfill()
+    return s.values / 100.0
+
+
 def load_ndx_excess_snapshot():
     """Snapshot courant de l'excess earnings yield NDX top-5/top-10 (trailing +
     forward vs taux reel), produit par download_ndx_excess_yield. Contexte du
