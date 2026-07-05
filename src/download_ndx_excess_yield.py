@@ -135,7 +135,7 @@ def build():
     }
 
 
-if __name__ == "__main__":
+def main():
     print("=== Excess earnings yield NDX top-5 / top-10 (yfinance + FRED) ===")
     data = build()
     OUT.write_text(json.dumps(data, indent=2))
@@ -151,3 +151,8 @@ if __name__ == "__main__":
               f"  |  EY forward {pct(b['ey_forward'])} -> excess {pct(b['excess_forward'])}"
               f"   (couv. {b['n_trailing']}/{b['n_forward']} sur {b['n']})")
     print(f"  -> {OUT}")
+    return data
+
+
+if __name__ == "__main__":
+    main()

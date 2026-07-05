@@ -237,7 +237,7 @@ def plot(df):
     print(f"  graphe -> {out}")
 
 
-if __name__ == "__main__":
+def main():
     print("=== S&P CAPE / ECY (multpl + Shiller + FRED) ===")
     df = build()
     df.to_parquet(DATA_DIR / "cape_ecy.parquet")
@@ -250,3 +250,8 @@ if __name__ == "__main__":
         print(f"  ECY  {ecy.index.max():%Y-%m} = {ecy.iloc[-1]*100:+.2f}%")
     plot(df)
     print(f"  parquet -> {DATA_DIR / 'cape_ecy.parquet'}  ({len(df)} mois)")
+    return df
+
+
+if __name__ == "__main__":
+    main()

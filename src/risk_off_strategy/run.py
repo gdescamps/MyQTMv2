@@ -118,6 +118,20 @@ def refresh_data():
     return end_date
 
 
+def refresh_valuation_context():
+    """Rafraichit le contexte de valorisation (CAPE/ECY S&P + excess yield NDX)
+    en best-effort : contexte de graphe uniquement, jamais dans la decision, donc
+    un echec (multpl.com/yfinance/FRED indispo) ne doit PAS faire echouer le run.
+    Le backtest lit ensuite les fichiers via load_cape_ecy/load_ndx_excess_snapshot."""
+    from src.download_shiller_cape import main as cape_main
+    from src.download_ndx_excess_yield import main as ndx_main
+    for label, fn in (("CAPE/ECY S&P", cape_main), ("excess yield NDX", ndx_main)):
+        try:
+            fn()
+        except Exception as e:  # noqa: BLE001
+            print(f"[WARN] contexte {label} non rafraichi ({repr(e)[:90]}) — on garde la version precedente")
+
+
 # ── Config ────────────────────────────────────────────────
 START = "2000-01-01"
 
@@ -133,6 +147,12 @@ else:
 # Un autre ticker peut etre passe explicitement (ex: SPY) pour exploration.
 ticker = sys.argv[1].upper() if len(sys.argv) > 1 else "QQQ"
 TICKERS = [ticker]
+
+# Contexte de valorisation (CAPE/ECY + excess yield NDX) rafraichi ici, juste
+# avant le backtest, pour que le graphe lise toujours la version du jour (evite la
+# dependance implicite a un cron 22:20 separe). QQQ seulement, best-effort.
+if not NO_REFRESH and ticker == "QQQ":
+    refresh_valuation_context()
 
 
 def run_ticker(ticker):
