@@ -23,7 +23,7 @@ import matplotlib.dates as mdates
 from src.risk_off_strategy.strategy import (
     realized_vol, simulate_net, SMA_LONG, VOL_TARGET, NFCI_OFF, CPI_OFF, ANN,
     ABOVE_CAP, BELOW_SCALE, GAP_CUTOFF, GAP2_START, GAP2_SPAN, DECAY2_FLOOR,
-    SLOPE_K, TER_PUST, TER_LQQ, SWAP_SPREAD, SELL_FEE, SELL_THR_ALLOC,
+    SLOPE_K, TER_PUST, TER_LQQ, SWAP_SPREAD, SELL_FEE, BUY_THR_ALLOC, SELL_THR_ALLOC,
 )
 
 
@@ -38,7 +38,7 @@ def _formula_text():
         f"decay_down = clip(1 + gap / {GAP_CUTOFF:.2f}, 0, 1)\n"
         f"x2.0 = 2 . alloc x1 (via LQQ)          exec_lag = 1 : close du soir  ->  execution J+1\n"
         f"NET de frais : TER PUST {TER_PUST*100:.2f}% / LQQ {TER_LQQ*100:.2f}% + financement LQQ (taux court +{SWAP_SPREAD*100:.1f}%) ; "
-        f"vente {SELL_FEE*100:.1f}% si delta expo >= {SELL_THR_ALLOC:.2f}/levier (achats libres)"
+        f"bande asym. .levier : achat si +{BUY_THR_ALLOC:.2f} (libre), vente {SELL_FEE*100:.1f}% si -{SELL_THR_ALLOC:.2f}"
     )
 
 

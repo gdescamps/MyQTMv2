@@ -129,11 +129,26 @@ TER_PUST = 0.0030     # frais courants PUST (Amundi PEA Nasdaq-100, x1)
 TER_LQQ = 0.0060      # frais courants LQQ (Amundi Nasdaq-100 Daily 2x)
 SWAP_SPREAD = 0.0040  # spread de financement du swap LQQ au-dela du taux court
 SELL_FEE = 0.005      # frais de vente Bourso (0.5%) ; achats gratuits
-SELL_THR_ALLOC = 0.20  # seuil de revente en alloc x1 (= expo/levier) -> limite les revisions
+# Bande de non-action ASYMETRIQUE (en expo x1 = alloc, multipliee par le levier) :
+# on ne re-monte l'expo que si la cible s'ecarte de BUY_THR (achats gratuits) et on
+# ne la baisse que si elle s'ecarte de SELL_THR (vente 0.5% -> on ne DE-lève que par
+# grands pas). Calibre NET DE FRAIS sur le backtest QQQ 2000-2026 (grille complete +
+# validation 2 moities dans myfiles/asym_band_optimize.py) : (0.25 / 0.50) MAXIMISE le
+# Sharpe ET le Calmar net et DOMINE l'ancien symetrique 0.20 sur tous les axes
+#   x1 : CAGR 8.8->9.9%, maxDD -18.6->-17.6%, Sharpe 0.82->0.85, Calmar 0.48->0.57,
+#        frais 0.72->0.32%/an, revisions 11->4/an, Sharpe pire-moitie 0.42->0.48.
+#   x2 : CAGR 15.1->17.9%, maxDD -34.4->-33.3%, Calmar 0.44->0.54 (memes seuils, .levier).
+# Deux enseignements : (1) elargir FORTEMENT les bandes coupe le whipsaw du bras vol-
+# managed -> moins de ventes perdantes, donc + de rendement ET - de drawdown ; (2)
+# l'asymetrie utile est MODEREE (vente = 2x l'achat), pas extreme -- suivre la montee
+# trop finement sur-investit et se paye en ventes au repli. Au-dela (sell >= expo 1.0)
+# la bande annule le risk-off (maxDD x2 -> -52%) : 0.50 reste loin de cette falaise.
+BUY_THR_ALLOC = 0.25   # seuil d'ACHAT (montee d'expo) — gratuit
+SELL_THR_ALLOC = 0.50  # seuil de VENTE (baisse d'expo) — limite les frais, laisse courir
 
 
 def simulate_net(price, alloc, leverage=1, funding=None, cash_rate=0.0,
-                 sell_thr=None, exec_lag=1):
+                 sell_thr=None, buy_thr=None, exec_lag=1):
     """Backtest NET DE FRAIS, execution discretisee a la Bourso.
 
     Modele des instruments (espace index QQQ, cf. convention du repo) :
@@ -145,9 +160,10 @@ def simulate_net(price, alloc, leverage=1, funding=None, cash_rate=0.0,
       E ≤ 1 : PUST=E,   LQQ=0,   cash=1−E     (aucun drag de levier sous 100%)
       E > 1 : PUST=2−E, LQQ=E−1, cash=0       (LQQ ne porte que la part >100%)
 
-    Execution : on ne rebalance que si |E_cible − E_effective| ≥ sell_thr (bande de
-    non-action -> limite le nombre de revisions) ou passage a/depuis le cash total.
-    Frais de 0.5% sur le notionnel VENDU seulement. exec_lag=1 (close J -> J+1).
+    Execution : bande de non-action ASYMETRIQUE. On rebalance si l'expo cible s'ecarte
+    de l'effective d'au moins buy_thr (montee, achats gratuits -> seuil fin) ou sell_thr
+    (baisse, vente 0.5% -> seuil grossier), ou passage a/depuis le cash total. Frais de
+    0.5% sur le notionnel VENDU seulement. exec_lag=1 (close J -> J+1).
 
     funding requis si leverage>1 (financement LQQ) ; sinon renvoie None (le backtest
     retombe sur le brut). Renvoie (equity_full, fees_yr_%, revis_yr)."""
@@ -159,7 +175,9 @@ def simulate_net(price, alloc, leverage=1, funding=None, cash_rate=0.0,
         return None
     fund = np.zeros(n) if funding is None else np.asarray(funding, float)
     if sell_thr is None:
-        sell_thr = SELL_THR_ALLOC * leverage       # 0.20 en alloc -> 0.40 en expo x2
+        sell_thr = SELL_THR_ALLOC * leverage       # 0.50 en alloc -> 1.00 en expo x2
+    if buy_thr is None:
+        buy_thr = BUY_THR_ALLOC * leverage         # 0.25 en alloc -> 0.50 en expo x2
 
     r_pust = ret - TER_PUST / ANN
     r_lqq = 2 * ret - (fund + SWAP_SPREAD + TER_LQQ) / ANN
@@ -178,7 +196,8 @@ def simulate_net(price, alloc, leverage=1, funding=None, cash_rate=0.0,
         e_eff = (vp + 2 * vl) / V if V > 0 else 0.0
         et = Etgt[t]
         force = (et == 0.0 and e_eff > 1e-9) or (e_eff == 0.0 and et > 1e-9)
-        if abs(et - e_eff) >= sell_thr or force:
+        thr = buy_thr if et > e_eff else sell_thr   # asymetrie : monte fin, descend grossier
+        if abs(et - e_eff) >= thr or force:
             wl = max(0.0, et - 1.0)
             wp = et if et <= 1.0 else 2.0 - et
             tp, tl = wp * V, wl * V
