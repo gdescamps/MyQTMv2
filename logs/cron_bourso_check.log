@@ -156,3 +156,18 @@ Verification quotidienne de bourso-cli
    A jour: patch base sur v0.5.3 (pin e25718e, v0.5.3) = dernier tag azerpas.
 
 Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   16 passed, 1 skipped, 1 xfailed in 0.18s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 104.0200 EUR — PEA: 355.97 EUR especes, 3 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.3 (pin e25718e, v0.5.3) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
