@@ -2011,3 +2011,21 @@ ou on sait que ce serait trop tard a cause du retard lié au retard comptable ?
 -----------------------------------------------
 
 est ce que les 
+les data de type cape sont téléchargée tous les jours 
+pour le backtest ?
+
+-----------------------------------------------
+
+sur boursorama 
+quel est la difference au niveau de frais entre
+LQQ et PUST 
+
+
+-----------------------------------------------
+
+est ce que tu peux optimiser la stratégie 2x avec LQQ 
+prendre en compte les frais 
+utiliser LQQ ou PUST pour limiter les frais 
+afficher la stratégie x2 net de frais
+Limiter le nombre de révisions d'allocations
+
