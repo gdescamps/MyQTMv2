@@ -1998,3 +1998,12 @@ Le MM AI FOMC Statement Hawkish-Dovish Index mesure le positionnement de politiq
 🥉 gtfintechlab/fomc_communication — Hugging Face
 Dataset annoté du paper "Trillion Dollar Words" (Georgia Tech), avec les phrases FOMC labellisées hawkish/dovish/neutre depuis 1996. Pas un score agrégé par réunion, mais tu peux le calculer toi-même.
 
+dans src/risk_off_strategy/strategy.py
+est ce que tu peux audit et recherche des pistes d'amélioration ? 
+pour ameliorer les performances de la stratégie x2.0
+
+-----------------------------------------------
+
+est ce qu'il serait utile d'ajouter un garde fou sur le PE top 5 nasdaq ? 
+au meme titre que les garde fou inflation et risque crédit 
+ou on sait que ce serait trop tard a cause du retard lié au retard comptable ? 
