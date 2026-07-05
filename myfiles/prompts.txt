@@ -2029,3 +2029,17 @@ utiliser LQQ ou PUST pour limiter les frais
 afficher la stratégie x2 net de frais
 Limiter le nombre de révisions d'allocations
 
+-----------------------------------------------
+
+Comme les ETF sont gratuits à l'achat, ne pas hésiter à créer beaucoup de niveaux d'allocation. Par contre, créer des niveaux de désallocation plus grands.
+Tentez de réduire les frais à ce niveau là.
+
+C'est à dire au lieu de descendre de 3% en 3% l'allocation.
+Descendent tout de suite de 10% etc ...
+
+-----------------------------------------------
+
+
+Optimiser la méthode sur le backtest.
+La configuration qui propose le meilleur sharpes /  calamar.
+En incluant les frais.
