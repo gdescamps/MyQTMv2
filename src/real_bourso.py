@@ -324,10 +324,10 @@ def main():
             subject = f"[MyQTM] {mode} {action} {quantity}x {INSTRUMENT} @ {pea_state['etf_price']:.2f}"
             body = (
                 f"PEA — {date.today()}\n\n"
-                f"  Instrument:  {INSTRUMENT} ({INSTRUMENTS[INSTRUMENT]['label']})\n"
+                f"  Instrument:  {INSTRUMENT} ({INSTRUMENTS[INSTRUMENT]['label']}, levier x{LEVERAGE:.0f})\n"
                 f"  Action:      {action} {quantity} parts {INSTRUMENT}\n"
                 f"  Prix:        {pea_state['etf_price']:.2f} EUR\n"
-                f"  Allocation:  {target_alloc*100:.0f}%\n"
+                f"  Allocation:  {target_alloc*100:.0f}% (poids)  ->  exposition cible {target_alloc*LEVERAGE*100:.0f}% (x{LEVERAGE:.0f})\n"
                 f"  Probabilite: {signal['probability']:.4f}\n"
                 f"  Signal du:   {signal['date']}\n\n"
                 f"  Especes:     {pea_state['cash']:.2f} EUR\n"
