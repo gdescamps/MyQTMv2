@@ -69,6 +69,16 @@ MAX_RETRIES = 5
 INITIAL_WAIT = 60  # seconds
 MAX_WAIT = 900  # 15 min max between retries
 
+# Detection de split / anomalie de prix : si le prix de l'instrument saute d'un
+# facteur >= SPLIT_DETECT_FACTOR (x1.5 a la hausse, ou /1.5) vs la derniere seance,
+# c'est quasi surement un split (ex: LQQ /200) ou une incoherence d'affichage broker,
+# PAS un mouvement de marche (un ETF x2 ne fait pas +/-50% en une seance : coupe-circuits).
+# Dans ce cas on NE PREND PAS de position ce jour-la (on evite d'acheter/vendre sur un
+# prix fausse le jour du split) et on attend la seance suivante. Le prix de reference par
+# instrument est stocke dans LAST_PRICE_FILE (mis a jour a chaque execution LIVE).
+SPLIT_DETECT_FACTOR = 1.5
+LAST_PRICE_FILE = LOG_DIR / "last_price.json"
+
 
 def retry(fn, label="", hourly_until=None):
     """Retry with exponential backoff (60s, 120s, 240s, 480s, 900s), then hourly."""
@@ -266,6 +276,39 @@ def log_trade(record):
     print(f"  Log → {TRADE_LOG}")
 
 
+def load_last_price(instrument):
+    """Dernier prix connu de l'instrument (seance precedente), ou None si inconnu."""
+    if not LAST_PRICE_FILE.exists():
+        return None
+    try:
+        return json.loads(LAST_PRICE_FILE.read_text()).get(instrument)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def save_last_price(instrument, price):
+    """Memorise le prix de reference de l'instrument (pour la detection de split)."""
+    data = {}
+    if LAST_PRICE_FILE.exists():
+        try:
+            data = json.loads(LAST_PRICE_FILE.read_text())
+        except Exception:  # noqa: BLE001
+            data = {}
+    data[instrument] = price
+    LAST_PRICE_FILE.write_text(json.dumps(data, indent=2))
+
+
+def detect_split(prev_price, cur_price, factor=SPLIT_DETECT_FACTOR):
+    """Renvoie le facteur de saut si le prix a bouge d'au moins `factor` (x ou /)
+    entre `prev_price` et `cur_price` (= split / anomalie probable), sinon None.
+    Renvoie None si l'un des prix est manquant/non positif (pas de reference -> pas
+    de detection possible, on ne bloque pas)."""
+    if not prev_price or not cur_price or prev_price <= 0 or cur_price <= 0:
+        return None
+    ratio = max(cur_price / prev_price, prev_price / cur_price)
+    return ratio if ratio >= factor else None
+
+
 def main():
     parser = argparse.ArgumentParser(description="Execution PEA matin — signal du backtest soir")
     parser.add_argument("--execute", action="store_true", help="Executer les ordres (defaut: dry-run)")
@@ -298,6 +341,46 @@ def main():
     if pea_state["equity"] <= 0:
         print("[ERREUR] PEA vide (equity=0)")
         sys.exit(1)
+
+    # 3b. Detection de split / anomalie de prix -> on ne prend PAS de position
+    #     aujourd'hui (prix potentiellement fausse le jour du split), reprise demain.
+    cur_price = pea_state["etf_price"]
+    prev_price = load_last_price(INSTRUMENT)
+    split_ratio = detect_split(prev_price, cur_price)
+    if args.execute:
+        save_last_price(INSTRUMENT, cur_price)   # ref post-split -> reprise a la prochaine seance
+    if split_ratio is not None:
+        msg = (f"SPLIT / anomalie de prix detecte sur {INSTRUMENT} : "
+               f"{prev_price:.2f} -> {cur_price:.2f} EUR (facteur x{split_ratio:.1f}). "
+               f"Aucune position prise aujourd'hui — on attend la prochaine seance.")
+        print(f"\n{'!'*60}\n  {msg}\n{'!'*60}")
+        try:
+            from src.bourso.notify import send_email
+            body = (
+                f"PEA — {date.today()}\n\n"
+                f"  ⚠️ {msg}\n\n"
+                f"  Instrument:  {INSTRUMENT} ({INSTRUMENTS[INSTRUMENT]['label']})\n"
+                f"  Prix veille: {prev_price:.2f} EUR\n"
+                f"  Prix actuel: {cur_price:.2f} EUR\n"
+                f"  Facteur:     x{split_ratio:.1f}\n"
+                f"  Action:      AUCUNE (garde-fou split) — reprise a la prochaine seance\n"
+                f"  Mode:        {'LIVE' if args.execute else 'DRY-RUN'}\n"
+            )
+            send_email(f"[MyQTM] SPLIT detecte {INSTRUMENT} — aucune position prise", body)
+        except Exception as e:  # noqa: BLE001
+            print(f"[WARN] Email non envoye: {e}")
+        log_trade({
+            "date": str(date.today()), "model_date": signal["date"],
+            "probability": signal["probability"], "target_alloc": target_alloc,
+            "instrument": INSTRUMENT, "leverage": LEVERAGE, "side": None, "quantity": 0,
+            "etf_price": cur_price, "equity": pea_state["equity"],
+            "current_shares": pea_state["etf_shares"], "executed": args.execute,
+            "reason": f"split detecte (x{split_ratio:.1f}, {prev_price:.2f}->{cur_price:.2f}) — no trade",
+            "result": {"status": "split_detected", "prev_price": prev_price,
+                       "cur_price": cur_price, "factor": split_ratio},
+        })
+        print("\nTermine (garde-fou split).")
+        return
 
     # 4. Compute orders
     side, quantity, reason = compute_orders(target_alloc, pea_state)

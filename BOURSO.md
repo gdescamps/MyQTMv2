@@ -213,6 +213,7 @@ Le backtest ecrit `outputs/qqq_strategy/signal.json` :
   - **Achat** (gratuit) : seulement si delta allocation >= +25% (`BUY_THR_ALLOC`)
   - **Vente** (0.5%) : seulement si delta allocation <= −50% (`SELL_THR_ALLOC`) → on ne DE-lève que par grands pas
   - **Force cash** : un passage a 0% (garde-fous macro / emergency) liquide TOUJOURS, meme sous le seuil de vente ; une premiere entree depuis le cash total s'execute meme sous le seuil d'achat.
+- **Garde-fou split** : si le prix de l'instrument saute d'un facteur >= 1.5 (x ou /) vs la seance precedente (`logs/last_price.json`, maj a chaque run LIVE) = signature d'un split (ex: LQQ /200) ou d'une incoherence d'affichage broker -> **aucune position prise ce jour-la**, email d'alerte "SPLIT detecte", reprise a la seance suivante (reference = prix post-split). Evite d'acheter/vendre sur un prix fausse le jour du split.
 - **Emergency OFF**: creer `logs/emergency_off.json` avec `{"active": true}` pour forcer allocation a 0%
 
 ## Scripts
