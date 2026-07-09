@@ -105,7 +105,7 @@ def test_no_reference_no_detection():
 
 # ── ordre limite avec tolerance ───────────────────────────
 def test_limit_tolerance_default():
-    assert LIMIT_TOLERANCE_PCT == 1.5
+    assert LIMIT_TOLERANCE_PCT == 3.0
 
 
 def test_execute_order_dryrun_carries_limit_tolerance():

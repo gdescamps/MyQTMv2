@@ -82,9 +82,9 @@ LAST_PRICE_FILE = LOG_DIR / "last_price.json"
 # Tolerance de l'ordre LIMITE : la limite = dernier cours ± LIMIT_TOLERANCE_PCT%
 # (achat: +, vente: -). Un ordre limite pile au cours ne se remplit pas si le prix
 # s'ecarte a l'ouverture (cf. incident 07-07 : limite sous le marche -> non execute).
-# Une tolerance de 1.5% tampon le gap d'ouverture -> remplissage fiable, tout en
+# Une tolerance de 3% tampon le gap d'ouverture -> remplissage fiable, tout en
 # bornant le prix (contrairement a un ordre au marche non maitrise sur un gap).
-LIMIT_TOLERANCE_PCT = 1.5
+LIMIT_TOLERANCE_PCT = 3.0
 
 
 def retry(fn, label="", hourly_until=None):
