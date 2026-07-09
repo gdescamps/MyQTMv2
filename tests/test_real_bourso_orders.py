@@ -10,7 +10,8 @@ net de frais (strategy.simulate_net) :
 """
 
 from src.real_bourso import (
-    compute_orders, detect_split, BUY_THR_ALLOC, SELL_THR_ALLOC, SPLIT_DETECT_FACTOR,
+    compute_orders, detect_split, execute_order,
+    BUY_THR_ALLOC, SELL_THR_ALLOC, SPLIT_DETECT_FACTOR, LIMIT_TOLERANCE_PCT,
 )
 
 
@@ -100,3 +101,14 @@ def test_no_reference_no_detection():
     # pas de prix precedent -> pas de detection (on ne bloque pas)
     assert detect_split(None, 9.88) is None
     assert detect_split(0.0, 9.88) is None
+
+
+# ── ordre limite avec tolerance ───────────────────────────
+def test_limit_tolerance_default():
+    assert LIMIT_TOLERANCE_PCT == 1.5
+
+
+def test_execute_order_dryrun_carries_limit_tolerance():
+    # dry-run : aucun appel broker, l'ordre est une LIMITE avec tolerance
+    r = execute_order("buy", 3, dry_run=True)
+    assert r["order_type"] == "LIM" and r["tolerance"] == LIMIT_TOLERANCE_PCT

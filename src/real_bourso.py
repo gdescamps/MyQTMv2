@@ -79,6 +79,13 @@ MAX_WAIT = 900  # 15 min max between retries
 SPLIT_DETECT_FACTOR = 1.5
 LAST_PRICE_FILE = LOG_DIR / "last_price.json"
 
+# Tolerance de l'ordre LIMITE : la limite = dernier cours ± LIMIT_TOLERANCE_PCT%
+# (achat: +, vente: -). Un ordre limite pile au cours ne se remplit pas si le prix
+# s'ecarte a l'ouverture (cf. incident 07-07 : limite sous le marche -> non execute).
+# Une tolerance de 1.5% tampon le gap d'ouverture -> remplissage fiable, tout en
+# bornant le prix (contrairement a un ordre au marche non maitrise sur un gap).
+LIMIT_TOLERANCE_PCT = 1.5
+
 
 def retry(fn, label="", hourly_until=None):
     """Retry with exponential backoff (60s, 120s, 240s, 480s, 900s), then hourly."""
@@ -240,32 +247,44 @@ def compute_orders(target_alloc, pea_state):
         return None, 0, "Aucune action (dans la bande de non-action)"
 
 
-def execute_order(side, quantity, dry_run=True):
-    """Execute order via bourso-cli."""
+def execute_order(side, quantity, dry_run=True, tolerance=LIMIT_TOLERANCE_PCT):
+    """Execute order via bourso-cli.
+
+    Ordre LIMITE avec tolerance : la limite = cours ± tolerance% (achat +, vente -),
+    ce qui tampon le gap d'ouverture et fiabilise le remplissage tout en bornant le
+    prix. tolerance=None -> ordre limite pile au cours (ancien comportement)."""
     from src.bourso.prepare import PEA_ACCOUNT_ID, SYMBOLS, _run_cli_raw
 
-    action = f"{'ACHAT' if side == 'buy' else 'VENTE'} {quantity}x {INSTRUMENT}"
+    tol_txt = f" (limite ±{tolerance}%)" if tolerance is not None else ""
+    action = f"{'ACHAT' if side == 'buy' else 'VENTE'} {quantity}x {INSTRUMENT}{tol_txt}"
 
     if dry_run:
         print(f"  [DRY-RUN] {action}")
-        return {"status": "dry-run", "side": side, "quantity": quantity}
+        return {"status": "dry-run", "side": side, "quantity": quantity,
+                "order_type": "LIM", "tolerance": tolerance}
 
     print(f"  [EXECUTE] {action}")
-    stdout, stderr, rc = _run_cli_raw(
+    cli_args = [
         "trade", "order", "new",
         "--side", side,
         "--account", PEA_ACCOUNT_ID,
         "--symbol", SYMBOLS[INSTRUMENT],
         "--quantity", str(quantity),
-    )
+        "--order-type", "LIM",
+    ]
+    if tolerance is not None:
+        cli_args += ["--tolerance", str(tolerance)]
+    stdout, stderr, rc = _run_cli_raw(*cli_args)
 
     output = (stdout + stderr).strip()
     if rc != 0:
         print(f"  [ERREUR] bourso-cli code {rc}: {output}")
-        return {"status": "error", "side": side, "quantity": quantity, "error": output}
+        return {"status": "error", "side": side, "quantity": quantity,
+                "order_type": "LIM", "tolerance": tolerance, "error": output}
 
     print(f"  [OK] {output}")
-    return {"status": "executed", "side": side, "quantity": quantity, "output": output}
+    return {"status": "executed", "side": side, "quantity": quantity,
+            "order_type": "LIM", "tolerance": tolerance, "output": output}
 
 
 def log_trade(record):
@@ -409,6 +428,7 @@ def main():
                 f"PEA — {date.today()}\n\n"
                 f"  Instrument:  {INSTRUMENT} ({INSTRUMENTS[INSTRUMENT]['label']}, levier x{LEVERAGE:.0f})\n"
                 f"  Action:      {action} {quantity} parts {INSTRUMENT}\n"
+                f"  Type ordre:  limite ±{LIMIT_TOLERANCE_PCT}% (tampon d'ouverture)\n"
                 f"  Prix:        {pea_state['etf_price']:.2f} EUR\n"
                 f"  Allocation:  {target_alloc*100:.0f}% (poids)  ->  exposition cible {target_alloc*LEVERAGE*100:.0f}% (x{LEVERAGE:.0f})\n"
                 f"  Probabilite: {signal['probability']:.4f}\n"
