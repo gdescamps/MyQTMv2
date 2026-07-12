@@ -2039,7 +2039,21 @@ Descendent tout de suite de 10% etc ...
 
 -----------------------------------------------
 
-
 Optimiser la méthode sur le backtest.
 La configuration qui propose le meilleur sharpes /  calamar.
 En incluant les frais.
+
+-----------------------------------------------
+
+j'ai vendu manuellement mes PUST 
+je veux basculer en stratégie x2 LQQ 
+
+peux tu realiser le switch est me confirmer 
+que demain les LQQ seront allouer en reel sur un capital de 15000 en fonction de l'allocation qu'a determiné la stratégie 
+
+peut tu faire un reset des log des trades 
+pour eviter de garder des trace du smoke test x1 PUST precedent
+
+-----------------------------------------------
+
+
