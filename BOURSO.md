@@ -12,7 +12,9 @@ mais n'est pas cablee au CLI. Or `src/bourso/prepare.py` (recap du soir + execut
 du matin) en a besoin. On maintient donc un **fork** avec un patch minimal.
 
 Le submodule `external/bourso-api` pointe sur le fork, branche **`myqtm`** =
-tag upstream (actuellement **v0.5.3**) + 1 commit `feat: add 'trade summary' CLI`.
+tag upstream (actuellement **v0.5.4**) + 4 commits maison : `trade summary` CLI,
+`realGL` en f64, les options d'ordre (`--order-type ATP|LIM`, `--tolerance`,
+`--limit`, `--validity`) et le rejet d'une tolerance LIM negative.
 Deux remotes dans le submodule :
 
 | Remote | URL | Usage |
@@ -26,7 +28,7 @@ git submodule update --init external/bourso-api
 ./2_bourso_cli_update.sh            # compile le commit epingle (myqtm) + installe dans ~/.local/bin
 ```
 
-Binaire : `~/.local/bin/bourso-cli` (v0.5.3 + patch `trade summary`)
+Binaire : `~/.local/bin/bourso-cli` (v0.5.4 + patchs maison : `trade summary`, options d'ordre)
 
 Quand un nouveau tag azerpas sort (le cron de 20h alerte), MAJ manuelle :
 ```bash

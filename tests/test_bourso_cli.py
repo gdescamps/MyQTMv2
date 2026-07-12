@@ -6,11 +6,11 @@ binaire (--version, --help, aide de chaque sous-commande), l'absence de panic
 Rust, et la commande `quote` (non authentifiee). Aucun ordre n'est emis.
 
 Le submodule `external/bourso-api` pointe sur notre fork (branche `myqtm` =
-tag v0.5.3 + patch `trade summary`). Les commandes attendues ci-dessous
-correspondent a ce build ; on verifie aussi que la sous-commande maison
-`trade summary` (indispensable a la lecture du PEA) est bien presente. Si le
-binaire installe ne les expose pas toutes, c'est que le build est perime/casse
-ou non patche -> le test echoue.
+tag v0.5.4 + patchs maison : `trade summary`, options d'ordre). Les commandes
+attendues ci-dessous correspondent a ce build ; on verifie aussi que la
+sous-commande maison `trade summary` (indispensable a la lecture du PEA) est
+bien presente. Si le binaire installe ne les expose pas toutes, c'est que le
+build est perime/casse ou non patche -> le test echoue.
 """
 
 import os
@@ -20,8 +20,8 @@ import pytest
 
 from tests.conftest import pinned_version, run_cli
 
-# Sous-commandes attendues du tag v0.5.3 (PAS `export`, ajoute en amont apres le tag)
-EXPECTED_COMMANDS = ["accounts", "config", "trade", "quote", "transfer"]
+# Sous-commandes attendues du tag v0.5.4 (`export` ajoute en amont dans ce tag)
+EXPECTED_COMMANDS = ["accounts", "config", "trade", "quote", "transfer", "export"]
 
 
 def test_binary_present(bourso_cli):
@@ -106,15 +106,16 @@ def test_no_rust_panic(bourso_cli):
 
 @pytest.mark.network
 @pytest.mark.xfail(
-    reason="endpoint quote Boursorama renvoie 410 Gone en v0.5.3 (corrige en amont)",
+    reason="endpoint quote Boursorama renvoie 410 Gone (toujours KO en v0.5.4)",
     strict=False,
 )
 def test_quote_live(bourso_cli):
     """Cotation reelle non authentifiee — bourso-cli doit retourner un prix.
 
-    Marque network + xfail: en v0.5.3 l'API Boursorama renvoie 410 Gone.
-    Si un build plus recent corrige le scraping, ce test passera (xpass) et
-    signalera que la cotation refonctionne.
+    Marque network + xfail: l'API Boursorama renvoie 410 Gone, y compris en
+    v0.5.4 (verifie le 2026-07-12, non corrige en amont) — d'ou le fallback
+    scrape HTTP de `src/bourso/quote.py`. Si un build plus recent corrige le
+    scraping, ce test passera (xpass) et signalera que la cotation refonctionne.
     """
     try:
         rc, out, err = run_cli(bourso_cli, "quote", "--symbol", "1rTPUST",
