@@ -116,33 +116,40 @@ def send_recap():
 
     alloc_pct = f"{alloc*100:.0f}%"
 
-    # Check current PEA state to predict morning action
+    # Predit l'action du matin en REUTILISANT le vrai chemin d'execution
+    # (real_bourso) : meme instrument actif (TRADE_INSTRUMENT: PUST x1 / LQQ x2),
+    # meme bande asymetrique et meme force cash. Source unique -> le recap ne peut
+    # plus diverger de ce que le cron du matin fera reellement (avant : PUST en dur
+    # + ancienne logique de seuil -> prevoyait des parts PUST meme en LQQ).
     action_preview = ""
     try:
-        from src.bourso.prepare import prepare_order, PEA_ACCOUNT_ID, SYMBOLS
-        data = prepare_order(PEA_ACCOUNT_ID, SYMBOLS["PUST"])
-        acct = data["account"]
-        price = data["symbol"]["last_price"]
-        shares = data["quantity_held"]
-        cash = acct["cash"]
-        equity = cash + acct["stocks"]
+        from src.real_bourso import (
+            get_pea_state, compute_orders, INSTRUMENT, INSTRUMENTS, LEVERAGE,
+        )
+        state = get_pea_state()
+        price = state["etf_price"]
+        shares = state["etf_shares"]
+        equity = state["equity"]
         current_alloc = (shares * price) / equity if equity > 0 else 0
-        target_value = alloc * equity
-        delta_value = target_value - shares * price
-        delta_alloc = alloc - current_alloc
+        side, qty, reason = compute_orders(alloc, state)
 
-        if delta_value > price:
-            qty = int(delta_value / price)
-            action_preview = f"ACHAT {qty} parts prevu demain matin"
-        elif delta_value < -price and abs(delta_alloc) >= 0.20:
-            qty = int(abs(delta_value) / price)
-            action_preview = f"VENTE {qty} parts prevue demain matin"
+        label = INSTRUMENTS[INSTRUMENT]["label"]
+        if side == "buy":
+            action_preview = f"ACHAT {qty} parts {INSTRUMENT} prevu demain matin"
+        elif side == "sell":
+            action_preview = f"VENTE {qty} parts {INSTRUMENT} prevue demain matin"
         else:
-            action_preview = "Pas de changement prevu demain matin"
+            action_preview = f"Pas de changement prevu demain matin ({reason})"
 
+        # exposition visee vs realisee (utile en LQQ : 1 part = 2x le poids)
+        realized_w = ((shares + (qty if side == "buy" else -qty if side == "sell" else 0))
+                      * price) / equity if equity > 0 else 0
         action_preview += (
-            f"\n  PEA actuel: {shares} parts, {cash:.0f} EUR especes, "
-            f"alloc {current_alloc*100:.0f}% -> {alloc_pct}"
+            f"\n  Instrument: {INSTRUMENT} ({label}, levier x{LEVERAGE:.0f})"
+            f"\n  PEA actuel: {shares} parts, {state['cash']:.0f} EUR especes, "
+            f"alloc poids {current_alloc*100:.0f}% -> {alloc_pct}"
+            f"\n  Exposition: {current_alloc*LEVERAGE*100:.0f}% -> {realized_w*LEVERAGE*100:.0f}% "
+            f"(cible {alloc*LEVERAGE*100:.0f}%)"
         )
     except Exception as e:
         action_preview = f"(impossible de verifier le PEA: {e})"

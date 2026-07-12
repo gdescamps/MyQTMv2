@@ -69,6 +69,23 @@ MAX_RETRIES = 5
 INITIAL_WAIT = 60  # seconds
 MAX_WAIT = 900  # 15 min max between retries
 
+# Detection de split / anomalie de prix : si le prix de l'instrument saute d'un
+# facteur >= SPLIT_DETECT_FACTOR (x1.5 a la hausse, ou /1.5) vs la derniere seance,
+# c'est quasi surement un split (ex: LQQ /200) ou une incoherence d'affichage broker,
+# PAS un mouvement de marche (un ETF x2 ne fait pas +/-50% en une seance : coupe-circuits).
+# Dans ce cas on NE PREND PAS de position ce jour-la (on evite d'acheter/vendre sur un
+# prix fausse le jour du split) et on attend la seance suivante. Le prix de reference par
+# instrument est stocke dans LAST_PRICE_FILE (mis a jour a chaque execution LIVE).
+SPLIT_DETECT_FACTOR = 1.5
+LAST_PRICE_FILE = LOG_DIR / "last_price.json"
+
+# Tolerance de l'ordre LIMITE : la limite = dernier cours ± LIMIT_TOLERANCE_PCT%
+# (achat: +, vente: -). Un ordre limite pile au cours ne se remplit pas si le prix
+# s'ecarte a l'ouverture (cf. incident 07-07 : limite sous le marche -> non execute).
+# Une tolerance de 3% tampon le gap d'ouverture -> remplissage fiable, tout en
+# bornant le prix (contrairement a un ordre au marche non maitrise sur un gap).
+LIMIT_TOLERANCE_PCT = 3.0
+
 
 def retry(fn, label="", hourly_until=None):
     """Retry with exponential backoff (60s, 120s, 240s, 480s, 900s), then hourly."""
@@ -230,32 +247,44 @@ def compute_orders(target_alloc, pea_state):
         return None, 0, "Aucune action (dans la bande de non-action)"
 
 
-def execute_order(side, quantity, dry_run=True):
-    """Execute order via bourso-cli."""
+def execute_order(side, quantity, dry_run=True, tolerance=LIMIT_TOLERANCE_PCT):
+    """Execute order via bourso-cli.
+
+    Ordre LIMITE avec tolerance : la limite = cours ± tolerance% (achat +, vente -),
+    ce qui tampon le gap d'ouverture et fiabilise le remplissage tout en bornant le
+    prix. tolerance=None -> ordre limite pile au cours (ancien comportement)."""
     from src.bourso.prepare import PEA_ACCOUNT_ID, SYMBOLS, _run_cli_raw
 
-    action = f"{'ACHAT' if side == 'buy' else 'VENTE'} {quantity}x {INSTRUMENT}"
+    tol_txt = f" (limite ±{tolerance}%)" if tolerance is not None else ""
+    action = f"{'ACHAT' if side == 'buy' else 'VENTE'} {quantity}x {INSTRUMENT}{tol_txt}"
 
     if dry_run:
         print(f"  [DRY-RUN] {action}")
-        return {"status": "dry-run", "side": side, "quantity": quantity}
+        return {"status": "dry-run", "side": side, "quantity": quantity,
+                "order_type": "LIM", "tolerance": tolerance}
 
     print(f"  [EXECUTE] {action}")
-    stdout, stderr, rc = _run_cli_raw(
+    cli_args = [
         "trade", "order", "new",
         "--side", side,
         "--account", PEA_ACCOUNT_ID,
         "--symbol", SYMBOLS[INSTRUMENT],
         "--quantity", str(quantity),
-    )
+        "--order-type", "LIM",
+    ]
+    if tolerance is not None:
+        cli_args += ["--tolerance", str(tolerance)]
+    stdout, stderr, rc = _run_cli_raw(*cli_args)
 
     output = (stdout + stderr).strip()
     if rc != 0:
         print(f"  [ERREUR] bourso-cli code {rc}: {output}")
-        return {"status": "error", "side": side, "quantity": quantity, "error": output}
+        return {"status": "error", "side": side, "quantity": quantity,
+                "order_type": "LIM", "tolerance": tolerance, "error": output}
 
     print(f"  [OK] {output}")
-    return {"status": "executed", "side": side, "quantity": quantity, "output": output}
+    return {"status": "executed", "side": side, "quantity": quantity,
+            "order_type": "LIM", "tolerance": tolerance, "output": output}
 
 
 def log_trade(record):
@@ -264,6 +293,39 @@ def log_trade(record):
     with open(TRADE_LOG, "a") as f:
         f.write(json.dumps(record) + "\n")
     print(f"  Log → {TRADE_LOG}")
+
+
+def load_last_price(instrument):
+    """Dernier prix connu de l'instrument (seance precedente), ou None si inconnu."""
+    if not LAST_PRICE_FILE.exists():
+        return None
+    try:
+        return json.loads(LAST_PRICE_FILE.read_text()).get(instrument)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def save_last_price(instrument, price):
+    """Memorise le prix de reference de l'instrument (pour la detection de split)."""
+    data = {}
+    if LAST_PRICE_FILE.exists():
+        try:
+            data = json.loads(LAST_PRICE_FILE.read_text())
+        except Exception:  # noqa: BLE001
+            data = {}
+    data[instrument] = price
+    LAST_PRICE_FILE.write_text(json.dumps(data, indent=2))
+
+
+def detect_split(prev_price, cur_price, factor=SPLIT_DETECT_FACTOR):
+    """Renvoie le facteur de saut si le prix a bouge d'au moins `factor` (x ou /)
+    entre `prev_price` et `cur_price` (= split / anomalie probable), sinon None.
+    Renvoie None si l'un des prix est manquant/non positif (pas de reference -> pas
+    de detection possible, on ne bloque pas)."""
+    if not prev_price or not cur_price or prev_price <= 0 or cur_price <= 0:
+        return None
+    ratio = max(cur_price / prev_price, prev_price / cur_price)
+    return ratio if ratio >= factor else None
 
 
 def main():
@@ -299,6 +361,46 @@ def main():
         print("[ERREUR] PEA vide (equity=0)")
         sys.exit(1)
 
+    # 3b. Detection de split / anomalie de prix -> on ne prend PAS de position
+    #     aujourd'hui (prix potentiellement fausse le jour du split), reprise demain.
+    cur_price = pea_state["etf_price"]
+    prev_price = load_last_price(INSTRUMENT)
+    split_ratio = detect_split(prev_price, cur_price)
+    if args.execute:
+        save_last_price(INSTRUMENT, cur_price)   # ref post-split -> reprise a la prochaine seance
+    if split_ratio is not None:
+        msg = (f"SPLIT / anomalie de prix detecte sur {INSTRUMENT} : "
+               f"{prev_price:.2f} -> {cur_price:.2f} EUR (facteur x{split_ratio:.1f}). "
+               f"Aucune position prise aujourd'hui — on attend la prochaine seance.")
+        print(f"\n{'!'*60}\n  {msg}\n{'!'*60}")
+        try:
+            from src.bourso.notify import send_email
+            body = (
+                f"PEA — {date.today()}\n\n"
+                f"  ⚠️ {msg}\n\n"
+                f"  Instrument:  {INSTRUMENT} ({INSTRUMENTS[INSTRUMENT]['label']})\n"
+                f"  Prix veille: {prev_price:.2f} EUR\n"
+                f"  Prix actuel: {cur_price:.2f} EUR\n"
+                f"  Facteur:     x{split_ratio:.1f}\n"
+                f"  Action:      AUCUNE (garde-fou split) — reprise a la prochaine seance\n"
+                f"  Mode:        {'LIVE' if args.execute else 'DRY-RUN'}\n"
+            )
+            send_email(f"[MyQTM] SPLIT detecte {INSTRUMENT} — aucune position prise", body)
+        except Exception as e:  # noqa: BLE001
+            print(f"[WARN] Email non envoye: {e}")
+        log_trade({
+            "date": str(date.today()), "model_date": signal["date"],
+            "probability": signal["probability"], "target_alloc": target_alloc,
+            "instrument": INSTRUMENT, "leverage": LEVERAGE, "side": None, "quantity": 0,
+            "etf_price": cur_price, "equity": pea_state["equity"],
+            "current_shares": pea_state["etf_shares"], "executed": args.execute,
+            "reason": f"split detecte (x{split_ratio:.1f}, {prev_price:.2f}->{cur_price:.2f}) — no trade",
+            "result": {"status": "split_detected", "prev_price": prev_price,
+                       "cur_price": cur_price, "factor": split_ratio},
+        })
+        print("\nTermine (garde-fou split).")
+        return
+
     # 4. Compute orders
     side, quantity, reason = compute_orders(target_alloc, pea_state)
     print(f"\nDecision: {reason}")
@@ -324,10 +426,11 @@ def main():
             subject = f"[MyQTM] {mode} {action} {quantity}x {INSTRUMENT} @ {pea_state['etf_price']:.2f}"
             body = (
                 f"PEA — {date.today()}\n\n"
-                f"  Instrument:  {INSTRUMENT} ({INSTRUMENTS[INSTRUMENT]['label']})\n"
+                f"  Instrument:  {INSTRUMENT} ({INSTRUMENTS[INSTRUMENT]['label']}, levier x{LEVERAGE:.0f})\n"
                 f"  Action:      {action} {quantity} parts {INSTRUMENT}\n"
+                f"  Type ordre:  limite ±{LIMIT_TOLERANCE_PCT}% (tampon d'ouverture)\n"
                 f"  Prix:        {pea_state['etf_price']:.2f} EUR\n"
-                f"  Allocation:  {target_alloc*100:.0f}%\n"
+                f"  Allocation:  {target_alloc*100:.0f}% (poids)  ->  exposition cible {target_alloc*LEVERAGE*100:.0f}% (x{LEVERAGE:.0f})\n"
                 f"  Probabilite: {signal['probability']:.4f}\n"
                 f"  Signal du:   {signal['date']}\n\n"
                 f"  Especes:     {pea_state['cash']:.2f} EUR\n"
