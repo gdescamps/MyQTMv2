@@ -1985,3 +1985,382 @@ Data up to: 2026-07-02
 Backtest 2000-01-03->2026-07-02  CAGR 10.5%  maxDD -15%  Sharpe 0.96  Calmar 0.70
 Signal: alloc=46%  macro_off=False  -> /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/signal.json
 Email envoye a descamps.gregory@gmail.com: [MyQTM] QQQ 2026-07-02 — alloc 46% (prob 0.459)
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6665 rows (+1 new)  [2000-01-03 → 2026-07-06]
+  ..    SPY                  fetching... 6665 rows (+1 new)  [2000-01-03 → 2026-07-06]
+  ..    ACWI                 fetching... 4596 rows (+1 new)  [2008-03-28 → 2026-07-06]
+  ..    TLT                  fetching... 6021 rows (+1 new)  [2002-07-30 → 2026-07-06]
+  ..    vix_ohlc             fetching... 6668 rows (+1 new)  [2000-01-03 → 2026-07-06]
+
+  ..    fred_baa_spread      fetching... 6626 rows (up to date)
+  ..    fred_nfci            fetching... 1382 rows (up to date)
+  ..    fred_cpi             fetching... 328 rows (up to date)
+  ..    fred_cpi_core        fetching... 328 rows (up to date)
+  ..    fred_dff             fetching... 9681 rows (+2 new)  [2000-01-01 → 2026-07-03]
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6665 rows (up to date)
+  ..    SPY                  fetching... 6665 rows (up to date)
+  ..    ACWI                 fetching... 4596 rows (up to date)
+  ..    TLT                  fetching... 6021 rows (up to date)
+  ..    vix_ohlc             fetching... 6668 rows (up to date)
+
+Toutes les donnees du 2026-07-06 disponibles
+Data up to: 2026-07-06
+
+=== S&P CAPE / ECY (multpl + Shiller + FRED) ===
+  Shiller xls : 1623552 octets <- img1.wsimg.com
+  CAPE source = multpl : 1866 mois, 1871-02 -> 2026-07
+  cross-check CAPE (1725 mois communs) : ecart median 0.02%, max 1.34%
+  ECY : historique Shiller -> 2024-09 ; tail DFII10 recale (offset +0.21 pt) -> 2026-07 (22 mois ajoutes)
+  CAPE 2026-07-01 = 41.6 (mediane 16.1, percentile 99)
+  ECY  2026-07 = +0.36%
+  graphe -> /home/greg/data_local/code/MyQTMv2/outputs/shiller/cape_ecy.png
+  parquet -> /home/greg/data_local/code/MyQTMv2/data/shiller/cape_ecy.parquet  (1866 mois)
+=== Excess earnings yield NDX top-5 / top-10 (yfinance + FRED) ===
+  NVDA   cap=  4736B  EY_trail= 3.34%  EY_fwd= 6.53%
+  AAPL   cap=  4592B  EY_trail= 2.65%  EY_fwd= 3.07%
+  GOOGL  cap=  4472B  EY_trail= 3.57%  EY_fwd= 3.97%
+  MSFT   cap=  2873B  EY_trail= 4.34%  EY_fwd= 5.01%
+  AMZN   cap=  2626B  EY_trail= 3.14%  EY_fwd= 4.06%
+  AVGO   cap=  1779B  EY_trail= 1.61%  EY_fwd= 5.19%
+  META   cap=  1524B  EY_trail= 4.58%  EY_fwd= 6.13%
+  TSLA   cap=  1577B  EY_trail= 0.26%  EY_fwd= 0.61%
+  MU     cap=  1112B  EY_trail= 4.49%  EY_fwd=15.20%
+  WMT    cap=   881B  EY_trail= 2.57%  EY_fwd= 2.97%
+  AMD    cap=   900B  EY_trail= 0.54%  EY_fwd= 2.39%
+  ASML   cap=   703B  EY_trail= 1.61%  EY_fwd= 2.71%
+  INTC   cap=   614B  EY_trail=  nan%  EY_fwd= 1.28%
+  CSCO   cap=   449B  EY_trail= 2.63%  EY_fwd= 4.19%
+  COST   cap=   421B  EY_trail= 2.09%  EY_fwd= 2.38%
+  LRCX   cap=   438B  EY_trail= 1.52%  EY_fwd= 2.30%
+  ARM    cap=   344B  EY_trail= 0.26%  EY_fwd= 0.96%
+  AMAT   cap=   471B  EY_trail= 1.79%  EY_fwd= 2.77%
+  NFLX   cap=   320B  EY_trail= 4.08%  EY_fwd= 5.06%
+  PLTR   cap=   318B  EY_trail= 0.67%  EY_fwd= 1.58%
+
+  taux reel 10a = 2.26%   (2026-07-06)
+  top5  : EY trailing +3.35% -> excess +1.09%  |  EY forward +4.55% -> excess +2.29%   (couv. 5/5 sur 5)
+  top10 : EY trailing +3.07% -> excess +0.81%  |  EY forward +4.83% -> excess +2.57%   (couv. 10/10 sur 10)
+  -> /home/greg/data_local/code/MyQTMv2/data/pe/ndx_excess_yield.json
+
+======================================================================
+=== QQQ — strategie deployee (trend250 + VM + garde-fous) ===
+======================================================================
+
+Backtest 2000-01-03->2026-07-06  CAGR 10.0%  maxDD -18%  Sharpe 0.85  Calmar 0.57  [NET x1 : frais 0.32%/an, 4 revis/an]
+Signal: alloc=44%  macro_off=False  -> /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/signal.json
+Email envoye a descamps.gregory@gmail.com: [MyQTM] QQQ 2026-07-06 — alloc 44% (prob 0.439)
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6666 rows (+1 new)  [2000-01-03 → 2026-07-07]
+  ..    SPY                  fetching... 6666 rows (+1 new)  [2000-01-03 → 2026-07-07]
+  ..    ACWI                 fetching... 4597 rows (+1 new)  [2008-03-28 → 2026-07-07]
+  ..    TLT                  fetching... 6022 rows (+1 new)  [2002-07-30 → 2026-07-07]
+  ..    vix_ohlc             fetching... 6669 rows (+1 new)  [2000-01-03 → 2026-07-07]
+
+  ..    fred_baa_spread      fetching... 6627 rows (+1 new)  [2000-01-03 → 2026-07-02]
+  ..    fred_nfci            fetching... 1382 rows (up to date)
+  ..    fred_cpi             fetching... 328 rows (up to date)
+  ..    fred_cpi_core        fetching... 328 rows (up to date)
+  ..    fred_dff             fetching... 9684 rows (+3 new)  [2000-01-01 → 2026-07-06]
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6666 rows (up to date)
+  ..    SPY                  fetching... 6666 rows (up to date)
+  ..    ACWI                 fetching... 4597 rows (up to date)
+  ..    TLT                  fetching... 6022 rows (up to date)
+  ..    vix_ohlc             fetching... 6669 rows (up to date)
+
+Toutes les donnees du 2026-07-07 disponibles
+Data up to: 2026-07-07
+
+=== S&P CAPE / ECY (multpl + Shiller + FRED) ===
+  Shiller xls : 1623552 octets <- img1.wsimg.com
+  CAPE source = multpl : 1866 mois, 1871-02 -> 2026-07
+  cross-check CAPE (1725 mois communs) : ecart median 0.02%, max 1.34%
+  ECY : historique Shiller -> 2024-09 ; tail DFII10 recale (offset +0.21 pt) -> 2026-07 (22 mois ajoutes)
+  CAPE 2026-07-01 = 42.0 (mediane 16.1, percentile 99)
+  ECY  2026-07 = +0.34%
+  graphe -> /home/greg/data_local/code/MyQTMv2/outputs/shiller/cape_ecy.png
+  parquet -> /home/greg/data_local/code/MyQTMv2/data/shiller/cape_ecy.parquet  (1866 mois)
+=== Excess earnings yield NDX top-5 / top-10 (yfinance + FRED) ===
+  NVDA   cap=  4770B  EY_trail= 3.32%  EY_fwd= 6.48%
+  AAPL   cap=  4563B  EY_trail= 2.66%  EY_fwd= 3.09%
+  GOOGL  cap=  4479B  EY_trail= 3.57%  EY_fwd= 3.97%
+  MSFT   cap=  2888B  EY_trail= 4.32%  EY_fwd= 4.98%
+  AMZN   cap=  2646B  EY_trail= 3.14%  EY_fwd= 4.03%
+  AVGO   cap=  1764B  EY_trail= 1.62%  EY_fwd= 5.23%
+  META   cap=  1563B  EY_trail= 4.47%  EY_fwd= 5.98%
+  TSLA   cap=  1513B  EY_trail= 0.27%  EY_fwd= 0.63%
+  MU     cap=  1060B  EY_trail= 4.71%  EY_fwd=15.95%
+  WMT    cap=   888B  EY_trail= 2.55%  EY_fwd= 2.95%
+  AMD    cap=   842B  EY_trail= 0.58%  EY_fwd= 2.56%
+  ASML   cap=   673B  EY_trail= 1.68%  EY_fwd= 2.83%
+  INTC   cap=   555B  EY_trail=  nan%  EY_fwd= 1.41%
+  CSCO   cap=   441B  EY_trail= 2.68%  EY_fwd= 4.27%
+  COST   cap=   420B  EY_trail= 2.10%  EY_fwd= 2.39%
+  LRCX   cap=   408B  EY_trail= 1.62%  EY_fwd= 2.47%
+  ARM    cap=   321B  EY_trail= 0.28%  EY_fwd= 1.03%
+  AMAT   cap=   440B  EY_trail= 1.91%  EY_fwd= 2.96%
+  NFLX   cap=   321B  EY_trail= 4.07%  EY_fwd= 5.05%
+  PLTR   cap=   322B  EY_trail= 0.66%  EY_fwd= 1.56%
+
+  taux reel 10a = 2.24%   (2026-07-07)
+  top5  : EY trailing +3.35% -> excess +1.11%  |  EY forward +4.54% -> excess +2.30%   (couv. 5/5 sur 5)
+  top10 : EY trailing +3.15% -> excess +0.91%  |  EY forward +4.86% -> excess +2.62%   (couv. 10/10 sur 10)
+  -> /home/greg/data_local/code/MyQTMv2/data/pe/ndx_excess_yield.json
+
+======================================================================
+=== QQQ — strategie deployee (trend250 + VM + garde-fous) ===
+======================================================================
+
+Backtest 2000-01-03->2026-07-07  CAGR 9.9%  maxDD -18%  Sharpe 0.85  Calmar 0.57  [NET x1 : frais 0.32%/an, 4 revis/an]
+Signal: alloc=46%  macro_off=False  -> /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/signal.json
+
+PEA PEA DESCAMPS:
+  Especes:     9100.45 EUR
+  Titres:      5700.00 EUR
+  Total:      14800.45 EUR
+  LQQ:  3 parts @ 1900.00 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 38.5% (3 parts, 5700 EUR)
+  Cible:    46.2% (6835 EUR)
+  Delta:    +7.7% (+1135 EUR)
+Email envoye a descamps.gregory@gmail.com: [MyQTM] QQQ 2026-07-07 — alloc 46% (prob 0.462)
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6667 rows (+1 new)  [2000-01-03 → 2026-07-08]
+  ..    SPY                  fetching... 6667 rows (+1 new)  [2000-01-03 → 2026-07-08]
+  ..    ACWI                 fetching... 4598 rows (+1 new)  [2008-03-28 → 2026-07-08]
+  ..    TLT                  fetching... 6023 rows (+1 new)  [2002-07-30 → 2026-07-08]
+  ..    vix_ohlc             fetching... 6670 rows (+1 new)  [2000-01-03 → 2026-07-08]
+
+  ..    fred_baa_spread      fetching... 6629 rows (+2 new)  [2000-01-03 → 2026-07-07]
+  ..    fred_nfci            fetching... 1383 rows (+1 new)  [2000-01-07 → 2026-07-03]
+  ..    fred_cpi             fetching... 328 rows (up to date)
+  ..    fred_cpi_core        fetching... 328 rows (up to date)
+  ..    fred_dff             fetching... 9685 rows (+1 new)  [2000-01-01 → 2026-07-07]
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6667 rows (up to date)
+  ..    SPY                  fetching... 6667 rows (up to date)
+  ..    ACWI                 fetching... 4598 rows (up to date)
+  ..    TLT                  fetching... 6023 rows (up to date)
+  ..    vix_ohlc             fetching... 6670 rows (up to date)
+
+Toutes les donnees du 2026-07-08 disponibles
+Data up to: 2026-07-08
+
+=== S&P CAPE / ECY (multpl + Shiller + FRED) ===
+  Shiller xls : 1623552 octets <- img1.wsimg.com
+  CAPE source = multpl : 1866 mois, 1871-02 -> 2026-07
+  cross-check CAPE (1725 mois communs) : ecart median 0.02%, max 1.34%
+  ECY : historique Shiller -> 2024-09 ; tail DFII10 recale (offset +0.21 pt) -> 2026-07 (22 mois ajoutes)
+  CAPE 2026-07-01 = 41.8 (mediane 16.1, percentile 99)
+  ECY  2026-07 = +0.34%
+  graphe -> /home/greg/data_local/code/MyQTMv2/outputs/shiller/cape_ecy.png
+  parquet -> /home/greg/data_local/code/MyQTMv2/data/shiller/cape_ecy.parquet  (1866 mois)
+=== Excess earnings yield NDX top-5 / top-10 (yfinance + FRED) ===
+  NVDA   cap=  4944B  EY_trail= 3.20%  EY_fwd= 6.25%
+  AAPL   cap=  4603B  EY_trail= 2.64%  EY_fwd= 3.07%
+  GOOGL  cap=  4416B  EY_trail= 3.62%  EY_fwd= 4.02%
+  MSFT   cap=  2848B  EY_trail= 4.38%  EY_fwd= 5.05%
+  AMZN   cap=  2621B  EY_trail= 3.19%  EY_fwd= 4.06%
+  AVGO   cap=  1849B  EY_trail= 1.55%  EY_fwd= 4.99%
+  META   cap=  1531B  EY_trail= 4.56%  EY_fwd= 6.11%
+  TSLA   cap=  1480B  EY_trail= 0.28%  EY_fwd= 0.65%
+  MU     cap=  1072B  EY_trail= 4.66%  EY_fwd=15.77%
+  WMT    cap=   900B  EY_trail= 2.51%  EY_fwd= 2.91%
+  AMD    cap=   844B  EY_trail= 0.58%  EY_fwd= 2.55%
+  ASML   cap=   682B  EY_trail= 1.67%  EY_fwd= 2.80%
+  INTC   cap=   554B  EY_trail=  nan%  EY_fwd= 1.42%
+  CSCO   cap=   449B  EY_trail= 2.64%  EY_fwd= 4.20%
+  COST   cap=   423B  EY_trail= 2.09%  EY_fwd= 2.37%
+  LRCX   cap=   417B  EY_trail= 1.58%  EY_fwd= 2.41%
+  ARM    cap=   321B  EY_trail= 0.28%  EY_fwd= 1.03%
+  AMAT   cap=   453B  EY_trail= 1.87%  EY_fwd= 2.88%
+  NFLX   cap=   318B  EY_trail= 4.10%  EY_fwd= 5.08%
+  PLTR   cap=   317B  EY_trail= 0.67%  EY_fwd= 1.58%
+
+  taux reel 10a = 2.30%   (2026-07-08)
+  top5  : EY trailing +3.33% -> excess +1.03%  |  EY forward +4.52% -> excess +2.22%   (couv. 5/5 sur 5)
+  top10 : EY trailing +3.13% -> excess +0.83%  |  EY forward +4.83% -> excess +2.53%   (couv. 10/10 sur 10)
+  -> /home/greg/data_local/code/MyQTMv2/data/pe/ndx_excess_yield.json
+
+======================================================================
+=== QQQ — strategie deployee (trend250 + VM + garde-fous) ===
+======================================================================
+
+Backtest 2000-01-03->2026-07-08  CAGR 9.9%  maxDD -18%  Sharpe 0.85  Calmar 0.57  [NET x1 : frais 0.32%/an, 4 revis/an]
+Signal: alloc=53%  macro_off=False  -> /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/signal.json
+
+PEA PEA DESCAMPS:
+  Especes:     9100.45 EUR
+  Titres:      5645.40 EUR
+  Total:      14745.85 EUR
+  LQQ:  3 parts @ 1881.80 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 38.3% (3 parts, 5645 EUR)
+  Cible:    53.1% (7826 EUR)
+  Delta:    +14.8% (+2181 EUR)
+Email envoye a descamps.gregory@gmail.com: [MyQTM] QQQ 2026-07-08 — alloc 53% (prob 0.531)
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6668 rows (+1 new)  [2000-01-03 → 2026-07-09]
+  ..    SPY                  fetching... 6668 rows (+1 new)  [2000-01-03 → 2026-07-09]
+  ..    ACWI                 fetching... 4599 rows (+1 new)  [2008-03-28 → 2026-07-09]
+  ..    TLT                  fetching... 6024 rows (+1 new)  [2002-07-30 → 2026-07-09]
+  ..    vix_ohlc             fetching... 6671 rows (+1 new)  [2000-01-03 → 2026-07-09]
+
+  ..    fred_baa_spread      fetching... 6630 rows (+1 new)  [2000-01-03 → 2026-07-08]
+  ..    fred_nfci            fetching... 1383 rows (up to date)
+  ..    fred_cpi             fetching... 328 rows (up to date)
+  ..    fred_cpi_core        fetching... 328 rows (up to date)
+  ..    fred_dff             fetching... 9686 rows (+1 new)  [2000-01-01 → 2026-07-08]
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6668 rows (up to date)
+  ..    SPY                  fetching... 6668 rows (up to date)
+  ..    ACWI                 fetching... 4599 rows (up to date)
+  ..    TLT                  fetching... 6024 rows (up to date)
+  ..    vix_ohlc             fetching... 6671 rows (up to date)
+
+Toutes les donnees du 2026-07-09 disponibles
+Data up to: 2026-07-09
+
+=== S&P CAPE / ECY (multpl + Shiller + FRED) ===
+  Shiller xls : 1623552 octets <- img1.wsimg.com
+  CAPE source = multpl : 1866 mois, 1871-02 -> 2026-07
+  cross-check CAPE (1725 mois communs) : ecart median 0.02%, max 1.34%
+  ECY : historique Shiller -> 2024-09 ; tail DFII10 recale (offset +0.21 pt) -> 2026-07 (22 mois ajoutes)
+  CAPE 2026-07-01 = 41.6 (mediane 16.1, percentile 99)
+  ECY  2026-07 = +0.34%
+  graphe -> /home/greg/data_local/code/MyQTMv2/outputs/shiller/cape_ecy.png
+  parquet -> /home/greg/data_local/code/MyQTMv2/data/shiller/cape_ecy.parquet  (1866 mois)
+=== Excess earnings yield NDX top-5 / top-10 (yfinance + FRED) ===
+  NVDA   cap=  4912B  EY_trail= 3.22%  EY_fwd= 6.29%
+  AAPL   cap=  4644B  EY_trail= 2.62%  EY_fwd= 3.04%
+  GOOGL  cap=  4379B  EY_trail= 3.65%  EY_fwd= 4.06%
+  MSFT   cap=  2855B  EY_trail= 4.37%  EY_fwd= 5.04%
+  AMZN   cap=  2657B  EY_trail= 3.12%  EY_fwd= 4.00%
+  AVGO   cap=  1908B  EY_trail= 1.50%  EY_fwd= 4.84%
+  META   cap=  1603B  EY_trail= 4.35%  EY_fwd= 5.83%
+  TSLA   cap=  1527B  EY_trail= 0.27%  EY_fwd= 0.63%
+  MU     cap=  1120B  EY_trail= 4.46%  EY_fwd=15.09%
+  WMT    cap=   893B  EY_trail= 2.53%  EY_fwd= 2.93%
+  AMD    cap=   891B  EY_trail= 0.55%  EY_fwd= 2.41%
+  ASML   cap=   695B  EY_trail= 1.64%  EY_fwd= 2.74%
+  INTC   cap=   566B  EY_trail=  nan%  EY_fwd= 1.39%
+  CSCO   cap=   466B  EY_trail= 2.54%  EY_fwd= 4.04%
+  COST   cap=   405B  EY_trail= 2.18%  EY_fwd= 2.48%
+  LRCX   cap=   442B  EY_trail= 1.50%  EY_fwd= 2.28%
+  ARM    cap=   350B  EY_trail= 0.26%  EY_fwd= 0.94%
+  AMAT   cap=   467B  EY_trail= 1.80%  EY_fwd= 2.81%
+  NFLX   cap=   318B  EY_trail= 4.11%  EY_fwd= 5.09%
+  PLTR   cap=   309B  EY_trail= 0.69%  EY_fwd= 1.62%
+
+  taux reel 10a = 2.31%   (2026-07-09)
+  top5  : EY trailing +3.33% -> excess +1.02%  |  EY forward +4.52% -> excess +2.21%   (couv. 5/5 sur 5)
+  top10 : EY trailing +3.10% -> excess +0.79%  |  EY forward +4.79% -> excess +2.48%   (couv. 10/10 sur 10)
+  -> /home/greg/data_local/code/MyQTMv2/data/pe/ndx_excess_yield.json
+
+======================================================================
+=== QQQ — strategie deployee (trend250 + VM + garde-fous) ===
+======================================================================
+
+Backtest 2000-01-03->2026-07-09  CAGR 10.0%  maxDD -18%  Sharpe 0.85  Calmar 0.57  [NET x1 : frais 0.32%/an, 4 revis/an]
+Signal: alloc=51%  macro_off=False  -> /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/signal.json
+
+PEA PEA DESCAMPS:
+  Especes:     4280.90 EUR
+  Titres:     10674.88 EUR
+  Total:      14955.77 EUR
+  LQQ:  1081 parts @ 9.88 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 71.4% (1081 parts, 10675 EUR)
+  Cible:    50.8% (7591 EUR)
+  Delta:    -20.6% (-3084 EUR)
+Email envoye a descamps.gregory@gmail.com: [MyQTM] QQQ 2026-07-09 — alloc 51% (prob 0.508)
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6669 rows (+1 new)  [2000-01-03 → 2026-07-10]
+  ..    SPY                  fetching... 6669 rows (+1 new)  [2000-01-03 → 2026-07-10]
+  ..    ACWI                 fetching... 4600 rows (+1 new)  [2008-03-28 → 2026-07-10]
+  ..    TLT                  fetching... 6025 rows (+1 new)  [2002-07-30 → 2026-07-10]
+  ..    vix_ohlc             fetching... 6672 rows (+1 new)  [2000-01-03 → 2026-07-10]
+
+  ..    fred_baa_spread      fetching... 6631 rows (+1 new)  [2000-01-03 → 2026-07-09]
+  ..    fred_nfci            fetching... 1383 rows (up to date)
+  ..    fred_cpi             fetching... 328 rows (up to date)
+  ..    fred_cpi_core        fetching... 328 rows (up to date)
+  ..    fred_dff             fetching... 9687 rows (+1 new)  [2000-01-01 → 2026-07-09]
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6669 rows (up to date)
+  ..    SPY                  fetching... 6669 rows (up to date)
+  ..    ACWI                 fetching... 4600 rows (up to date)
+  ..    TLT                  fetching... 6025 rows (up to date)
+  ..    vix_ohlc             fetching... 6672 rows (up to date)
+
+Toutes les donnees du 2026-07-10 disponibles
+Data up to: 2026-07-10
+
+=== S&P CAPE / ECY (multpl + Shiller + FRED) ===
+  Shiller xls : 1623552 octets <- img1.wsimg.com
+  CAPE source = multpl : 1866 mois, 1871-02 -> 2026-07
+  cross-check CAPE (1725 mois communs) : ecart median 0.02%, max 1.34%
+  ECY : historique Shiller -> 2024-09 ; tail DFII10 recale (offset +0.21 pt) -> 2026-07 (22 mois ajoutes)
+  CAPE 2026-07-01 = 42.0 (mediane 16.1, percentile 99)
+  ECY  2026-07 = +0.31%
+  graphe -> /home/greg/data_local/code/MyQTMv2/outputs/shiller/cape_ecy.png
+  parquet -> /home/greg/data_local/code/MyQTMv2/data/shiller/cape_ecy.parquet  (1866 mois)
+=== Excess earnings yield NDX top-5 / top-10 (yfinance + FRED) ===
+  NVDA   cap=  5110B  EY_trail= 3.10%  EY_fwd= 6.05%
+  AAPL   cap=  4631B  EY_trail= 2.62%  EY_fwd= 3.05%
+  GOOGL  cap=  4359B  EY_trail= 3.67%  EY_fwd= 4.08%
+  MSFT   cap=  2861B  EY_trail= 4.36%  EY_fwd= 5.03%
+  AMZN   cap=  2639B  EY_trail= 3.18%  EY_fwd= 4.03%
+  AVGO   cap=  1903B  EY_trail= 1.51%  EY_fwd= 4.85%
+  META   cap=  1699B  EY_trail= 4.10%  EY_fwd= 5.52%
+  TSLA   cap=  1531B  EY_trail= 0.27%  EY_fwd= 0.63%
+  MU     cap=  1106B  EY_trail= 4.52%  EY_fwd=15.28%
+  WMT    cap=   906B  EY_trail= 2.49%  EY_fwd= 2.88%
+  AMD    cap=   910B  EY_trail= 0.54%  EY_fwd= 2.38%
+  ASML   cap=   693B  EY_trail= 1.64%  EY_fwd= 2.76%
+  INTC   cap=   552B  EY_trail=  nan%  EY_fwd= 1.43%
+  CSCO   cap=   478B  EY_trail= 2.48%  EY_fwd= 3.94%
+  COST   cap=   406B  EY_trail= 2.17%  EY_fwd= 2.47%
+  LRCX   cap=   438B  EY_trail= 1.51%  EY_fwd= 2.30%
+  ARM    cap=   345B  EY_trail= 0.26%  EY_fwd= 0.95%
+  AMAT   cap=   478B  EY_trail= 1.77%  EY_fwd= 2.74%
+  NFLX   cap=   309B  EY_trail= 4.23%  EY_fwd= 5.24%
+  PLTR   cap=   304B  EY_trail= 0.70%  EY_fwd= 1.65%
+
+  taux reel 10a = 2.31%   (2026-07-10)
+  top5  : EY trailing +3.31% -> excess +1.00%  |  EY forward +4.48% -> excess +2.17%   (couv. 5/5 sur 5)
+  top10 : EY trailing +3.01% -> excess +0.70%  |  EY forward +4.73% -> excess +2.42%   (couv. 10/10 sur 10)
+  -> /home/greg/data_local/code/MyQTMv2/data/pe/ndx_excess_yield.json
+
+======================================================================
+=== QQQ — strategie deployee (trend250 + VM + garde-fous) ===
+======================================================================
+
+Backtest 2000-01-03->2026-07-10  CAGR 10.0%  maxDD -18%  Sharpe 0.85  Calmar 0.57  [NET x1 : frais 0.32%/an, 4 revis/an]
+Signal: alloc=59%  macro_off=False  -> /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/signal.json
+
+PEA PEA DESCAMPS:
+  Especes:     4280.90 EUR
+  Titres:     10792.30 EUR
+  Total:      15073.20 EUR
+  LQQ:  1084 parts @ 9.96 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 71.6% (1084 parts, 10792 EUR)
+  Cible:    58.6% (8837 EUR)
+  Delta:    -13.0% (-1955 EUR)
+Email envoye a descamps.gregory@gmail.com: [MyQTM] QQQ 2026-07-10 — alloc 59% (prob 0.586)

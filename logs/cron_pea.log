@@ -208,3 +208,142 @@ Email envoye a descamps.gregory@gmail.com: [MyQTM] LIVE VENTE 3x PUST @ 103.80
   Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
 
 Termine.
+============================================================
+PEA PUST (Nasdaq x1) — 2026-07-06
+Mode: LIVE
+============================================================
+Signal du 2026-07-02 (status=ok, age: 11.4h)
+  Probabilite: 0.4588
+  Allocation:  46%
+
+PEA PEA DESCAMPS:
+  Especes:      355.97 EUR
+  Titres:       312.18 EUR
+  Total:        668.15 EUR
+  PUST:  3 parts @ 104.06 EUR (Nasdaq x1)
+
+Allocation:
+  Actuelle: 46.7% (3 parts, 312 EUR)
+  Cible:    45.9% (307 EUR)
+  Delta:    -0.8% (-6 EUR)
+
+Decision: Aucune action (dans la bande de non-action)
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-07-07
+Mode: LIVE
+============================================================
+Signal du 2026-07-06 (status=ok, age: 10.6h)
+  Probabilite: 0.4389
+  Allocation:  44%
+
+PEA PEA DESCAMPS:
+  Especes:    14998.59 EUR
+  Titres:         0.00 EUR
+  Total:      14998.59 EUR
+  LQQ:  0 parts @ 1954.00 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 0.0% (0 parts, 0 EUR)
+  Cible:    43.9% (6583 EUR)
+  Delta:    +43.9% (+6583 EUR)
+
+Decision: Acheter 3 parts (+43.9%)
+  [EXECUTE] ACHAT 3x LQQ
+  [ERREUR] bourso-cli code 1: INFO bourso_cli: Welcome to BoursoBank CLI 👋
+ INFO bourso_cli: ℹ️ - Version 0.5.3. Make sure you're running the latest version: https://github.com/azerpas/bourso-api
+ INFO bourso_cli: We'll try to log you in with your customer id: 70967054
+ INFO bourso_cli: If you want to change it, run `bourso config --username <customer_id>`
+ INFO bourso_cli: We'll need your password to log you in. It will not be stored anywhere and will be asked everytime you run a command. The password will be hidden while typing.
+ INFO bourso_api::client: 🔓 You are now logged in with user: 2fd785cade53ab8
+ INFO bourso_cli: Login successful ✅
+Error: Failed to get order check response: {"error":{"code":360,"message":"[-1]","params":{},"type":"Wbs_Api_Error"},"data":{"resourceId":"b2b15baaf2d4a","assignOrder":null,"forceOrder":null,"mifidCode":"F094","link":{"label":"Continuer","featureId":"portal.trading_orderframe_only","web":"https:\/\/bourse.boursobank.com\/feature-redirect?featureId=portal.trading_orderframe_only&params%5BresourceId%5D=b2b15baaf2d4a&params%5BmifidCode%5D=F094&params%5Bsymbol%5D=1rTLQQ&params%5BaccountKey%5D=faab190372918f26c5d2d518fd307d05&params%5BorderQuantity%5D=3&params%5BorderType%5D=LIM&params%5BorderSide%5D=B&params%5BorderPriceLimit%5D=1955.2&params%5BorderExpirationDate%5D=2026-07-07&params%5BorderRiskMode%5D=CPT","api":{"href":"\/","method":"GET","params":{"resourceId":"b2b15baaf2d4a","mifidCode":"F094","symbol":"1rTLQQ","accountKey":"faab190372918f26c5d2d518fd307d05","orderQuantity":3,"orderType":"LIM","orderSide":"B","orderPriceLimit":1955.2,"orderExpirationDate":"2026-07-07","orderRiskMode":"CPT","stopPx":null,"trailPct":null}},"disabled":false}}}
+Email envoye a descamps.gregory@gmail.com: [MyQTM] LIVE ACHAT 3x LQQ @ 1954.00
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-07-08
+Mode: LIVE
+============================================================
+Signal du 2026-07-07 (status=ok, age: 10.6h)
+  Probabilite: 0.4618
+  Allocation:  46%
+
+PEA PEA DESCAMPS:
+  Especes:     9100.45 EUR
+  Titres:      5708.40 EUR
+  Total:      14808.85 EUR
+  LQQ:  3 parts @ 1902.80 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 38.5% (3 parts, 5708 EUR)
+  Cible:    46.2% (6839 EUR)
+  Delta:    +7.6% (+1131 EUR)
+
+Decision: Aucune action (dans la bande de non-action)
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-07-09
+Mode: LIVE
+============================================================
+Signal du 2026-07-08 (status=ok, age: 10.6h)
+  Probabilite: 0.5307
+  Allocation:  53%
+[RETRY] PEA state: tentative 1/5 echouee: Command '['bourso-cli', '--credentials', '/tmp/tmp_9fxmcvc.json', 'trade', 'summary', '--account', 'faab190372918f26c5d2d518fd307d05']' timed out after 30 seconds
+  Prochaine tentative dans 60s...
+[RETRY] PEA state: tentative 2/5 echouee: Command '['bourso-cli', '--credentials', '/tmp/tmpbzg62oku.json', 'trade', 'summary', '--account', 'faab190372918f26c5d2d518fd307d05']' timed out after 30 seconds
+  Prochaine tentative dans 120s...
+
+PEA PEA DESCAMPS:
+  Especes:     9100.45 EUR
+  Titres:        29.99 EUR
+  Total:       9130.44 EUR
+  LQQ:  3 parts @ 10.00 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 0.3% (3 parts, 30 EUR)
+  Cible:    53.1% (4846 EUR)
+  Delta:    +52.7% (+4816 EUR)
+
+Decision: Acheter 481 parts (+52.7%)
+  [EXECUTE] ACHAT 481x LQQ
+  [OK] INFO bourso_cli: Welcome to BoursoBank CLI 👋
+ INFO bourso_cli: ℹ️ - Version 0.5.3. Make sure you're running the latest version: https://github.com/azerpas/bourso-api
+ INFO bourso_cli: We'll try to log you in with your customer id: 70967054
+ INFO bourso_cli: If you want to change it, run `bourso config --username <customer_id>`
+ INFO bourso_cli: We'll need your password to log you in. It will not be stored anywhere and will be asked everytime you run a command. The password will be hidden while typing.
+ INFO bourso_api::client: 🔓 You are now logged in with user: 2fd785cade53ab8
+ INFO bourso_cli: Login successful ✅
+ INFO bourso_api::client::trade::order: Order for 481 1rTLQQ (Limit) successfully passed with ID F26G09006548 at price Some(9.998) ✅
+Email envoye a descamps.gregory@gmail.com: [MyQTM] LIVE ACHAT 481x LQQ @ 10.00
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-07-10
+Mode: LIVE
+============================================================
+Signal du 2026-07-09 (status=ok, age: 10.6h)
+  Probabilite: 0.5076
+  Allocation:  51%
+
+PEA PEA DESCAMPS:
+  Especes:     4280.90 EUR
+  Titres:      4765.46 EUR
+  Total:       9046.36 EUR
+  LQQ:  484 parts @ 9.85 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 52.7% (484 parts, 4765 EUR)
+  Cible:    50.8% (4592 EUR)
+  Delta:    -1.9% (-174 EUR)
+
+Decision: Vente ignoree: delta 1.9% < seuil 50%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.

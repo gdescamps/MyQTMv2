@@ -33,3 +33,38 @@
   top5  : EY trailing +3.38% -> excess +1.13%  |  EY forward +4.59% -> excess +2.34%   (couv. 5/5 sur 5)
   top10 : EY trailing +3.18% -> excess +0.93%  |  EY forward +4.91% -> excess +2.66%   (couv. 10/10 sur 10)
   -> /home/greg/data_local/code/MyQTMv2/data/pe/ndx_excess_yield.json
+=== S&P CAPE / ECY (multpl + Shiller + FRED) ===
+  Shiller xls : 1623552 octets <- img1.wsimg.com
+  CAPE source = multpl : 1866 mois, 1871-02 -> 2026-07
+  cross-check CAPE (1725 mois communs) : ecart median 0.02%, max 1.34%
+  ECY : historique Shiller -> 2024-09 ; tail DFII10 recale (offset +0.21 pt) -> 2026-07 (22 mois ajoutes)
+  CAPE 2026-07-01 = 41.6 (mediane 16.1, percentile 99)
+  ECY  2026-07 = +0.36%
+  graphe -> /home/greg/data_local/code/MyQTMv2/outputs/shiller/cape_ecy.png
+  parquet -> /home/greg/data_local/code/MyQTMv2/data/shiller/cape_ecy.parquet  (1866 mois)
+=== Excess earnings yield NDX top-5 / top-10 (yfinance + FRED) ===
+  NVDA   cap=  4719B  EY_trail= 3.35%  EY_fwd= 6.55%
+  AAPL   cap=  4533B  EY_trail= 2.68%  EY_fwd= 3.11%
+  GOOGL  cap=  4392B  EY_trail= 3.64%  EY_fwd= 4.04%
+  MSFT   cap=  2901B  EY_trail= 4.30%  EY_fwd= 4.96%
+  AMZN   cap=  2610B  EY_trail= 3.16%  EY_fwd= 4.08%
+  AVGO   cap=  1715B  EY_trail= 1.67%  EY_fwd= 5.38%
+  META   cap=  1480B  EY_trail= 4.72%  EY_fwd= 6.32%
+  TSLA   cap=  1478B  EY_trail= 0.28%  EY_fwd= 0.65%
+  MU     cap=  1102B  EY_trail= 4.53%  EY_fwd=15.34%
+  WMT    cap=   890B  EY_trail= 2.54%  EY_fwd= 2.94%
+  AMD    cap=   844B  EY_trail= 0.58%  EY_fwd= 2.54%
+  ASML   cap=   682B  EY_trail= 1.66%  EY_fwd= 2.79%
+  INTC   cap=   605B  EY_trail=  nan%  EY_fwd= 1.30%
+  CSCO   cap=   444B  EY_trail= 2.66%  EY_fwd= 4.24%
+  COST   cap=   422B  EY_trail= 2.09%  EY_fwd= 2.38%
+  LRCX   cap=   439B  EY_trail= 1.51%  EY_fwd= 2.29%
+  ARM    cap=   337B  EY_trail= 0.27%  EY_fwd= 0.98%
+  AMAT   cap=   479B  EY_trail= 1.76%  EY_fwd= 2.72%
+  NFLX   cap=   327B  EY_trail= 3.99%  EY_fwd= 4.95%
+  PLTR   cap=   310B  EY_trail= 0.69%  EY_fwd= 1.62%
+
+  taux reel 10a = 2.25%   (2026-07-05)
+  top5  : EY trailing +3.38% -> excess +1.13%  |  EY forward +4.59% -> excess +2.34%   (couv. 5/5 sur 5)
+  top10 : EY trailing +3.18% -> excess +0.93%  |  EY forward +4.91% -> excess +2.66%   (couv. 10/10 sur 10)
+  -> /home/greg/data_local/code/MyQTMv2/data/pe/ndx_excess_yield.json

@@ -171,3 +171,149 @@ Verification quotidienne de bourso-cli
    A jour: patch base sur v0.5.3 (pin e25718e, v0.5.3) = dernier tag azerpas.
 
 Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   24 passed, 1 skipped, 1 xfailed in 0.31s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 104.7600 EUR — PEA: 14998.59 EUR especes, 0 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.3 (pin e25718e, v0.5.3) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   24 passed, 1 skipped, 1 xfailed in 0.33s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 102.0600 EUR — PEA: 9100.45 EUR especes, 0 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.3 (pin e25718e, v0.5.3) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   24 passed, 1 skipped, 1 xfailed in 0.40s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 101.7000 EUR — PEA: 9100.45 EUR especes, 0 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.3 (pin e25718e, v0.5.3) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   24 passed, 1 skipped, 1 xfailed in 0.33s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 104.1200 EUR — PEA: 4280.90 EUR especes, 0 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.3 (pin e25718e, v0.5.3) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   33 passed, 1 skipped, 1 xfailed in 0.54s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 104.5000 EUR — PEA: 4280.90 EUR especes, 0 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.3 (pin dc832c4, v0.5.3) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   33 passed, 1 skipped, 1 xfailed in 0.38s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 104.5000 EUR — PEA: 4280.90 EUR especes, 0 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.3 (pin dc832c4, v0.5.3) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — nouveau tag v0.5.4
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   33 passed, 1 skipped, 1 xfailed in 0.30s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 104.5000 EUR — PEA: 4280.90 EUR especes, 0 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   Nouveau tag upstream v0.5.4 (notre patch est base sur v0.5.3, pin dc832c4).
+
+Changelog v0.5.3 -> v0.5.4:
+- 02b5b17 (Anthony, 2026-07-12): fix: transfer steps (#87)
+
+- 9218f54 (dependabot[bot], 2026-04-25): chore(deps): bump openssl from 0.10.68 to 0.10.78 (#77)
+    Bumps [openssl](https://github.com/rust-openssl/rust-openssl) from 0.10.68 to 0.10.78.
+    - [Release notes](https://github.com/rust-openssl/rust-openssl/releases)
+    - [Commits](https://github.com/rust-openssl/rust-openssl/compare/openssl-v0.10.68...openssl-v0.10.78)
+    
+    ---
+    updated-dependencies:
+    - dependency-name: openssl
+      dependency-version: 0.10.78
+      dependency-type: indirect
+    ...
+    
+    Signed-off-by: dependabot[bot] <support@github.com>
+    Co-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>
+- 42cc29b (Johann Taberlet, 2026-04-15): feat: add transactions export command (#74)
+    * feat: add transactions export command
+    
+    Add a new `transactions` subcommand to export account transactions
+    over a date range using BoursoBank's CSV export endpoint.
+    
+    - Add `Transaction` struct to `bourso_api::account`
+    - Add `get_transactions()` method on `BoursoWebClient`
+    - Handle redirect to `api.boursobank.com` for file download
+    - Parse BoursoBank CSV (semicolon-separated, French number format)
+    - Support CSV (default) and JSON output formats
+    - Add unit tests for CSV parsing and amount conversion
+    
+    * refactor: restructure CLI per maintainer feedback
+    
+    - Move `transactions` under new `export` subcommand (`bourso export transactions`)
+    - Rename `--from`/`--to` to `--start-date`/`--end-date`
+    - Rename `--output` (format) to `--format`/`-f`
+    - Add `--output`/`-o` for file output path (defaults to stdout)
+Pour rebaser le patch sur ce tag et reinstaller:
+  ./2_bourso_cli_update.sh --pull        # rebase myqtm sur le tag + build + install
+  cd external/bourso-api && git push origin myqtm --force-with-lease && cd -
+  git add external/bourso-api && git commit -m 'chore: bump bourso-cli v0.5.4'
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — nouveau tag v0.5.4
