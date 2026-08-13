@@ -1,0 +1,9 @@
+TODO
+---------
+
+tester cet indice montrant la volatilité des institutionnel : 
+Le VIX1D (VIX 1-Day) : Créé par le Cboe, cet indice intègre la volatilité des options à très court terme (0DTE) et offre une image bien plus fidèle de la panique ou de la 
+complaisance immédiate des marchés.
+
+TODO
+---------
