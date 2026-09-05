@@ -347,3 +347,943 @@ Decision: Vente ignoree: delta 1.9% < seuil 50%
   Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
 
 Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-07-13
+Mode: LIVE
+============================================================
+Signal du 2026-07-10 (status=ok, age: 58.6h)
+  Probabilite: 0.5863
+  Allocation:  59%
+
+PEA PEA DESCAMPS:
+  Especes:     4280.90 EUR
+  Titres:     10546.24 EUR
+  Total:      14827.14 EUR
+  LQQ:  1081 parts @ 9.76 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 71.1% (1081 parts, 10546 EUR)
+  Cible:    58.6% (8693 EUR)
+  Delta:    -12.5% (-1854 EUR)
+
+Decision: Vente ignoree: delta 12.5% < seuil 50%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-07-14
+Mode: LIVE
+============================================================
+Signal du 2026-07-13 (status=ok, age: 10.6h)
+  Probabilite: 0.6502
+  Allocation:  65%
+
+PEA PEA DESCAMPS:
+  Especes:    19280.90 EUR
+  Titres:     10499.75 EUR
+  Total:      29780.65 EUR
+  LQQ:  1081 parts @ 9.71 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 35.3% (1081 parts, 10500 EUR)
+  Cible:    65.0% (19363 EUR)
+  Delta:    +29.8% (+8863 EUR)
+
+Decision: Acheter 912 parts (+29.8%)
+  [EXECUTE] ACHAT 912x LQQ (limite ±3.0%)
+  [OK] INFO bourso_cli: Welcome to BoursoBank CLI 👋
+ INFO bourso_cli: ℹ️ - Version 0.5.4. Make sure you're running the latest version: https://github.com/azerpas/bourso-api
+ INFO bourso_cli: We'll try to log you in with your customer id: 70967054
+ INFO bourso_cli: If you want to change it, run `bourso config --username <customer_id>`
+ INFO bourso_cli: We'll need your password to log you in. It will not be stored anywhere and will be asked everytime you run a command. The password will be hidden while typing.
+ INFO bourso_api::client: 🔓 You are now logged in with user: 2fd785cade53ab8
+ INFO bourso_cli: Login successful ✅
+ INFO bourso_api::client::trade::order: Order for 912 1rTLQQ (Limit) successfully passed with ID F26G14004521 at price Some(10.0044) ✅
+Email envoye a descamps.gregory@gmail.com: [MyQTM] LIVE ACHAT 912x LQQ @ 9.71
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-07-15
+Mode: LIVE
+============================================================
+Signal du 2026-07-14 (status=ok, age: 10.6h)
+  Probabilite: 0.6841
+  Allocation:  68%
+
+PEA PEA DESCAMPS:
+  Especes:    10361.86 EUR
+  Titres:     13937.66 EUR
+  Total:      24299.52 EUR
+  LQQ:  1396 parts @ 9.98 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 57.4% (1396 parts, 13938 EUR)
+  Cible:    68.4% (16624 EUR)
+  Delta:    +11.1% (+2687 EUR)
+
+Decision: Achat ignore: delta +11.1% < seuil 25%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-07-16
+Mode: LIVE
+============================================================
+Signal du 2026-07-15 (status=ok, age: 10.6h)
+  Probabilite: 0.6627
+  Allocation:  66%
+
+PEA PEA DESCAMPS:
+  Especes:    10361.86 EUR
+  Titres:     19352.03 EUR
+  Total:      29713.89 EUR
+  LQQ:  1993 parts @ 9.71 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 65.1% (1993 parts, 19352 EUR)
+  Cible:    66.3% (19690 EUR)
+  Delta:    +1.1% (+338 EUR)
+
+Decision: Achat ignore: delta +1.1% < seuil 25%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-07-17
+Mode: LIVE
+============================================================
+Signal du 2026-07-16 (status=ok, age: 10.6h)
+  Probabilite: 0.6614
+  Allocation:  66%
+
+PEA PEA DESCAMPS:
+  Especes:    10361.86 EUR
+  Titres:     18178.15 EUR
+  Total:      28540.01 EUR
+  LQQ:  1993 parts @ 9.12 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 63.7% (1993 parts, 18178 EUR)
+  Cible:    66.1% (18876 EUR)
+  Delta:    +2.4% (+698 EUR)
+
+Decision: Achat ignore: delta +2.4% < seuil 25%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-07-20
+Mode: LIVE
+============================================================
+Signal du 2026-07-17 (status=ok, age: 58.6h)
+  Probabilite: 0.6118
+  Allocation:  61%
+
+PEA PEA DESCAMPS:
+  Especes:    10361.86 EUR
+  Titres:     18329.62 EUR
+  Total:      28691.48 EUR
+  LQQ:  1993 parts @ 9.20 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 63.9% (1993 parts, 18330 EUR)
+  Cible:    61.2% (17554 EUR)
+  Delta:    -2.7% (-775 EUR)
+
+Decision: Vente ignoree: delta 2.7% < seuil 50%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-07-21
+Mode: LIVE
+============================================================
+Signal du 2026-07-20 (status=ok, age: 10.6h)
+  Probabilite: 0.6337
+  Allocation:  63%
+
+PEA PEA DESCAMPS:
+  Especes:    10361.86 EUR
+  Titres:     18827.87 EUR
+  Total:      29189.73 EUR
+  LQQ:  1993 parts @ 9.45 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 64.5% (1993 parts, 18828 EUR)
+  Cible:    63.4% (18499 EUR)
+  Delta:    -1.1% (-329 EUR)
+
+Decision: Vente ignoree: delta 1.1% < seuil 50%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-07-22
+Mode: LIVE
+============================================================
+Signal du 2026-07-21 (status=ok, age: 10.6h)
+  Probabilite: 0.6201
+  Allocation:  62%
+
+PEA PEA DESCAMPS:
+  Especes:    10361.86 EUR
+  Titres:     18734.20 EUR
+  Total:      29096.06 EUR
+  LQQ:  1993 parts @ 9.40 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 64.4% (1993 parts, 18734 EUR)
+  Cible:    62.0% (18042 EUR)
+  Delta:    -2.4% (-693 EUR)
+
+Decision: Vente ignoree: delta 2.4% < seuil 50%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-07-23
+Mode: LIVE
+============================================================
+Signal du 2026-07-22 (status=ok, age: 10.6h)
+  Probabilite: 0.6245
+  Allocation:  62%
+
+PEA PEA DESCAMPS:
+  Especes:    10361.86 EUR
+  Titres:     18638.54 EUR
+  Total:      29000.40 EUR
+  LQQ:  1993 parts @ 9.35 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 64.3% (1993 parts, 18639 EUR)
+  Cible:    62.5% (18111 EUR)
+  Delta:    -1.8% (-528 EUR)
+
+Decision: Vente ignoree: delta 1.8% < seuil 50%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-07-24
+Mode: LIVE
+============================================================
+Signal du 2026-07-23 (status=ok, age: 10.6h)
+  Probabilite: 0.6072
+  Allocation:  61%
+
+PEA PEA DESCAMPS:
+  Especes:    10361.86 EUR
+  Titres:     18106.40 EUR
+  Total:      28468.26 EUR
+  LQQ:  1993 parts @ 9.09 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 63.6% (1993 parts, 18106 EUR)
+  Cible:    60.7% (17286 EUR)
+  Delta:    -2.9% (-820 EUR)
+
+Decision: Vente ignoree: delta 2.9% < seuil 50%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-07-27
+Mode: LIVE
+============================================================
+Signal du 2026-07-24 (status=ok, age: 58.6h)
+  Probabilite: 0.6086
+  Allocation:  61%
+
+PEA PEA DESCAMPS:
+  Especes:    10361.86 EUR
+  Titres:     18233.96 EUR
+  Total:      28595.82 EUR
+  LQQ:  1993 parts @ 9.15 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 63.8% (1993 parts, 18234 EUR)
+  Cible:    60.9% (17403 EUR)
+  Delta:    -2.9% (-831 EUR)
+
+Decision: Vente ignoree: delta 2.9% < seuil 50%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-07-28
+Mode: LIVE
+============================================================
+Signal du 2026-07-27 (status=ok, age: 10.6h)
+  Probabilite: 0.5820
+  Allocation:  58%
+
+PEA PEA DESCAMPS:
+  Especes:    10361.86 EUR
+  Titres:     17331.13 EUR
+  Total:      27692.99 EUR
+  LQQ:  1993 parts @ 8.70 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 62.6% (1993 parts, 17331 EUR)
+  Cible:    58.2% (16117 EUR)
+  Delta:    -4.4% (-1214 EUR)
+
+Decision: Vente ignoree: delta 4.4% < seuil 50%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-07-29
+Mode: LIVE
+============================================================
+Signal du 2026-07-28 (status=ok, age: 10.6h)
+  Probabilite: 0.5862
+  Allocation:  59%
+
+PEA PEA DESCAMPS:
+  Especes:    10361.86 EUR
+  Titres:     17239.45 EUR
+  Total:      27601.31 EUR
+  LQQ:  1993 parts @ 8.65 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 62.5% (1993 parts, 17239 EUR)
+  Cible:    58.6% (16179 EUR)
+  Delta:    -3.8% (-1060 EUR)
+
+Decision: Vente ignoree: delta 3.8% < seuil 50%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-07-30
+Mode: LIVE
+============================================================
+Signal du 2026-07-29 (status=ok, age: 10.6h)
+  Probabilite: 0.5903
+  Allocation:  59%
+
+PEA PEA DESCAMPS:
+  Especes:    10361.86 EUR
+  Titres:     16651.51 EUR
+  Total:      27013.38 EUR
+  LQQ:  1993 parts @ 8.36 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 61.6% (1993 parts, 16652 EUR)
+  Cible:    59.0% (15945 EUR)
+  Delta:    -2.6% (-707 EUR)
+
+Decision: Vente ignoree: delta 2.6% < seuil 50%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-07-31
+Mode: LIVE
+============================================================
+Signal du 2026-07-30 (status=ok, age: 10.6h)
+  Probabilite: 0.5440
+  Allocation:  54%
+
+PEA PEA DESCAMPS:
+  Especes:    10361.86 EUR
+  Titres:     17759.62 EUR
+  Total:      28121.48 EUR
+  LQQ:  1993 parts @ 8.91 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 63.2% (1993 parts, 17760 EUR)
+  Cible:    54.4% (15297 EUR)
+  Delta:    -8.8% (-2462 EUR)
+
+Decision: Vente ignoree: delta 8.8% < seuil 50%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-08-03
+Mode: LIVE
+============================================================
+Signal du 2026-07-31 (status=ok, age: 58.6h)
+  Probabilite: 0.5853
+  Allocation:  59%
+
+PEA PEA DESCAMPS:
+  Especes:    10361.86 EUR
+  Titres:     17867.24 EUR
+  Total:      28229.10 EUR
+  LQQ:  1993 parts @ 8.96 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 63.3% (1993 parts, 17867 EUR)
+  Cible:    58.5% (16524 EUR)
+  Delta:    -4.8% (-1344 EUR)
+
+Decision: Vente ignoree: delta 4.8% < seuil 50%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-08-04
+Mode: LIVE
+============================================================
+Signal du 2026-08-03 (status=ok, age: 10.6h)
+  Probabilite: 0.5808
+  Allocation:  58%
+
+PEA PEA DESCAMPS:
+  Especes:    10361.86 EUR
+  Titres:     18538.89 EUR
+  Total:      28900.75 EUR
+  LQQ:  1993 parts @ 9.30 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 64.1% (1993 parts, 18539 EUR)
+  Cible:    58.1% (16785 EUR)
+  Delta:    -6.1% (-1754 EUR)
+
+Decision: Vente ignoree: delta 6.1% < seuil 50%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-08-05
+Mode: LIVE
+============================================================
+Signal du 2026-08-04 (status=ok, age: 10.6h)
+  Probabilite: 0.5796
+  Allocation:  58%
+
+PEA PEA DESCAMPS:
+  Especes:    10361.86 EUR
+  Titres:     19208.53 EUR
+  Total:      29570.39 EUR
+  LQQ:  1993 parts @ 9.64 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 65.0% (1993 parts, 19209 EUR)
+  Cible:    58.0% (17139 EUR)
+  Delta:    -7.0% (-2069 EUR)
+
+Decision: Vente ignoree: delta 7.0% < seuil 50%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-08-06
+Mode: LIVE
+============================================================
+Signal du 2026-08-05 (status=ok, age: 10.6h)
+  Probabilite: 0.5901
+  Allocation:  59%
+
+PEA PEA DESCAMPS:
+  Especes:    10361.86 EUR
+  Titres:     18983.33 EUR
+  Total:      29345.19 EUR
+  LQQ:  1993 parts @ 9.53 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 64.7% (1993 parts, 18983 EUR)
+  Cible:    59.0% (17316 EUR)
+  Delta:    -5.7% (-1667 EUR)
+
+Decision: Vente ignoree: delta 5.7% < seuil 50%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-08-07
+Mode: LIVE
+============================================================
+Signal du 2026-08-06 (status=ok, age: 10.6h)
+  Probabilite: 0.6170
+  Allocation:  62%
+
+PEA PEA DESCAMPS:
+  Especes:    10361.86 EUR
+  Titres:     19086.96 EUR
+  Total:      29448.82 EUR
+  LQQ:  1993 parts @ 9.58 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 64.8% (1993 parts, 19087 EUR)
+  Cible:    61.7% (18169 EUR)
+  Delta:    -3.1% (-918 EUR)
+
+Decision: Vente ignoree: delta 3.1% < seuil 50%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-08-10
+Mode: LIVE
+============================================================
+Signal du 2026-08-07 (status=ok, age: 58.6h)
+  Probabilite: 0.6252
+  Allocation:  63%
+
+PEA PEA DESCAMPS:
+  Especes:    10361.86 EUR
+  Titres:     19503.50 EUR
+  Total:      29865.36 EUR
+  LQQ:  1993 parts @ 9.79 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 65.3% (1993 parts, 19503 EUR)
+  Cible:    62.5% (18672 EUR)
+  Delta:    -2.8% (-832 EUR)
+
+Decision: Vente ignoree: delta 2.8% < seuil 50%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-08-11
+Mode: LIVE
+============================================================
+Signal du 2026-08-10 (status=ok, age: 10.6h)
+  Probabilite: 0.6591
+  Allocation:  66%
+
+PEA PEA DESCAMPS:
+  Especes:    10361.86 EUR
+  Titres:     19326.12 EUR
+  Total:      29687.98 EUR
+  LQQ:  1993 parts @ 9.70 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 65.1% (1993 parts, 19326 EUR)
+  Cible:    65.9% (19566 EUR)
+  Delta:    +0.8% (+240 EUR)
+
+Decision: Achat ignore: delta +0.8% < seuil 25%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-08-12
+Mode: LIVE
+============================================================
+Signal du 2026-08-11 (status=ok, age: 10.6h)
+  Probabilite: 0.7105
+  Allocation:  71%
+
+PEA PEA DESCAMPS:
+  Especes:    10361.86 EUR
+  Titres:     19308.18 EUR
+  Total:      29670.04 EUR
+  LQQ:  1993 parts @ 9.69 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 65.1% (1993 parts, 19308 EUR)
+  Cible:    71.0% (21080 EUR)
+  Delta:    +6.0% (+1772 EUR)
+
+Decision: Achat ignore: delta +6.0% < seuil 25%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-08-13
+Mode: LIVE
+============================================================
+Signal du 2026-08-12 (status=ok, age: 10.6h)
+  Probabilite: 0.7602
+  Allocation:  76%
+
+PEA PEA DESCAMPS:
+  Especes:    10361.86 EUR
+  Titres:     19491.54 EUR
+  Total:      29853.40 EUR
+  LQQ:  1993 parts @ 9.78 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 65.3% (1993 parts, 19492 EUR)
+  Cible:    76.0% (22694 EUR)
+  Delta:    +10.7% (+3202 EUR)
+
+Decision: Achat ignore: delta +10.7% < seuil 25%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-08-14
+Mode: LIVE
+============================================================
+Signal du 2026-08-13 (status=ok, age: 10.6h)
+  Probabilite: 0.8283
+  Allocation:  83%
+
+PEA PEA DESCAMPS:
+  Especes:    35361.86 EUR
+  Titres:     19890.14 EUR
+  Total:      55252.00 EUR
+  LQQ:  1993 parts @ 9.98 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 36.0% (1993 parts, 19890 EUR)
+  Cible:    82.8% (45764 EUR)
+  Delta:    +46.8% (+25874 EUR)
+
+Decision: Acheter 2592 parts (+46.8%)
+  [EXECUTE] ACHAT 2592x LQQ (limite ±3.0%)
+  [OK] INFO bourso_cli: Welcome to BoursoBank CLI 👋
+ INFO bourso_cli: ℹ️ - Version 0.5.4. Make sure you're running the latest version: https://github.com/azerpas/bourso-api
+ INFO bourso_cli: We'll try to log you in with your customer id: 70967054
+ INFO bourso_cli: If you want to change it, run `bourso config --username <customer_id>`
+ INFO bourso_cli: We'll need your password to log you in. It will not be stored anywhere and will be asked everytime you run a command. The password will be hidden while typing.
+ INFO bourso_api::client: 🔓 You are now logged in with user: 2fd785cade53ab8
+ INFO bourso_cli: Login successful ✅
+ INFO bourso_api::client::trade::order: Order for 2592 1rTLQQ (Limit) successfully passed with ID F26H14004431 at price Some(10.2804) ✅
+Email envoye a descamps.gregory@gmail.com: [MyQTM] LIVE ACHAT 2592x LQQ @ 9.98
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-08-17
+Mode: LIVE
+============================================================
+Signal du 2026-08-14 (status=ok, age: 58.6h)
+  Probabilite: 0.9379
+  Allocation:  94%
+
+PEA PEA DESCAMPS:
+  Especes:     9364.36 EUR
+  Titres:     45923.36 EUR
+  Total:      55287.72 EUR
+  LQQ:  4585 parts @ 10.02 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 83.1% (4585 parts, 45923 EUR)
+  Cible:    93.8% (51855 EUR)
+  Delta:    +10.7% (+5932 EUR)
+
+Decision: Achat ignore: delta +10.7% < seuil 25%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-08-18
+Mode: LIVE
+============================================================
+Signal du 2026-08-17 (status=ok, age: 10.6h)
+  Probabilite: 0.9996
+  Allocation:  100%
+
+PEA PEA DESCAMPS:
+  Especes:     9364.36 EUR
+  Titres:     45753.71 EUR
+  Total:      55118.07 EUR
+  LQQ:  4585 parts @ 9.98 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 83.0% (4585 parts, 45754 EUR)
+  Cible:    100.0% (55095 EUR)
+  Delta:    +16.9% (+9341 EUR)
+
+Decision: Achat ignore: delta +16.9% < seuil 25%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-08-19
+Mode: LIVE
+============================================================
+Signal du 2026-08-18 (status=ok, age: 10.6h)
+  Probabilite: 0.9697
+  Allocation:  97%
+
+PEA PEA DESCAMPS:
+  Especes:     9364.36 EUR
+  Titres:     43552.92 EUR
+  Total:      52917.28 EUR
+  LQQ:  4585 parts @ 9.50 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 82.3% (4585 parts, 43553 EUR)
+  Cible:    97.0% (51316 EUR)
+  Delta:    +14.7% (+7763 EUR)
+
+Decision: Achat ignore: delta +14.7% < seuil 25%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-08-20
+Mode: LIVE
+============================================================
+Signal du 2026-08-19 (status=ok, age: 10.6h)
+  Probabilite: 0.9713
+  Allocation:  97%
+
+PEA PEA DESCAMPS:
+  Especes:     9364.36 EUR
+  Titres:     43575.84 EUR
+  Total:      52940.20 EUR
+  LQQ:  4585 parts @ 9.50 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 82.3% (4585 parts, 43576 EUR)
+  Cible:    97.1% (51419 EUR)
+  Delta:    +14.8% (+7843 EUR)
+
+Decision: Achat ignore: delta +14.8% < seuil 25%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-08-21
+Mode: LIVE
+============================================================
+Signal du 2026-08-20 (status=ok, age: 10.6h)
+  Probabilite: 1.0000
+  Allocation:  100%
+
+PEA PEA DESCAMPS:
+  Especes:     9364.36 EUR
+  Titres:     42833.07 EUR
+  Total:      52197.43 EUR
+  LQQ:  4585 parts @ 9.34 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 82.1% (4585 parts, 42833 EUR)
+  Cible:    100.0% (52197 EUR)
+  Delta:    +17.9% (+9364 EUR)
+
+Decision: Achat ignore: delta +17.9% < seuil 25%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-08-24
+Mode: LIVE
+============================================================
+Signal du 2026-08-21 (status=ok, age: 58.6h)
+  Probabilite: 1.0000
+  Allocation:  100%
+
+PEA PEA DESCAMPS:
+  Especes:     9364.36 EUR
+  Titres:     42186.58 EUR
+  Total:      51550.94 EUR
+  LQQ:  4585 parts @ 9.20 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 81.8% (4585 parts, 42187 EUR)
+  Cible:    100.0% (51551 EUR)
+  Delta:    +18.2% (+9364 EUR)
+
+Decision: Achat ignore: delta +18.2% < seuil 25%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-08-25
+Mode: LIVE
+============================================================
+Signal du 2026-08-24 (status=ok, age: 10.6h)
+  Probabilite: 1.0000
+  Allocation:  100%
+
+PEA PEA DESCAMPS:
+  Especes:     9364.36 EUR
+  Titres:     42654.25 EUR
+  Total:      52018.61 EUR
+  LQQ:  4585 parts @ 9.30 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 82.0% (4585 parts, 42654 EUR)
+  Cible:    100.0% (52019 EUR)
+  Delta:    +18.0% (+9364 EUR)
+
+Decision: Achat ignore: delta +18.0% < seuil 25%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-08-26
+Mode: LIVE
+============================================================
+Signal du 2026-08-25 (status=ok, age: 10.6h)
+  Probabilite: 0.9976
+  Allocation:  100%
+
+PEA PEA DESCAMPS:
+  Especes:     9364.36 EUR
+  Titres:     42466.27 EUR
+  Total:      51830.63 EUR
+  LQQ:  4585 parts @ 9.26 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 81.9% (4585 parts, 42466 EUR)
+  Cible:    99.8% (51705 EUR)
+  Delta:    +17.8% (+9239 EUR)
+
+Decision: Achat ignore: delta +17.8% < seuil 25%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-08-27
+Mode: LIVE
+============================================================
+Signal du 2026-08-26 (status=ok, age: 10.6h)
+  Probabilite: 1.0000
+  Allocation:  100%
+
+PEA PEA DESCAMPS:
+  Especes:     9364.36 EUR
+  Titres:     43296.15 EUR
+  Total:      52660.51 EUR
+  LQQ:  4585 parts @ 9.44 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 82.2% (4585 parts, 43296 EUR)
+  Cible:    100.0% (52661 EUR)
+  Delta:    +17.8% (+9364 EUR)
+
+Decision: Achat ignore: delta +17.8% < seuil 25%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-08-28
+Mode: LIVE
+============================================================
+Signal du 2026-08-27 (status=ok, age: 10.6h)
+  Probabilite: 1.0000
+  Allocation:  100%
+
+PEA PEA DESCAMPS:
+  Especes:     9364.36 EUR
+  Titres:     43763.82 EUR
+  Total:      53128.18 EUR
+  LQQ:  4585 parts @ 9.54 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 82.4% (4585 parts, 43764 EUR)
+  Cible:    100.0% (53128 EUR)
+  Delta:    +17.6% (+9364 EUR)
+
+Decision: Achat ignore: delta +17.6% < seuil 25%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-08-31
+Mode: LIVE
+============================================================
+Signal du 2026-08-28 (status=ok, age: 58.6h)
+  Probabilite: 1.0000
+  Allocation:  100%
+
+PEA PEA DESCAMPS:
+  Especes:     9364.36 EUR
+  Titres:     43566.67 EUR
+  Total:      52931.03 EUR
+  LQQ:  4585 parts @ 9.50 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 82.3% (4585 parts, 43567 EUR)
+  Cible:    100.0% (52931 EUR)
+  Delta:    +17.7% (+9364 EUR)
+
+Decision: Achat ignore: delta +17.7% < seuil 25%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-09-01
+Mode: LIVE
+============================================================
+Signal du 2026-08-31 (status=ok, age: 10.6h)
+  Probabilite: 1.0000
+  Allocation:  100%
+
+PEA PEA DESCAMPS:
+  Especes:     9364.36 EUR
+  Titres:     43598.76 EUR
+  Total:      52963.12 EUR
+  LQQ:  4585 parts @ 9.51 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 82.3% (4585 parts, 43599 EUR)
+  Cible:    100.0% (52963 EUR)
+  Delta:    +17.7% (+9364 EUR)
+
+Decision: Achat ignore: delta +17.7% < seuil 25%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-09-02
+Mode: LIVE
+============================================================
+Signal du 2026-09-01 (status=ok, age: 10.6h)
+  Probabilite: 1.0000
+  Allocation:  100%
+
+PEA PEA DESCAMPS:
+  Especes:     9364.36 EUR
+  Titres:     42406.67 EUR
+  Total:      51771.03 EUR
+  LQQ:  4585 parts @ 9.25 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 81.9% (4585 parts, 42407 EUR)
+  Cible:    100.0% (51771 EUR)
+  Delta:    +18.1% (+9364 EUR)
+
+Decision: Achat ignore: delta +18.1% < seuil 25%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-09-03
+Mode: LIVE
+============================================================
+Signal du 2026-09-02 (status=ok, age: 10.6h)
+  Probabilite: 1.0000
+  Allocation:  100%
+
+PEA PEA DESCAMPS:
+  Especes:     9364.36 EUR
+  Titres:     42535.04 EUR
+  Total:      51899.40 EUR
+  LQQ:  4585 parts @ 9.28 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 82.0% (4585 parts, 42535 EUR)
+  Cible:    100.0% (51899 EUR)
+  Delta:    +18.0% (+9364 EUR)
+
+Decision: Achat ignore: delta +18.0% < seuil 25%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-09-04
+Mode: LIVE
+============================================================
+Signal du 2026-09-03 (status=ok, age: 10.6h)
+  Probabilite: 1.0000
+  Allocation:  100%
+
+PEA PEA DESCAMPS:
+  Especes:     9364.36 EUR
+  Titres:     43649.20 EUR
+  Total:      53013.56 EUR
+  LQQ:  4585 parts @ 9.52 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 82.3% (4585 parts, 43649 EUR)
+  Cible:    100.0% (53014 EUR)
+  Delta:    +17.7% (+9364 EUR)
+
+Decision: Achat ignore: delta +17.7% < seuil 25%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
