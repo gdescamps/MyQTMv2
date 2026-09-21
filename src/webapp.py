@@ -72,7 +72,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 app.add_middleware(AuthMiddleware)
 
 
-@ui.page("/login")
+@ui.page("/login", title="Connexion")
 async def login_page():
     if app.storage.user.get("authenticated", False):
         return RedirectResponse("/")
@@ -91,10 +91,8 @@ async def login_page():
     </style>""")
     with ui.card().classes("absolute-center items-center").style(
             "width: 320px; padding: 32px 28px; background: #262626; color: #ddd; border-radius: 12px"):
-        ui.label("RISK-OFF").style(
-            "font-size: 1.1rem; font-weight: 700; letter-spacing: 0.12em; color: #ccc")
-        ui.label("QQQ / PUST — Boursorama PEA").style(
-            "font-size: 0.7rem; color: #777; letter-spacing: 0.05em; margin-bottom: 16px")
+        # Volontairement sans titre ni sous-titre : ne rien reveler sur l'application
+        # a qui n'a pas le mot de passe (le titre d'onglet est neutre aussi, cf. @ui.page).
         pwd = ui.input("Mot de passe", password=True, password_toggle_button=True) \
             .props("dark outlined autofocus").classes("w-full") \
             .on("keydown.enter", try_login)
@@ -103,7 +101,6 @@ async def login_page():
 
 # ── Data loaders ──────────────────────────────────────────
 
-PE_DIR = ROOT / "data" / "pe"
 SHILLER_DIR = ROOT / "data" / "shiller"
 
 
@@ -124,18 +121,6 @@ def load_cape_ecy_latest():
             "date": str(cape.index.max().date()),
             "cape_pct": float((cape <= cape.iloc[-1]).mean() * 100),
             "cape_median": float(cape.median())}
-
-
-def load_ndx_excess_yield():
-    """Excess earnings yield NDX top-5/top-10 (trailing + forward vs taux reel).
-    None si le JSON est absent (lancer download_ndx_excess_yield)."""
-    fp = PE_DIR / "ndx_excess_yield.json"
-    if not fp.exists():
-        return None
-    try:
-        return json.loads(fp.read_text())
-    except Exception:  # noqa: BLE001
-        return None
 
 
 def load_trades():
@@ -669,42 +654,6 @@ def index_page():
                                 .style("font-size: 0.8rem; color: #666")
                         if CAPE_CHART.exists():
                             ui.image("/img/cape_ecy").classes("w-full rounded-lg shadow-lg")
-
-                        # ── Leaders Nasdaq : excess earnings yield top-5 / top-10 ──
-                        ney = load_ndx_excess_yield()
-                        if ney:
-                            ui.element("div").classes("w-full h-0.5 bg-black mt-4")
-                            ui.label("Leaders Nasdaq — Excess earnings yield (top-5 / top-10)") \
-                                .classes("text-base font-semibold")
-                            rr = ney["real_rate"] * 100
-                            ui.label(f"rendement bénéfices cap-pondéré − taux réel 10 ans "
-                                     f"({rr:.2f} %, DFII10) · au {ney['date']}") \
-                                .style("font-size: 0.8rem; color: #999")
-
-                            def _p(x):
-                                return f"{x*100:+.2f}%" if x is not None else "—"
-
-                            cols = [
-                                {"name": "b", "label": "Panier", "field": "b", "align": "left"},
-                                {"name": "et", "label": "Excess (trailing)", "field": "et", "align": "right"},
-                                {"name": "ef", "label": "Excess (forward)", "field": "ef", "align": "right"},
-                                {"name": "g", "label": "Δ croissance", "field": "g", "align": "right"},
-                            ]
-                            rws = []
-                            for lbl, key in [("Top-5", "top5"), ("Top-10", "top10")]:
-                                b = ney[key]
-                                et, ef = b["excess_trailing"], b["excess_forward"]
-                                gap = (ef - et) if (et is not None and ef is not None) else None
-                                rws.append({"b": lbl, "et": _p(et), "ef": _p(ef), "g": _p(gap)})
-                            if val and val.get("ecy") is not None:
-                                rws.append({"b": "S&P 500 (ECY, réf.)",
-                                            "et": f"{val['ecy']*100:+.2f}%", "ef": "—", "g": "—"})
-                            ui.table(columns=cols, rows=rws, row_key="b").classes("w-full")
-                            ui.label("Trailing = bénéfices actuels ; forward = bénéfices attendus "
-                                     "(estimations analystes, optimistes) ; le Δ croissance chiffre le "
-                                     "« crédit IA ». Marges proches de records → le trailing peut flatter. "
-                                     "≠ CAPE lissé (inutilisable sur des compounders). Contexte — hors stratégie.") \
-                                .style("font-size: 0.8rem; color: #666")
 
                 # ── Gain réel ──
                 with ui.tab_panel(tab_gain):
