@@ -2056,4 +2056,46 @@ pour eviter de garder des trace du smoke test x1 PUST precedent
 
 -----------------------------------------------
 
+dans .vscode/launch.json
 
+        {
+            "name": "Webapp Risk-Off",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/webapp.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "WEBAPP_PORT": "8082"
+            }
+        }
+Faire la modification pour utiliser le browser interne de vscode. 
+
+-----------------------------------------------
+
+est ce que tu peux me dire quel sont les tunnels cloudflared installé sur cette instance ? 
+
+-----------------------------------------------
+
+créer une gestion multicompte bourso dans ce dépôt,
+Créer des variables d'environnement dans .env 
+pour gerer 3 comptes 
+
+BOURSO_ID_1="70967054"
+BOURSO_CODE_1="47326523"
+BOURSO_MAIL_1="descamps.gregory@gmail.com"
+
+BOURSO_ID_2=""
+BOURSO_CODE_2=""
+BOURSO_MAIL_2=""
+
+BOURSO_ID_3=""
+BOURSO_CODE_3=""
+BOURSO_MAIL_3=""
+
+Si le compte n'est pas initialisé, ne pas gérer le compte.
+
+Par contre si le compte est initialisé et testé, à ce moment-là, répliquez l'allocation sur tous les comptes accessibles.
+
+Envoyer un mail concernant la connexion au compte et l'allocation à tous les comptes valides.
+Avec les différents mails. 
