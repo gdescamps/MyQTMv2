@@ -745,7 +745,10 @@ def index_page():
                     with ui.column().classes("tab-content"):
                         ui.element("div").classes("w-full h-0.5 bg-black")
                         ui.label("Trade History").classes("text-base font-semibold")
-                        if not trades:
+                        # Uniquement les ordres (BUY / SELL) : les jours sans mouvement
+                        # (side absent = HOLD) restent visibles dans l'onglet Allocations.
+                        orders = [t for t in trades if (t.get("side") or "").lower() in ("buy", "sell")]
+                        if not orders:
                             ui.label("No trades yet.").classes("text-gray-500")
                         else:
                             columns = [
@@ -759,12 +762,12 @@ def index_page():
                                 {"name": "executed", "label": "Status", "field": "executed", "align": "center"},
                             ]
                             rows = []
-                            for t in reversed(trades):
+                            for t in reversed(orders):
                                 qty = t.get("quantity", 0)
                                 price = t.get("etf_price", 0)
                                 rows.append({
                                     "date": t.get("date", ""),
-                                    "side": (t.get("side") or "hold").upper(),
+                                    "side": t["side"].upper(),
                                     "quantity": qty,
                                     "etf_price": f"{price:.2f}",
                                     "value": f"{qty * price:.0f} EUR",
