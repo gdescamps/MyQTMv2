@@ -15,7 +15,7 @@ All Python code lives directly under `src/` (the old `MyQTM/` submodule is gone)
 Python 3.12 + venv:
 
 ```bash
-./1_setup_interpreter.sh   # rm venv, python3.12 -m venv, pip install -r requirements.txt
+./1_setup_interpreter.sh   # rm venv, python3.12 -m venv, pip install -r requirements.txt + requirements_webapp.txt
 source venv/bin/activate
 ```
 

@@ -4,4 +4,5 @@ python3.12 -m venv venv
 source venv/bin/activate
 pip install -U packaging==23.2 setuptools==75.8.0 wheel ninja
 pip install -r requirements.txt
+pip install -r requirements_webapp.txt   # nicegui/plotly : debug local du webapp (Docker les installe aussi)
 
