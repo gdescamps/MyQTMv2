@@ -580,10 +580,10 @@ def index_page():
                 tab_5y = ui.tab("5 Years")
                 tab_1y = ui.tab("1 Year")
                 tab_1m = ui.tab("1 Month")
-                tab_val = ui.tab("Valorisation")
                 tab_gain = ui.tab("Gain réel")
                 tab_trades = ui.tab("Trades")
                 tab_alloc = ui.tab("Allocations")
+                tab_val = ui.tab("Valorisation")
 
             with ui.tab_panels(tabs, value=tab_full).classes("w-full flex-1 custom-tab-panels"):
 
