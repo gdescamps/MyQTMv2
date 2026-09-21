@@ -13,10 +13,9 @@ Agregation = rendement benefices cap-pondere (Sw_i . EY_i), economiquement corre
 (= benefices totaux / capitalisation totale), contrairement a une moyenne de PE.
 
 Contexte de valorisation (webapp), PAS dans la strategie.
-Source  : yfinance (trailingPE, forwardPE, marketCap -- couvre tous les titres, y
-          compris ceux gates "premium" sur FMP) + FRED DFII10 (taux reel 10a).
-Univers : top-20 NDX en cache (data/pe/ndx_constituents.json), re-classe par market
-          cap courant.
+Source  : yfinance (trailingPE, forwardPE, marketCap) + FRED DFII10 (taux reel 10a).
+Univers : NDX_TOP20 (liste statique ci-dessous, a rafraichir a la main quand le
+          classement change), re-classe par market cap courant a chaque run.
 
 Sortie  : data/pe/ndx_excess_yield.json
 Usage   : python -m src.download_ndx_excess_yield        (quotidien, cf. cron)
@@ -35,6 +34,11 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parent.parent
 PE_DIR = ROOT / "data" / "pe"
 OUT = PE_DIR / "ndx_excess_yield.json"
+
+# Top-20 NDX par capitalisation (ordre indicatif, 2026-09) : seul l'univers est fige,
+# le classement top-5 / top-10 est recalcule sur le marketCap yfinance du jour.
+NDX_TOP20 = ["NVDA", "AAPL", "GOOGL", "MSFT", "AMZN", "AVGO", "META", "TSLA", "MU", "WMT",
+             "AMD", "ASML", "INTC", "CSCO", "COST", "LRCX", "ARM", "AMAT", "NFLX", "PLTR"]
 
 load_dotenv(ROOT / ".env")
 FRED_KEY = os.environ.get("FRED")
@@ -61,8 +65,7 @@ def fetch_real_rate():
 
 
 def _universe():
-    cons = json.load(open(PE_DIR / "ndx_constituents.json"))
-    return [c["symbol"] for c in cons]
+    return list(NDX_TOP20)
 
 
 def _yield_from_pe(pe):

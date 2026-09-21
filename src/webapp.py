@@ -5,7 +5,6 @@ Layout inspired by dashboard/ — sidebar photo + tabbed content.
 
 Shows:
   - Backtests (full, 1y, 1m)
-  - PE Top 5 chart
   - Real Bourso allocations & trade history
   - Gains normalized (% and EUR)
 
@@ -24,7 +23,6 @@ from nicegui import app, ui
 ROOT = Path(__file__).resolve().parent.parent
 OUTPUTS = ROOT / "outputs"
 QQQ_OUT = OUTPUTS / "qqq_strategy"
-PE_OUT = OUTPUTS / "pe"
 TRADE_LOG = ROOT / "logs" / "trades.jsonl"
 ASSETS_DIR = ROOT / "assets"
 SIDEBAR_IMAGE = ASSETS_DIR / "sidebar.jpg"
@@ -35,7 +33,6 @@ BACKTEST_10Y = QQQ_OUT / "backtest_10y.png"
 BACKTEST_5Y = QQQ_OUT / "backtest_5y.png"
 BACKTEST_1Y = QQQ_OUT / "backtest_1y.png"
 BACKTEST_1M = QQQ_OUT / "backtest_1m.png"
-PE_CHART = PE_OUT / "ndx_top5_pe_daily.png"
 CAPE_CHART = OUTPUTS / "shiller" / "cape_ecy.png"
 
 
@@ -74,51 +71,6 @@ def load_ndx_excess_yield():
         return json.loads(fp.read_text())
     except Exception:  # noqa: BLE001
         return None
-
-
-def load_ndx_top(n=20):
-    """Load top N NDX constituents with latest PE and PE date."""
-    constituents_file = PE_DIR / "ndx_constituents.json"
-    if not constituents_file.exists():
-        return [], None
-
-    with open(constituents_file) as f:
-        top = json.load(f)
-
-    results = []
-    pe_date = None
-    for t in top[:n]:
-        sym = t["symbol"]
-        qfile = PE_DIR / f"{sym}_quarterly.json"
-        pe = None
-        q_date = None
-        if qfile.exists():
-            with open(qfile) as f:
-                quarters = json.load(f)
-            if quarters:
-                latest = quarters[0]
-                pe = latest.get("peRatio")
-                q_date = latest.get("date")
-                if q_date and (pe_date is None or q_date > pe_date):
-                    pe_date = q_date
-
-        results.append({
-            "symbol": sym,
-            "name": t.get("name", "")[:25],
-            "mktCap": t.get("mktCap", 0),
-            "pe": pe,
-        })
-
-    # Interpolation date = last date in pe_top5_daily.parquet
-    interp_date = None
-    daily_file = PE_DIR / "pe_top5_daily.parquet"
-    if daily_file.exists():
-        import pandas as pd
-        pe_daily = pd.read_parquet(daily_file)
-        if len(pe_daily) > 0:
-            interp_date = str(pe_daily.index[-1].date())
-
-    return results, pe_date, interp_date
 
 
 def load_trades():
@@ -276,10 +228,6 @@ def _b1y():
 @app.get("/img/backtest_1m")
 def _b1m():
     return _serve(BACKTEST_1M)
-
-@app.get("/img/pe_chart")
-def _pe():
-    return _serve(PE_CHART)
 
 @app.get("/img/cape_ecy")
 def _cape():
@@ -576,8 +524,6 @@ with ui.element("div").classes("layout"):
             tab_5y = ui.tab("5 Years")
             tab_1y = ui.tab("1 Year")
             tab_1m = ui.tab("1 Month")
-            tab_ndx5 = ui.tab("NDX Top 5")
-            tab_ndx20 = ui.tab("NDX Top 20")
             tab_val = ui.tab("Valorisation")
             tab_gain = ui.tab("Gain réel")
             tab_trades = ui.tab("Trades")
@@ -626,104 +572,6 @@ with ui.element("div").classes("layout"):
                     ui.label("Last 21 Trading Days").classes("text-base font-semibold")
                     if BACKTEST_1M.exists():
                         ui.image("/img/backtest_1m").classes("w-full rounded-lg shadow-lg")
-
-            # ── NASDAQ-100 Top 5 & Top 20 (shared render function) ──
-            def render_ndx_tab(n):
-                ndx_data, pe_date, interp_date = load_ndx_top(n)
-                if not ndx_data:
-                    ui.label("No data. Run: python src/download_pe_qqq_top5.py").classes("text-gray-500")
-                    return
-
-                with ui.row().classes("gap-6"):
-                    ui.label(f"PE trimestriel : {pe_date or '—'}").style("font-size: 0.8rem; color: #999")
-                    ui.label(f"Interpolation : {interp_date or '—'}").style("font-size: 0.8rem; color: #999")
-
-                labels = [d["symbol"] for d in ndx_data]
-                caps = [d["mktCap"] / 1e9 for d in ndx_data]
-                pes = [d["pe"] if d["pe"] and d["pe"] > 0 else 0 for d in ndx_data]
-                total_cap = sum(caps)
-
-                def pe_color(pe):
-                    if pe <= 0: return "#999"
-                    if pe < 25: return "#4caf50"
-                    if pe < 35: return "#8bc34a"
-                    if pe < 50: return "#ff9800"
-                    return "#f44336"
-
-                colors = [pe_color(p) for p in pes]
-                hover_text = [
-                    f"{d['name']}<br>${d['mktCap']/1e9:.0f}B<br>PE: {d['pe']:.1f}" if d['pe'] and d['pe'] > 0
-                    else f"{d['name']}<br>${d['mktCap']/1e9:.0f}B<br>PE: N/A"
-                    for d in ndx_data
-                ]
-
-                with ui.row().classes("w-full gap-4"):
-                    fig_cap = go.Figure(go.Pie(
-                        labels=labels, values=caps, textinfo="label+percent",
-                        textposition="inside", hovertext=hover_text, hoverinfo="text",
-                        marker=dict(colors=colors, line=dict(color="#fff", width=1)), hole=0.35,
-                    ))
-                    fig_cap.update_layout(
-                        title=dict(text=f"Market Cap (${total_cap:.0f}B)", x=0.5),
-                        showlegend=False, margin=dict(t=40, b=10, l=10, r=10), height=420,
-                    )
-                    ui.plotly(fig_cap).classes("flex-1")
-
-                    pe_labels = [f"{s}\nPE {p:.0f}" if p > 0 else f"{s}\nN/A"
-                                 for s, p in zip(labels, pes)]
-                    fig_pe = go.Figure(go.Pie(
-                        labels=pe_labels, values=caps, textinfo="label",
-                        textposition="inside", hovertext=hover_text, hoverinfo="text",
-                        marker=dict(colors=colors, line=dict(color="#fff", width=1)), hole=0.35,
-                    ))
-                    valid = [(c, p) for c, p in zip(caps, pes) if p > 0]
-                    w_pe = sum(c * p for c, p in valid) / sum(c for c, p in valid) if valid else 0
-                    fig_pe.update_layout(
-                        title=dict(text=f"PE Ratio (weighted: {w_pe:.1f})", x=0.5),
-                        showlegend=False, margin=dict(t=40, b=10, l=10, r=10), height=420,
-                        annotations=[dict(text=f"{w_pe:.1f}", x=0.5, y=0.5,
-                                          font_size=24, showarrow=False, font_color="#333")],
-                    )
-                    ui.plotly(fig_pe).classes("flex-1")
-
-                with ui.row().classes("gap-4 mt-2"):
-                    for color, lbl in [("#4caf50", "PE < 25"), ("#8bc34a", "PE 25-35"),
-                                       ("#ff9800", "PE 35-50"), ("#f44336", "PE > 50"), ("#999", "N/A")]:
-                        with ui.row().classes("items-center gap-1"):
-                            ui.element("div").style(f"width:12px; height:12px; border-radius:50%; background:{color}")
-                            ui.label(lbl).style("font-size: 0.75rem; color: #666")
-
-                ui.element("div").classes("w-full h-0.5 bg-black mt-4")
-                ndx_columns = [
-                    {"name": "rank", "label": "#", "field": "rank", "align": "right"},
-                    {"name": "symbol", "label": "Ticker", "field": "symbol", "align": "left"},
-                    {"name": "name", "label": "Name", "field": "name", "align": "left"},
-                    {"name": "cap", "label": "Cap ($B)", "field": "cap", "align": "right"},
-                    {"name": "weight", "label": "Weight", "field": "weight", "align": "right"},
-                    {"name": "pe", "label": "PE TTM", "field": "pe", "align": "right"},
-                ]
-                ndx_rows = []
-                for i, d in enumerate(ndx_data, 1):
-                    pe_val = d["pe"]
-                    ndx_rows.append({
-                        "rank": i, "symbol": d["symbol"], "name": d["name"],
-                        "cap": f"{d['mktCap']/1e9:.0f}",
-                        "weight": f"{d['mktCap']/1e9/total_cap*100:.1f}%",
-                        "pe": f"{pe_val:.1f}" if pe_val and pe_val > 0 else "N/A",
-                    })
-                ui.table(columns=ndx_columns, rows=ndx_rows, row_key="rank").classes("w-full")
-
-            with ui.tab_panel(tab_ndx5):
-                with ui.column().classes("tab-content"):
-                    ui.element("div").classes("w-full h-0.5 bg-black")
-                    ui.label("NASDAQ-100 Top 5 — Market Cap & PE").classes("text-base font-semibold")
-                    render_ndx_tab(5)
-
-            with ui.tab_panel(tab_ndx20):
-                with ui.column().classes("tab-content"):
-                    ui.element("div").classes("w-full h-0.5 bg-black")
-                    ui.label("NASDAQ-100 Top 20 — Market Cap & PE").classes("text-base font-semibold")
-                    render_ndx_tab(20)
 
             # ── Valorisation (CAPE / ECY S&P, Shiller) ──
             with ui.tab_panel(tab_val):

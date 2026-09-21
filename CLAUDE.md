@@ -21,7 +21,7 @@ source venv/bin/activate
 
 `.env` keys (loaded via python-dotenv):
 - `FRED` — FRED API key (macro data: BAA spread, NFCI, CPI YoY — the last two feed the strategy's macro guardrails)
-- `FMPAPI` / `FINHUB` — Financial Modeling Prep / Finnhub (PE data for exploration)
+- `FMPAPI` / `FINHUB` — legacy (FMP / Finnhub), **no longer read by any script** — the FMP-based top-5 PE downloader was removed in 2026-09 (FMP v3 endpoints dead since 2025-08-31); safe to drop from `.env`
 - `BOURSO_ID` / `BOURSO_CODE` — BoursoBank credentials for PEA execution
 - `GMAIL_APP_PASSWORD` — 16-char Gmail app password for email notifications
 - `GOOGLE_APPLICATION_CREDENTIALS` / `PROJECT_ID` — GCP (legacy LLM, not on the live path)
@@ -33,9 +33,8 @@ source venv/bin/activate
 ### 1. Data (`src/download_*.py` → `data/*.parquet`)
 - `download_ohlcv.py` — yfinance OHLCV. `RISK_OFF_TICKERS` (QQQ, SPY, ACWI + VIX, TLT) vs. `--extra` exploration tickers.
 - `download_macro_data.py` — FRED macro series (BAA spread, **NFCI**, **CPI YoY** via `units=pc1`) → `data/fred_*.parquet`. NFCI + CPI feed the strategy's macro circuit-breakers.
-- `download_pe_qqq_top5.py` — cap-weighted PE of top-5 NASDAQ-100 names (FMP); kept for the webapp NDX Top-5/20 market-cap/concentration tabs only (no longer the valuation-context series).
 - `download_shiller_cape.py` — S&P 500 **CAPE** (Shiller P/E10) + **Excess CAPE Yield (ECY)**, full history **1871 → today, daily-updated** → `data/shiller/cape_ecy.parquet` (monthly) + `outputs/shiller/cape_ecy.png`. CAPE primary source = **multpl.com** table scrape (correct up-to-date E10 denominator + live current-month point; the naive "freeze Shiller's E10 and scale by price" is ~+6% wrong over 2y as earnings grow); **fallback + cross-check = Shiller's `ie_data.xls`** (Yale, stale ~2024-09). ECY = Shiller's ECY column for history + tail reconstructed as `1/CAPE − DFII10` (FRED 10y TIPS real rate, recalibrated to Shiller's level — TIPS only exist since 2003). This is the **valuation-context** variable (rate-adjusted, era-comparable — replaced the top-5 PE in the backtest chart + webapp). Context only, **not** in the strategy. Refreshed daily to stay current: on weekdays `risk_off_strategy.run` calls it best-effort just before the backtest (`refresh_valuation_context`, so the chart always reads the same-day CAPE — no implicit dependency on a separate cron); a weekend-only cron (22:20 Sat/Sun) keeps the webapp current when no backtest runs. Needs `xlrd` + `lxml`.
-- `download_ndx_excess_yield.py` — QQQ-specific valuation lens: **excess earnings yield** of the NDX **top-5 / top-10** (cap-weighted 1/PE, **trailing + forward**) minus the real 10y rate (FRED DFII10) → `data/pe/ndx_excess_yield.json`. The right analog of ECY for concentrated growth leaders — a true CAPE (10y-smoothed earnings) is meaningless on compounders (10y-avg earnings ≪ current → absurd CAPE), so we keep the "yield − real rate" structure without cyclical smoothing. Trailing→forward gap = the growth ("AI") credit made explicit. Source = **yfinance** `trailingPE`/`forwardPE`/`marketCap` (FMP v3 is dead — legacy endpoints 403 since 2025-08-31; several tickers premium-gated on the current FMP plan). Shown in the webapp Valorisation tab beside the S&P ECY. Context only; refreshed daily alongside the CAPE (weekday backtest `refresh_valuation_context` + weekend cron 22:20).
+- `download_ndx_excess_yield.py` — QQQ-specific valuation lens: **excess earnings yield** of the NDX **top-5 / top-10** (cap-weighted 1/PE, **trailing + forward**) minus the real 10y rate (FRED DFII10) → `data/pe/ndx_excess_yield.json`. The right analog of ECY for concentrated growth leaders — a true CAPE (10y-smoothed earnings) is meaningless on compounders (10y-avg earnings ≪ current → absurd CAPE), so we keep the "yield − real rate" structure without cyclical smoothing. Trailing→forward gap = the growth ("AI") credit made explicit. Source = **yfinance** `trailingPE`/`forwardPE`/`marketCap`; universe = the static `NDX_TOP20` list in the script (re-ranked by live market cap each run — update the list by hand when the NDX leaderboard changes). Shown in the webapp Valorisation tab beside the S&P ECY. Context only; refreshed daily alongside the CAPE (weekday backtest `refresh_valuation_context` + weekend cron 22:20).
 
 Data is DVC-backed (`data.dvc`, `outputs.dvc`, `.env.dvc` → GCS). `*_revised.parquet` files are the latest-revised series; the unsuffixed files are point-in-time snapshots used for the PIT-vs-revised comparison.
 
@@ -61,7 +60,7 @@ Deterministic hand-made allocation (no ML), backtested from 2000. x1 only, close
 - `src/bourso/` — `prepare.py` (dry-run state/capacity), `execute.py` (manual interactive order), `list_accounts.py`, `quote.py`, `notify.py` (Gmail SMTP recap/trade emails, inline-image HTML, `MAILING_LIST` currently just the owner).
 
 ### 4. Webapp (`src/webapp.py`)
-NiceGUI dashboard (backtests, PE chart, allocations, trade history). Runs in Docker on port 8081 (`webapp_build.sh` / `webapp_run.sh` / `webapp_kill.sh`).
+NiceGUI dashboard (backtests, Valorisation CAPE/ECY + NDX excess yield, allocations, trade history). Runs in Docker on port 8081 (`webapp_build.sh` / `webapp_run.sh` / `webapp_kill.sh`).
 
 ## Cron (the live system)
 
