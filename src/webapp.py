@@ -139,6 +139,14 @@ def load_trades():
 
 
 def compute_portfolio_history(trades):
+    """Historique position / allocation reelle, ligne par ligne de trades.jsonl.
+
+    `current_shares` = parts detenues sur le PEA, lues par real_bourso via
+    bourso-cli AVANT l'ordre du jour -> c'est la position reelle du compte, et on
+    lui applique l'ordre execute le jour meme (position post-ordre). Sans ce champ
+    (anciennes lignes), on retombe sur le cumul des ordres executes du journal —
+    qui derive des que des achats ont eu lieu hors journal.
+    """
     history = []
     shares = 0
     for t in trades:
@@ -150,6 +158,8 @@ def compute_portfolio_history(trades):
         prob = t.get("probability", 0)
         date = t.get("date", "")
         executed = t.get("executed", False)
+        if t.get("current_shares") is not None:
+            shares = t["current_shares"]
         if side == "buy" and executed:
             shares += qty
         elif side == "sell" and executed:
@@ -748,6 +758,9 @@ def index_page():
                         # Uniquement les ordres (BUY / SELL) : les jours sans mouvement
                         # (side absent = HOLD) restent visibles dans l'onglet Allocations.
                         orders = [t for t in trades if (t.get("side") or "").lower() in ("buy", "sell")]
+                        # allocation reelle post-ordre (position PEA lue le matin + ordre du jour),
+                        # meme calcul que l'onglet Allocations, indexe par ligne du journal
+                        real_alloc_by_row = {id(t): p["actual_alloc"] for t, p in zip(trades, portfolio)}
                         if not orders:
                             ui.label("No trades yet.").classes("text-gray-500")
                         else:
@@ -758,7 +771,7 @@ def index_page():
                                 {"name": "etf_price", "label": "Price", "field": "etf_price", "align": "right"},
                                 {"name": "value", "label": "Value", "field": "value", "align": "right"},
                                 {"name": "probability", "label": "Prob", "field": "probability", "align": "right"},
-                                {"name": "target_alloc", "label": "Target", "field": "target_alloc", "align": "right"},
+                                {"name": "real_alloc", "label": "Real alloc", "field": "real_alloc", "align": "right"},
                                 {"name": "executed", "label": "Status", "field": "executed", "align": "center"},
                             ]
                             rows = []
@@ -772,7 +785,7 @@ def index_page():
                                     "etf_price": f"{price:.2f}",
                                     "value": f"{qty * price:.0f} EUR",
                                     "probability": f"{t.get('probability', 0):.3f}",
-                                    "target_alloc": f"{t.get('target_alloc', 0)*100:.0f}%",
+                                    "real_alloc": f"{real_alloc_by_row.get(id(t), 0)*100:.0f}%",
                                     "executed": "LIVE" if t.get("executed") else "DRY-RUN",
                                 })
                             table = ui.table(columns=columns, rows=rows, row_key="date").classes("w-full")
@@ -804,8 +817,8 @@ def index_page():
                                 {"name": "price", "label": "Price", "field": "price", "align": "right"},
                                 {"name": "position", "label": "Position", "field": "position", "align": "right"},
                                 {"name": "equity", "label": "Equity", "field": "equity", "align": "right"},
-                                {"name": "target", "label": "Target", "field": "target", "align": "right"},
-                                {"name": "actual", "label": "Actual", "field": "actual", "align": "right"},
+                                {"name": "target", "label": "Advised alloc", "field": "target", "align": "right"},
+                                {"name": "actual", "label": "Real alloc", "field": "actual", "align": "right"},
                                 {"name": "action", "label": "Action", "field": "action", "align": "center"},
                             ]
                             rows = []
