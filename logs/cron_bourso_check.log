@@ -1137,3 +1137,243 @@ Error: Invalid credentials
    A jour: patch base sur v0.5.4 (pin eec7703, v0.5.4) = dernier tag azerpas.
 
 Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — CONNEXION COMPTE KO
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   34 passed, 1 skipped, 1 xfailed in 0.35s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 101.7600 EUR — PEA: 9364.36 EUR especes, 0 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.4 (pin eec7703, v0.5.4) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   34 passed, 1 skipped, 1 xfailed in 0.36s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 101.7600 EUR — PEA: 9364.36 EUR especes, 0 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.4 (pin eec7703, v0.5.4) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   34 passed, 1 skipped, 1 xfailed in 0.33s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 101.9800 EUR — PEA: 9364.36 EUR especes, 0 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.4 (pin eec7703, v0.5.4) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   34 passed, 1 skipped, 1 xfailed in 0.34s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 102.1000 EUR — PEA: 9364.36 EUR especes, 0 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.4 (pin eec7703, v0.5.4) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   34 passed, 1 skipped, 1 xfailed in 0.40s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 101.5000 EUR — PEA: 9364.36 EUR especes, 0 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.4 (pin eec7703, v0.5.4) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   34 passed, 1 skipped, 1 xfailed in 0.38s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 100.8800 EUR — PEA: 9364.36 EUR especes, 0 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.4 (pin eec7703, v0.5.4) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   34 passed, 1 skipped, 1 xfailed in 0.32s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 101.8800 EUR — PEA: 9364.36 EUR especes, 0 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.4 (pin eec7703, v0.5.4) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   34 passed, 1 skipped, 1 xfailed in 0.42s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 101.8800 EUR — PEA: 9364.36 EUR especes, 0 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.4 (pin eec7703, v0.5.4) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   34 passed, 1 skipped, 1 xfailed in 0.56s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 101.8800 EUR — PEA: 9364.36 EUR especes, 0 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.4 (pin eec7703, v0.5.4) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   34 passed, 1 skipped, 1 xfailed in 0.52s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 101.3000 EUR — PEA: 9364.36 EUR especes, 0 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.4 (pin eec7703, v0.5.4) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   34 passed, 1 skipped, 1 xfailed in 0.51s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 100.7600 EUR — PEA: 9364.36 EUR especes, 0 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.4 (pin eec7703, v0.5.4) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   34 passed, 1 skipped, 1 xfailed in 0.30s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 101.5200 EUR — PEA: 9364.36 EUR especes, 0 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.4 (pin eec7703, v0.5.4) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   34 passed, 1 skipped, 1 xfailed in 0.34s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 102.8200 EUR — PEA: 9364.36 EUR especes, 0 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.4 (pin eec7703, v0.5.4) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   34 passed, 1 skipped, 1 xfailed in 0.34s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 103.0800 EUR — PEA: 9364.36 EUR especes, 0 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.4 (pin eec7703, v0.5.4) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   34 passed, 1 skipped, 1 xfailed in 0.29s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 103.0800 EUR — PEA: 9364.36 EUR especes, 0 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.4 (pin eec7703, v0.5.4) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
+[MyQTM] bourso-cli — OK
+Verification quotidienne de bourso-cli
+========================================
+
+1. Build installe (tests dry-run): REUSSIS
+   34 passed, 1 skipped, 1 xfailed in 0.31s
+
+2. Deserialisation CLI (cargo test order/prepare): IGNORE — cargo introuvable — test ignore
+
+3. Connexion compte reel (trade summary PEA/PUST): OK — PUST 103.0800 EUR — PEA: 9364.36 EUR especes, 0 part(s)
+
+4. Depot amont (azerpas/bourso-api):
+   A jour: patch base sur v0.5.4 (pin eec7703, v0.5.4) = dernier tag azerpas.
+
+Email envoye a descamps.gregory@gmail.com: [MyQTM] bourso-cli — OK
