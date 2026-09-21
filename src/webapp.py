@@ -871,5 +871,5 @@ def index_page():
                             ui.table(columns=columns, rows=rows, row_key="date").classes("w-full")
 
 
-ui.run(title="Risk-Off Strategy — Gregory Descamps", port=int(os.environ.get("WEBAPP_PORT", 8081)),
+ui.run(title="Risk-Off Strategy — Gregory Descamps", port=int(os.environ.get("WEBAPP_PORT", 8080)),
        reload=False, storage_secret=WEBAPP_SECRET)

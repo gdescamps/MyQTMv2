@@ -17,7 +17,7 @@ fi
 
 docker run -d \
   --name "${CONTAINER_NAME}" \
-  -p 8081:8081 \
+  -p 127.0.0.1:8080:8080 \
   -e WEBAPP_PASSWORD="${WEBAPP_PASSWORD}" \
   -e WEBAPP_SECRET="${WEBAPP_SECRET}" \
   -v "$(pwd)/outputs:/app/outputs:ro" \
