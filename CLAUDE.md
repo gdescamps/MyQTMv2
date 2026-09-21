@@ -24,6 +24,7 @@ source venv/bin/activate
 - `FMPAPI` / `FINHUB` — legacy (FMP / Finnhub), **no longer read by any script** — the FMP-based top-5 PE downloader was removed in 2026-09 (FMP v3 endpoints dead since 2025-08-31); safe to drop from `.env`
 - `BOURSO_ID` / `BOURSO_CODE` — BoursoBank credentials for PEA execution
 - `GMAIL_APP_PASSWORD` — 16-char Gmail app password for email notifications
+- `WEBAPP_PASSWORD` — single password gating the NiceGUI dashboard (`/login`); the webapp **refuses to start without it**. Optional `WEBAPP_SECRET` = session-cookie signing key (unset → random per start, i.e. re-login after each restart). `webapp_run.sh` injects only these two into the container.
 - `GOOGLE_APPLICATION_CREDENTIALS` / `PROJECT_ID` — GCP (legacy LLM, not on the live path)
 
 `bourso-cli` (Rust, v0.5.4) is installed at `~/.local/bin/bourso-cli` — see `BOURSO.md` for build/config. It is **not** in the default cron PATH (see cron pitfalls below).
@@ -60,7 +61,7 @@ Deterministic hand-made allocation (no ML), backtested from 2000. x1 only, close
 - `src/bourso/` — `prepare.py` (dry-run state/capacity), `execute.py` (manual interactive order), `list_accounts.py`, `quote.py`, `notify.py` (Gmail SMTP recap/trade emails, inline-image HTML, `MAILING_LIST` currently just the owner).
 
 ### 4. Webapp (`src/webapp.py`)
-NiceGUI dashboard (backtests, Valorisation CAPE/ECY + NDX excess yield, allocations, trade history). Runs in Docker on port 8081 (`webapp_build.sh` / `webapp_run.sh` / `webapp_kill.sh`).
+NiceGUI dashboard (backtests, Valorisation CAPE/ECY + NDX excess yield, allocations, trade history). Runs in Docker on port 8081 (`webapp_build.sh` / `webapp_run.sh` / `webapp_kill.sh`). **Password-protected**: an `AuthMiddleware` redirects every unauthenticated request (pages *and* `/img/*` charts; only `/login`, `/assets/`, `/_nicegui` are open) to a `/login` page with a single password (`WEBAPP_PASSWORD`, compared with `secrets.compare_digest`, 1 s delay on failure), session kept in `app.storage.user` (`storage_secret=WEBAPP_SECRET`). The dashboard lives in `@ui.page("/")` (`index_page`) — NiceGUI 3 forbids mixing `@ui.page` with module-level UI — so trades/allocations are re-read on every visit (no container restart needed after a trade).
 
 ## Cron (the live system)
 

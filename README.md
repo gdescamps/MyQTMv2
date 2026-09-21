@@ -108,7 +108,7 @@ latest close's decision, executed next morning).
 | `external/bourso-api` (submodule) | pinned fork [gdescamps/bourso-api](https://github.com/gdescamps/bourso-api), branch `myqtm` = upstream tag + `trade summary` patch |
 | `2_bourso_cli_update.sh` | build/install `bourso-cli` from the submodule (`--pull` to bump) |
 | `tests/` | pytest dry-run + live-account checks for `bourso-cli` |
-| `src/webapp.py` | NiceGUI dashboard (backtests, allocations, trade history) |
+| `src/webapp.py` | NiceGUI dashboard (backtests, allocations, trade history) — protégé par un mot de passe unique (`WEBAPP_PASSWORD`) |
 
 ## Running
 

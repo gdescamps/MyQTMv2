@@ -11,14 +11,18 @@ Shows:
 Usage:  python src/webapp.py
 """
 
+import asyncio
 import json
 import os
+import secrets
 from datetime import datetime
 from pathlib import Path
 
 import plotly.graph_objects as go
-from fastapi.responses import FileResponse
+from fastapi import Request
+from fastapi.responses import FileResponse, RedirectResponse
 from nicegui import app, ui
+from starlette.middleware.base import BaseHTTPMiddleware
 
 ROOT = Path(__file__).resolve().parent.parent
 OUTPUTS = ROOT / "outputs"
@@ -34,6 +38,67 @@ BACKTEST_5Y = QQQ_OUT / "backtest_5y.png"
 BACKTEST_1Y = QQQ_OUT / "backtest_1y.png"
 BACKTEST_1M = QQQ_OUT / "backtest_1m.png"
 CAPE_CHART = OUTPUTS / "shiller" / "cape_ecy.png"
+
+
+# ── Auth (mot de passe unique) ───────────────────────────
+# WEBAPP_PASSWORD : mot de passe d'acces (env ou .env). Le webapp refuse de
+# demarrer sans, pour ne jamais tourner ouvert par accident (le bouton Emergency
+# OFF peut liquider le PEA). WEBAPP_SECRET : cle de signature du cookie de session
+# (optionnel ; sans, une cle aleatoire par demarrage -> re-login apres restart).
+try:
+    from dotenv import load_dotenv
+    load_dotenv(ROOT / ".env")
+except ImportError:
+    pass
+
+WEBAPP_PASSWORD = os.environ.get("WEBAPP_PASSWORD", "")
+if not WEBAPP_PASSWORD:
+    raise SystemExit("WEBAPP_PASSWORD manquant (env ou .env) — refus de demarrer sans mot de passe")
+WEBAPP_SECRET = os.environ.get("WEBAPP_SECRET") or secrets.token_hex(32)
+
+UNRESTRICTED_PREFIXES = ("/login", "/_nicegui", "/assets/")
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    """Redirige vers /login toute requete (pages ET images /img/*) non authentifiee."""
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        if not path.startswith(UNRESTRICTED_PREFIXES) and not app.storage.user.get("authenticated", False):
+            return RedirectResponse("/login")
+        return await call_next(request)
+
+
+app.add_middleware(AuthMiddleware)
+
+
+@ui.page("/login")
+async def login_page():
+    if app.storage.user.get("authenticated", False):
+        return RedirectResponse("/")
+
+    async def try_login():
+        if secrets.compare_digest(pwd.value or "", WEBAPP_PASSWORD):
+            app.storage.user["authenticated"] = True
+            ui.navigate.to("/")
+        else:
+            await asyncio.sleep(1)  # freine le brute-force
+            pwd.value = ""
+            ui.notify("Mot de passe incorrect", type="negative")
+
+    ui.add_head_html("""<style>
+        body { background: #1a1a1a; font-family: 'Inter', system-ui, sans-serif; }
+    </style>""")
+    with ui.card().classes("absolute-center items-center").style(
+            "width: 320px; padding: 32px 28px; background: #262626; color: #ddd; border-radius: 12px"):
+        ui.label("RISK-OFF").style(
+            "font-size: 1.1rem; font-weight: 700; letter-spacing: 0.12em; color: #ccc")
+        ui.label("QQQ / PUST — Boursorama PEA").style(
+            "font-size: 0.7rem; color: #777; letter-spacing: 0.05em; margin-bottom: 16px")
+        pwd = ui.input("Mot de passe", password=True, password_toggle_button=True) \
+            .props("dark outlined autofocus").classes("w-full") \
+            .on("keydown.enter", try_login)
+        ui.button("Entrer", on_click=try_login).props("color=green unelevated").classes("w-full mt-2")
 
 
 # ── Data loaders ──────────────────────────────────────────
@@ -236,7 +301,7 @@ def _cape():
 
 # ── Styles (same as dashboard) ────────────────────────────
 
-ui.add_head_html(f"""
+PAGE_CSS = f"""
 <style>
     html, body {{
         margin: 0;
@@ -414,7 +479,7 @@ ui.add_head_html(f"""
         .sidebar {{ display: none; }}
     }}
 </style>
-""")
+"""
 
 
 # ── Emergency override ────────────────────────────────────
@@ -438,366 +503,373 @@ def set_emergency_off(active):
 
 # ── Page layout ───────────────────────────────────────────
 
-trades = load_trades()
-portfolio = compute_portfolio_history(trades)
-last_trade = trades[-1] if trades else {}
+@ui.page("/")
+def index_page():
+    """Dashboard (protege par AuthMiddleware). Les donnees sont relues a chaque
+    visite -> plus besoin de redemarrer le conteneur apres un trade."""
+    ui.add_head_html(PAGE_CSS)
 
-current_alloc = last_trade.get("target_alloc", 0)
-current_prob = last_trade.get("probability", 0)
-current_price = last_trade.get("etf_price", 0)
-model_date = last_trade.get("model_date", "--")
-n_exec = sum(1 for t in trades if t.get("executed"))
+    trades = load_trades()
+    portfolio = compute_portfolio_history(trades)
+    last_trade = trades[-1] if trades else {}
 
-with ui.element("div").classes("layout"):
-    # ── Sidebar ──
-    with ui.element("div").classes("sidebar"):
-        ui.element("div").classes("sidebar-photo")
-        with ui.element("div").classes("sidebar-title"):
-            ui.html("<h2>Risk-Off</h2>")
-            ui.html('<div class="sub">QQQ / PUST — Boursorama PEA</div>')
-        ui.element("div").classes("sidebar-divider")
-        with ui.element("div").classes("sidebar-metrics"):
-            alloc_color = "gain-positive" if current_alloc >= 0.5 else "gain-negative"
-            for label, value, extra_class in [
-                ("Allocation", f"{current_alloc*100:.0f}%", alloc_color),
-                ("Probability", f"{current_prob:.3f}", ""),
-                ("PUST", f"{current_price:.2f} EUR", ""),
-                ("Trades", f"{n_exec}", ""),
-                ("Model", model_date, "mono"),
-            ]:
-                with ui.element("div").classes("sidebar-metric"):
-                    ui.html(f'<span class="label">{label}</span>')
-                    ui.html(f'<span class="value {extra_class}">{value}</span>')
-        # Emergency OFF button
-        with ui.element("div").classes("sidebar-emergency"):
-            emergency_active = is_emergency_off()
+    current_alloc = last_trade.get("target_alloc", 0)
+    current_prob = last_trade.get("probability", 0)
+    current_price = last_trade.get("etf_price", 0)
+    model_date = last_trade.get("model_date", "--")
+    n_exec = sum(1 for t in trades if t.get("executed"))
 
-            status_label = ui.label(
-                "EMERGENCY OFF" if emergency_active else "MODEL ACTIVE"
-            ).classes("emergency-status").style(
-                f"color: {'#ef5350' if emergency_active else '#4caf50'}"
-            )
+    with ui.element("div").classes("layout"):
+        # ── Sidebar ──
+        with ui.element("div").classes("sidebar"):
+            ui.element("div").classes("sidebar-photo")
+            with ui.element("div").classes("sidebar-title"):
+                ui.html("<h2>Risk-Off</h2>")
+                ui.html('<div class="sub">QQQ / PUST — Boursorama PEA</div>')
+            ui.element("div").classes("sidebar-divider")
+            with ui.element("div").classes("sidebar-metrics"):
+                alloc_color = "gain-positive" if current_alloc >= 0.5 else "gain-negative"
+                for label, value, extra_class in [
+                    ("Allocation", f"{current_alloc*100:.0f}%", alloc_color),
+                    ("Probability", f"{current_prob:.3f}", ""),
+                    ("PUST", f"{current_price:.2f} EUR", ""),
+                    ("Trades", f"{n_exec}", ""),
+                    ("Model", model_date, "mono"),
+                ]:
+                    with ui.element("div").classes("sidebar-metric"):
+                        ui.html(f'<span class="label">{label}</span>')
+                        ui.html(f'<span class="value {extra_class}">{value}</span>')
+            # Emergency OFF button
+            with ui.element("div").classes("sidebar-emergency"):
+                emergency_active = is_emergency_off()
 
-            def toggle_emergency():
-                if not is_emergency_off():
-                    # Activate emergency — show confirmation dialog
-                    with ui.dialog() as dlg, ui.card():
-                        ui.label("Desallocation d'urgence").style("font-weight: 700; font-size: 1.1rem")
-                        ui.label("Cela va forcer l'allocation a 0% et vendre toutes les positions.").style("color: #666")
-                        ui.label("Confirmer ?").style("font-weight: 600; margin-top: 8px")
-                        with ui.row().classes("gap-4 mt-4"):
-                            def confirm():
-                                set_emergency_off(True)
-                                btn.classes("on", remove="off")
-                                btn.text = "REACTIVER LE MODEL"
-                                status_label.text = "EMERGENCY OFF"
-                                status_label.style("color: #ef5350")
-                                dlg.close()
-                                ui.notify("Emergency OFF active — allocation forcee a 0%", type="warning")
-                            ui.button("CONFIRMER", on_click=confirm).props("color=red")
-                            ui.button("Annuler", on_click=dlg.close).props("flat")
-                    dlg.open()
-                else:
-                    # Deactivate emergency — back to model
-                    set_emergency_off(False)
-                    btn.classes("off", remove="on")
-                    btn.text = "EMERGENCY OFF"
-                    status_label.text = "MODEL ACTIVE"
-                    status_label.style("color: #4caf50")
-                    ui.notify("Model reactif — le model reprend le controle demain matin", type="positive")
+                status_label = ui.label(
+                    "EMERGENCY OFF" if emergency_active else "MODEL ACTIVE"
+                ).classes("emergency-status").style(
+                    f"color: {'#ef5350' if emergency_active else '#4caf50'}"
+                )
 
-            btn = ui.button(
-                "REACTIVER LE MODEL" if emergency_active else "EMERGENCY OFF",
-                on_click=toggle_emergency,
-            )
-            btn.classes(f"emergency-btn {'on' if emergency_active else 'off'}")
-
-        with ui.element("div").classes("sidebar-footer"):
-            ui.html(f'{datetime.now().strftime("%d %b %Y &nbsp; %H:%M")}')
-
-    # ── Content ──
-    with ui.column().classes("content-panel"):
-        # Tabs
-        with ui.tabs().classes("w-full custom-tabs").props("dense") as tabs:
-            tab_full = ui.tab("Backtest")
-            tab_10y = ui.tab("10 Years")
-            tab_5y = ui.tab("5 Years")
-            tab_1y = ui.tab("1 Year")
-            tab_1m = ui.tab("1 Month")
-            tab_val = ui.tab("Valorisation")
-            tab_gain = ui.tab("Gain réel")
-            tab_trades = ui.tab("Trades")
-            tab_alloc = ui.tab("Allocations")
-
-        with ui.tab_panels(tabs, value=tab_full).classes("w-full flex-1 custom-tab-panels"):
-
-            # ── Backtest Full ──
-            with ui.tab_panel(tab_full):
-                with ui.column().classes("tab-content"):
-                    ui.element("div").classes("w-full h-0.5 bg-black")
-                    ui.label("Walk-Forward Backtest — Full History").classes("text-base font-semibold")
-                    if BACKTEST_FULL.exists():
-                        ui.image("/img/backtest_full").classes("w-full rounded-lg shadow-lg")
+                def toggle_emergency():
+                    if not is_emergency_off():
+                        # Activate emergency — show confirmation dialog
+                        with ui.dialog() as dlg, ui.card():
+                            ui.label("Desallocation d'urgence").style("font-weight: 700; font-size: 1.1rem")
+                            ui.label("Cela va forcer l'allocation a 0% et vendre toutes les positions.").style("color: #666")
+                            ui.label("Confirmer ?").style("font-weight: 600; margin-top: 8px")
+                            with ui.row().classes("gap-4 mt-4"):
+                                def confirm():
+                                    set_emergency_off(True)
+                                    btn.classes("on", remove="off")
+                                    btn.text = "REACTIVER LE MODEL"
+                                    status_label.text = "EMERGENCY OFF"
+                                    status_label.style("color: #ef5350")
+                                    dlg.close()
+                                    ui.notify("Emergency OFF active — allocation forcee a 0%", type="warning")
+                                ui.button("CONFIRMER", on_click=confirm).props("color=red")
+                                ui.button("Annuler", on_click=dlg.close).props("flat")
+                        dlg.open()
                     else:
-                        ui.label("Run: python src/risk_off_strategy/run.py QQQ").classes("text-gray-500")
+                        # Deactivate emergency — back to model
+                        set_emergency_off(False)
+                        btn.classes("off", remove="on")
+                        btn.text = "EMERGENCY OFF"
+                        status_label.text = "MODEL ACTIVE"
+                        status_label.style("color: #4caf50")
+                        ui.notify("Model reactif — le model reprend le controle demain matin", type="positive")
 
-            # ── 10Y ──
-            with ui.tab_panel(tab_10y):
-                with ui.column().classes("tab-content"):
-                    ui.element("div").classes("w-full h-0.5 bg-black")
-                    ui.label("Last 10 Years").classes("text-base font-semibold")
-                    if BACKTEST_10Y.exists():
-                        ui.image("/img/backtest_10y").classes("w-full rounded-lg shadow-lg")
+                btn = ui.button(
+                    "REACTIVER LE MODEL" if emergency_active else "EMERGENCY OFF",
+                    on_click=toggle_emergency,
+                )
+                btn.classes(f"emergency-btn {'on' if emergency_active else 'off'}")
 
-            # ── 5Y ──
-            with ui.tab_panel(tab_5y):
-                with ui.column().classes("tab-content"):
-                    ui.element("div").classes("w-full h-0.5 bg-black")
-                    ui.label("Last 5 Years").classes("text-base font-semibold")
-                    if BACKTEST_5Y.exists():
-                        ui.image("/img/backtest_5y").classes("w-full rounded-lg shadow-lg")
+            with ui.element("div").classes("sidebar-footer"):
+                ui.html(f'{datetime.now().strftime("%d %b %Y &nbsp; %H:%M")}')
 
-            # ── 1Y ──
-            with ui.tab_panel(tab_1y):
-                with ui.column().classes("tab-content"):
-                    ui.element("div").classes("w-full h-0.5 bg-black")
-                    ui.label("Last 252 Trading Days").classes("text-base font-semibold")
-                    if BACKTEST_1Y.exists():
-                        ui.image("/img/backtest_1y").classes("w-full rounded-lg shadow-lg")
+        # ── Content ──
+        with ui.column().classes("content-panel"):
+            # Tabs
+            with ui.tabs().classes("w-full custom-tabs").props("dense") as tabs:
+                tab_full = ui.tab("Backtest")
+                tab_10y = ui.tab("10 Years")
+                tab_5y = ui.tab("5 Years")
+                tab_1y = ui.tab("1 Year")
+                tab_1m = ui.tab("1 Month")
+                tab_val = ui.tab("Valorisation")
+                tab_gain = ui.tab("Gain réel")
+                tab_trades = ui.tab("Trades")
+                tab_alloc = ui.tab("Allocations")
 
-            # ── 1M ──
-            with ui.tab_panel(tab_1m):
-                with ui.column().classes("tab-content"):
-                    ui.element("div").classes("w-full h-0.5 bg-black")
-                    ui.label("Last 21 Trading Days").classes("text-base font-semibold")
-                    if BACKTEST_1M.exists():
-                        ui.image("/img/backtest_1m").classes("w-full rounded-lg shadow-lg")
+            with ui.tab_panels(tabs, value=tab_full).classes("w-full flex-1 custom-tab-panels"):
 
-            # ── Valorisation (CAPE / ECY S&P, Shiller) ──
-            with ui.tab_panel(tab_val):
-                with ui.column().classes("tab-content"):
-                    ui.element("div").classes("w-full h-0.5 bg-black")
-                    ui.label("Valorisation — CAPE & Excess CAPE Yield (S&P 500, Shiller)") \
-                        .classes("text-base font-semibold")
-                    val = load_cape_ecy_latest()
-                    if not val:
-                        ui.label("Pas de données. Lancer : python -m src.download_shiller_cape") \
-                            .classes("text-gray-500")
-                    else:
-                        ecy_s = f"{val['ecy']*100:+.2f}%" if val["ecy"] is not None else "—"
-                        with ui.row().classes("gap-6 items-baseline"):
-                            ui.label(f"CAPE {val['cape']:.1f}").classes("text-lg font-semibold")
-                            ui.label(f"percentile {val['cape_pct']:.0f} "
-                                     f"(médiane {val['cape_median']:.1f})") \
-                                .style("font-size: 0.8rem; color: #999")
-                            ui.label(f"ECY {ecy_s}").classes("text-lg font-semibold")
-                            ui.label(f"données Shiller au {val['date']}") \
-                                .style("font-size: 0.8rem; color: #999")
-                        ui.label("Valorisation ajustée des taux, comparable entre époques "
-                                 "(≠ PE brut). Contexte — hors stratégie.") \
-                            .style("font-size: 0.8rem; color: #666")
-                    if CAPE_CHART.exists():
-                        ui.image("/img/cape_ecy").classes("w-full rounded-lg shadow-lg")
+                # ── Backtest Full ──
+                with ui.tab_panel(tab_full):
+                    with ui.column().classes("tab-content"):
+                        ui.element("div").classes("w-full h-0.5 bg-black")
+                        ui.label("Walk-Forward Backtest — Full History").classes("text-base font-semibold")
+                        if BACKTEST_FULL.exists():
+                            ui.image("/img/backtest_full").classes("w-full rounded-lg shadow-lg")
+                        else:
+                            ui.label("Run: python src/risk_off_strategy/run.py QQQ").classes("text-gray-500")
 
-                    # ── Leaders Nasdaq : excess earnings yield top-5 / top-10 ──
-                    ney = load_ndx_excess_yield()
-                    if ney:
-                        ui.element("div").classes("w-full h-0.5 bg-black mt-4")
-                        ui.label("Leaders Nasdaq — Excess earnings yield (top-5 / top-10)") \
+                # ── 10Y ──
+                with ui.tab_panel(tab_10y):
+                    with ui.column().classes("tab-content"):
+                        ui.element("div").classes("w-full h-0.5 bg-black")
+                        ui.label("Last 10 Years").classes("text-base font-semibold")
+                        if BACKTEST_10Y.exists():
+                            ui.image("/img/backtest_10y").classes("w-full rounded-lg shadow-lg")
+
+                # ── 5Y ──
+                with ui.tab_panel(tab_5y):
+                    with ui.column().classes("tab-content"):
+                        ui.element("div").classes("w-full h-0.5 bg-black")
+                        ui.label("Last 5 Years").classes("text-base font-semibold")
+                        if BACKTEST_5Y.exists():
+                            ui.image("/img/backtest_5y").classes("w-full rounded-lg shadow-lg")
+
+                # ── 1Y ──
+                with ui.tab_panel(tab_1y):
+                    with ui.column().classes("tab-content"):
+                        ui.element("div").classes("w-full h-0.5 bg-black")
+                        ui.label("Last 252 Trading Days").classes("text-base font-semibold")
+                        if BACKTEST_1Y.exists():
+                            ui.image("/img/backtest_1y").classes("w-full rounded-lg shadow-lg")
+
+                # ── 1M ──
+                with ui.tab_panel(tab_1m):
+                    with ui.column().classes("tab-content"):
+                        ui.element("div").classes("w-full h-0.5 bg-black")
+                        ui.label("Last 21 Trading Days").classes("text-base font-semibold")
+                        if BACKTEST_1M.exists():
+                            ui.image("/img/backtest_1m").classes("w-full rounded-lg shadow-lg")
+
+                # ── Valorisation (CAPE / ECY S&P, Shiller) ──
+                with ui.tab_panel(tab_val):
+                    with ui.column().classes("tab-content"):
+                        ui.element("div").classes("w-full h-0.5 bg-black")
+                        ui.label("Valorisation — CAPE & Excess CAPE Yield (S&P 500, Shiller)") \
                             .classes("text-base font-semibold")
-                        rr = ney["real_rate"] * 100
-                        ui.label(f"rendement bénéfices cap-pondéré − taux réel 10 ans "
-                                 f"({rr:.2f} %, DFII10) · au {ney['date']}") \
-                            .style("font-size: 0.8rem; color: #999")
+                        val = load_cape_ecy_latest()
+                        if not val:
+                            ui.label("Pas de données. Lancer : python -m src.download_shiller_cape") \
+                                .classes("text-gray-500")
+                        else:
+                            ecy_s = f"{val['ecy']*100:+.2f}%" if val["ecy"] is not None else "—"
+                            with ui.row().classes("gap-6 items-baseline"):
+                                ui.label(f"CAPE {val['cape']:.1f}").classes("text-lg font-semibold")
+                                ui.label(f"percentile {val['cape_pct']:.0f} "
+                                         f"(médiane {val['cape_median']:.1f})") \
+                                    .style("font-size: 0.8rem; color: #999")
+                                ui.label(f"ECY {ecy_s}").classes("text-lg font-semibold")
+                                ui.label(f"données Shiller au {val['date']}") \
+                                    .style("font-size: 0.8rem; color: #999")
+                            ui.label("Valorisation ajustée des taux, comparable entre époques "
+                                     "(≠ PE brut). Contexte — hors stratégie.") \
+                                .style("font-size: 0.8rem; color: #666")
+                        if CAPE_CHART.exists():
+                            ui.image("/img/cape_ecy").classes("w-full rounded-lg shadow-lg")
 
-                        def _p(x):
-                            return f"{x*100:+.2f}%" if x is not None else "—"
+                        # ── Leaders Nasdaq : excess earnings yield top-5 / top-10 ──
+                        ney = load_ndx_excess_yield()
+                        if ney:
+                            ui.element("div").classes("w-full h-0.5 bg-black mt-4")
+                            ui.label("Leaders Nasdaq — Excess earnings yield (top-5 / top-10)") \
+                                .classes("text-base font-semibold")
+                            rr = ney["real_rate"] * 100
+                            ui.label(f"rendement bénéfices cap-pondéré − taux réel 10 ans "
+                                     f"({rr:.2f} %, DFII10) · au {ney['date']}") \
+                                .style("font-size: 0.8rem; color: #999")
 
-                        cols = [
-                            {"name": "b", "label": "Panier", "field": "b", "align": "left"},
-                            {"name": "et", "label": "Excess (trailing)", "field": "et", "align": "right"},
-                            {"name": "ef", "label": "Excess (forward)", "field": "ef", "align": "right"},
-                            {"name": "g", "label": "Δ croissance", "field": "g", "align": "right"},
-                        ]
-                        rws = []
-                        for lbl, key in [("Top-5", "top5"), ("Top-10", "top10")]:
-                            b = ney[key]
-                            et, ef = b["excess_trailing"], b["excess_forward"]
-                            gap = (ef - et) if (et is not None and ef is not None) else None
-                            rws.append({"b": lbl, "et": _p(et), "ef": _p(ef), "g": _p(gap)})
-                        if val and val.get("ecy") is not None:
-                            rws.append({"b": "S&P 500 (ECY, réf.)",
-                                        "et": f"{val['ecy']*100:+.2f}%", "ef": "—", "g": "—"})
-                        ui.table(columns=cols, rows=rws, row_key="b").classes("w-full")
-                        ui.label("Trailing = bénéfices actuels ; forward = bénéfices attendus "
-                                 "(estimations analystes, optimistes) ; le Δ croissance chiffre le "
-                                 "« crédit IA ». Marges proches de records → le trailing peut flatter. "
-                                 "≠ CAPE lissé (inutilisable sur des compounders). Contexte — hors stratégie.") \
-                            .style("font-size: 0.8rem; color: #666")
+                            def _p(x):
+                                return f"{x*100:+.2f}%" if x is not None else "—"
 
-            # ── Gain réel ──
-            with ui.tab_panel(tab_gain):
-                with ui.column().classes("tab-content"):
-                    ui.element("div").classes("w-full h-0.5 bg-black")
-                    ui.label("Gain réel du compte — rendement sur le capital").classes("text-base font-semibold")
-                    perf_series, perf_stats = compute_real_performance(trades)
-                    if not perf_series:
-                        ui.label("Pas encore assez d'historique réel.").classes("text-gray-500")
-                    else:
-                        gcls = "gain-positive" if perf_stats["cum_return"] >= 0 else "gain-negative"
-                        eur_sign = "+" if perf_stats["total_gain_eur"] >= 0 else ""
+                            cols = [
+                                {"name": "b", "label": "Panier", "field": "b", "align": "left"},
+                                {"name": "et", "label": "Excess (trailing)", "field": "et", "align": "right"},
+                                {"name": "ef", "label": "Excess (forward)", "field": "ef", "align": "right"},
+                                {"name": "g", "label": "Δ croissance", "field": "g", "align": "right"},
+                            ]
+                            rws = []
+                            for lbl, key in [("Top-5", "top5"), ("Top-10", "top10")]:
+                                b = ney[key]
+                                et, ef = b["excess_trailing"], b["excess_forward"]
+                                gap = (ef - et) if (et is not None and ef is not None) else None
+                                rws.append({"b": lbl, "et": _p(et), "ef": _p(ef), "g": _p(gap)})
+                            if val and val.get("ecy") is not None:
+                                rws.append({"b": "S&P 500 (ECY, réf.)",
+                                            "et": f"{val['ecy']*100:+.2f}%", "ef": "—", "g": "—"})
+                            ui.table(columns=cols, rows=rws, row_key="b").classes("w-full")
+                            ui.label("Trailing = bénéfices actuels ; forward = bénéfices attendus "
+                                     "(estimations analystes, optimistes) ; le Δ croissance chiffre le "
+                                     "« crédit IA ». Marges proches de records → le trailing peut flatter. "
+                                     "≠ CAPE lissé (inutilisable sur des compounders). Contexte — hors stratégie.") \
+                                .style("font-size: 0.8rem; color: #666")
 
-                        def kpi(label, value, cls=""):
-                            with ui.element("div").classes("card").style("flex:1; text-align:center"):
-                                ui.html(f'<div style="font-size:0.7rem;text-transform:uppercase;'
-                                        f'letter-spacing:0.06em;color:#888">{label}</div>')
-                                ui.html(f'<div class="{cls}" style="font-size:1.6rem;'
-                                        f'font-weight:700;margin-top:6px">{value}</div>')
+                # ── Gain réel ──
+                with ui.tab_panel(tab_gain):
+                    with ui.column().classes("tab-content"):
+                        ui.element("div").classes("w-full h-0.5 bg-black")
+                        ui.label("Gain réel du compte — rendement sur le capital").classes("text-base font-semibold")
+                        perf_series, perf_stats = compute_real_performance(trades)
+                        if not perf_series:
+                            ui.label("Pas encore assez d'historique réel.").classes("text-gray-500")
+                        else:
+                            gcls = "gain-positive" if perf_stats["cum_return"] >= 0 else "gain-negative"
+                            eur_sign = "+" if perf_stats["total_gain_eur"] >= 0 else ""
 
-                        with ui.row().classes("w-full gap-4"):
-                            kpi("Capital actuel", f"{perf_stats['current_equity']:.0f} EUR")
-                            kpi("Gain cumulé", f"{perf_stats['cum_return']*100:+.1f}%", gcls)
-                            kpi("Gain réel", f"{eur_sign}{perf_stats['total_gain_eur']:.0f} EUR", gcls)
-                            kpi("Annualisé", f"{perf_stats['annualized']*100:+.1f}%", gcls)
+                            def kpi(label, value, cls=""):
+                                with ui.element("div").classes("card").style("flex:1; text-align:center"):
+                                    ui.html(f'<div style="font-size:0.7rem;text-transform:uppercase;'
+                                            f'letter-spacing:0.06em;color:#888">{label}</div>')
+                                    ui.html(f'<div class="{cls}" style="font-size:1.6rem;'
+                                            f'font-weight:700;margin-top:6px">{value}</div>')
 
-                        xs = [datetime.strptime(s["date"], "%Y-%m-%d") for s in perf_series]
-                        ys = [s["cum_return"] * 100 for s in perf_series]
+                            with ui.row().classes("w-full gap-4"):
+                                kpi("Capital actuel", f"{perf_stats['current_equity']:.0f} EUR")
+                                kpi("Gain cumulé", f"{perf_stats['cum_return']*100:+.1f}%", gcls)
+                                kpi("Gain réel", f"{eur_sign}{perf_stats['total_gain_eur']:.0f} EUR", gcls)
+                                kpi("Annualisé", f"{perf_stats['annualized']*100:+.1f}%", gcls)
 
-                        # Insérer les points de croisement à y=0 pour clipper net
-                        ax, ay = [], []
-                        for i in range(len(xs)):
-                            if i > 0 and ((ys[i-1] < 0 < ys[i]) or (ys[i-1] > 0 > ys[i])):
-                                frac = -ys[i-1] / (ys[i] - ys[i-1])
-                                ax.append(xs[i-1] + (xs[i] - xs[i-1]) * frac)
-                                ay.append(0.0)
-                            ax.append(xs[i])
-                            ay.append(ys[i])
+                            xs = [datetime.strptime(s["date"], "%Y-%m-%d") for s in perf_series]
+                            ys = [s["cum_return"] * 100 for s in perf_series]
 
-                        pos_fill = [y if y >= 0 else 0.0 for y in ay]
-                        neg_fill = [y if y <= 0 else 0.0 for y in ay]
-                        pos_line = [y if y >= 0 else None for y in ay]
-                        neg_line = [y if y <= 0 else None for y in ay]
+                            # Insérer les points de croisement à y=0 pour clipper net
+                            ax, ay = [], []
+                            for i in range(len(xs)):
+                                if i > 0 and ((ys[i-1] < 0 < ys[i]) or (ys[i-1] > 0 > ys[i])):
+                                    frac = -ys[i-1] / (ys[i] - ys[i-1])
+                                    ax.append(xs[i-1] + (xs[i] - xs[i-1]) * frac)
+                                    ay.append(0.0)
+                                ax.append(xs[i])
+                                ay.append(ys[i])
 
-                        GREEN, RED = "#2e7d32", "#ef5350"
-                        fig_gain = go.Figure()
-                        # Remplissages (sous la courbe), vert au-dessus / rouge en dessous
-                        fig_gain.add_trace(go.Scatter(
-                            x=ax, y=neg_fill, fill="tozeroy", mode="none",
-                            fillcolor="rgba(239,83,80,0.20)", hoverinfo="skip", showlegend=False))
-                        fig_gain.add_trace(go.Scatter(
-                            x=ax, y=pos_fill, fill="tozeroy", mode="none",
-                            fillcolor="rgba(46,125,50,0.20)", hoverinfo="skip", showlegend=False))
-                        # Lignes colorées par signe (se rejoignent au croisement)
-                        fig_gain.add_trace(go.Scatter(
-                            x=ax, y=neg_line, mode="lines", line=dict(color=RED, width=2),
-                            connectgaps=False, hoverinfo="skip", showlegend=False))
-                        fig_gain.add_trace(go.Scatter(
-                            x=ax, y=pos_line, mode="lines", line=dict(color=GREEN, width=2),
-                            connectgaps=False, hoverinfo="skip", showlegend=False))
-                        # Marqueurs sur les vrais points, colorés par signe + hover
-                        fig_gain.add_trace(go.Scatter(
-                            x=xs, y=ys, mode="markers",
-                            marker=dict(size=6, color=[RED if y < 0 else GREEN for y in ys]),
-                            hovertemplate="%{x|%d %b %Y}<br>%{y:+.2f}%<extra></extra>",
-                            showlegend=False))
-                        fig_gain.add_hline(y=0, line=dict(color="#888", width=1, dash="dot"))
-                        fig_gain.update_layout(
-                            title=dict(text="Rendement cumulé (time-weighted) du compte PEA", x=0.5),
-                            margin=dict(t=46, b=30, l=50, r=20), height=420,
-                            yaxis=dict(title="Gain (%)", ticksuffix="%", zeroline=False),
-                            xaxis=dict(title="", type="date"),
-                            plot_bgcolor="white", hovermode="x unified",
-                        )
-                        ui.plotly(fig_gain).classes("w-full")
+                            pos_fill = [y if y >= 0 else 0.0 for y in ay]
+                            neg_fill = [y if y <= 0 else 0.0 for y in ay]
+                            pos_line = [y if y >= 0 else None for y in ay]
+                            neg_line = [y if y <= 0 else None for y in ay]
 
-                        if abs(perf_stats["total_deposits"]) >= 5.0:
+                            GREEN, RED = "#2e7d32", "#ef5350"
+                            fig_gain = go.Figure()
+                            # Remplissages (sous la courbe), vert au-dessus / rouge en dessous
+                            fig_gain.add_trace(go.Scatter(
+                                x=ax, y=neg_fill, fill="tozeroy", mode="none",
+                                fillcolor="rgba(239,83,80,0.20)", hoverinfo="skip", showlegend=False))
+                            fig_gain.add_trace(go.Scatter(
+                                x=ax, y=pos_fill, fill="tozeroy", mode="none",
+                                fillcolor="rgba(46,125,50,0.20)", hoverinfo="skip", showlegend=False))
+                            # Lignes colorées par signe (se rejoignent au croisement)
+                            fig_gain.add_trace(go.Scatter(
+                                x=ax, y=neg_line, mode="lines", line=dict(color=RED, width=2),
+                                connectgaps=False, hoverinfo="skip", showlegend=False))
+                            fig_gain.add_trace(go.Scatter(
+                                x=ax, y=pos_line, mode="lines", line=dict(color=GREEN, width=2),
+                                connectgaps=False, hoverinfo="skip", showlegend=False))
+                            # Marqueurs sur les vrais points, colorés par signe + hover
+                            fig_gain.add_trace(go.Scatter(
+                                x=xs, y=ys, mode="markers",
+                                marker=dict(size=6, color=[RED if y < 0 else GREEN for y in ys]),
+                                hovertemplate="%{x|%d %b %Y}<br>%{y:+.2f}%<extra></extra>",
+                                showlegend=False))
+                            fig_gain.add_hline(y=0, line=dict(color="#888", width=1, dash="dot"))
+                            fig_gain.update_layout(
+                                title=dict(text="Rendement cumulé (time-weighted) du compte PEA", x=0.5),
+                                margin=dict(t=46, b=30, l=50, r=20), height=420,
+                                yaxis=dict(title="Gain (%)", ticksuffix="%", zeroline=False),
+                                xaxis=dict(title="", type="date"),
+                                plot_bgcolor="white", hovermode="x unified",
+                            )
+                            ui.plotly(fig_gain).classes("w-full")
+
+                            if abs(perf_stats["total_deposits"]) >= 5.0:
+                                ui.label(
+                                    f"Apports/retraits neutralisés : {perf_stats['total_deposits']:+.0f} EUR "
+                                    f"(exclus du rendement)"
+                                ).style("font-size:0.75rem; color:#999")
                             ui.label(
-                                f"Apports/retraits neutralisés : {perf_stats['total_deposits']:+.0f} EUR "
-                                f"(exclus du rendement)"
+                                f"Capital initial {perf_stats['start_equity']:.0f} EUR · "
+                                f"{perf_stats['days']} jours · frais de vente (0.5%) inclus"
                             ).style("font-size:0.75rem; color:#999")
-                        ui.label(
-                            f"Capital initial {perf_stats['start_equity']:.0f} EUR · "
-                            f"{perf_stats['days']} jours · frais de vente (0.5%) inclus"
-                        ).style("font-size:0.75rem; color:#999")
 
-            # ── Trades ──
-            with ui.tab_panel(tab_trades):
-                with ui.column().classes("tab-content"):
-                    ui.element("div").classes("w-full h-0.5 bg-black")
-                    ui.label("Trade History").classes("text-base font-semibold")
-                    if not trades:
-                        ui.label("No trades yet.").classes("text-gray-500")
-                    else:
-                        columns = [
-                            {"name": "date", "label": "Date", "field": "date", "align": "left"},
-                            {"name": "side", "label": "Action", "field": "side", "align": "left"},
-                            {"name": "quantity", "label": "Qty", "field": "quantity", "align": "right"},
-                            {"name": "etf_price", "label": "Price", "field": "etf_price", "align": "right"},
-                            {"name": "value", "label": "Value", "field": "value", "align": "right"},
-                            {"name": "probability", "label": "Prob", "field": "probability", "align": "right"},
-                            {"name": "target_alloc", "label": "Target", "field": "target_alloc", "align": "right"},
-                            {"name": "executed", "label": "Status", "field": "executed", "align": "center"},
-                        ]
-                        rows = []
-                        for t in reversed(trades):
-                            qty = t.get("quantity", 0)
-                            price = t.get("etf_price", 0)
-                            rows.append({
-                                "date": t.get("date", ""),
-                                "side": (t.get("side") or "hold").upper(),
-                                "quantity": qty,
-                                "etf_price": f"{price:.2f}",
-                                "value": f"{qty * price:.0f} EUR",
-                                "probability": f"{t.get('probability', 0):.3f}",
-                                "target_alloc": f"{t.get('target_alloc', 0)*100:.0f}%",
-                                "executed": "LIVE" if t.get("executed") else "DRY-RUN",
-                            })
-                        table = ui.table(columns=columns, rows=rows, row_key="date").classes("w-full")
-                        table.add_slot("body-cell-side", """
-                            <q-td :props="props">
-                                <span :style="{ color: props.value === 'BUY' ? '#1f8f4c' : props.value === 'SELL' ? '#c0392b' : '#888',
-                                                 fontWeight: 600 }">
-                                    {{ props.value }}
-                                </span>
-                            </q-td>
-                        """)
-                        table.add_slot("body-cell-executed", """
-                            <q-td :props="props">
-                                <q-badge :color="props.value === 'LIVE' ? 'green' : 'grey'" :label="props.value" />
-                            </q-td>
-                        """)
+                # ── Trades ──
+                with ui.tab_panel(tab_trades):
+                    with ui.column().classes("tab-content"):
+                        ui.element("div").classes("w-full h-0.5 bg-black")
+                        ui.label("Trade History").classes("text-base font-semibold")
+                        if not trades:
+                            ui.label("No trades yet.").classes("text-gray-500")
+                        else:
+                            columns = [
+                                {"name": "date", "label": "Date", "field": "date", "align": "left"},
+                                {"name": "side", "label": "Action", "field": "side", "align": "left"},
+                                {"name": "quantity", "label": "Qty", "field": "quantity", "align": "right"},
+                                {"name": "etf_price", "label": "Price", "field": "etf_price", "align": "right"},
+                                {"name": "value", "label": "Value", "field": "value", "align": "right"},
+                                {"name": "probability", "label": "Prob", "field": "probability", "align": "right"},
+                                {"name": "target_alloc", "label": "Target", "field": "target_alloc", "align": "right"},
+                                {"name": "executed", "label": "Status", "field": "executed", "align": "center"},
+                            ]
+                            rows = []
+                            for t in reversed(trades):
+                                qty = t.get("quantity", 0)
+                                price = t.get("etf_price", 0)
+                                rows.append({
+                                    "date": t.get("date", ""),
+                                    "side": (t.get("side") or "hold").upper(),
+                                    "quantity": qty,
+                                    "etf_price": f"{price:.2f}",
+                                    "value": f"{qty * price:.0f} EUR",
+                                    "probability": f"{t.get('probability', 0):.3f}",
+                                    "target_alloc": f"{t.get('target_alloc', 0)*100:.0f}%",
+                                    "executed": "LIVE" if t.get("executed") else "DRY-RUN",
+                                })
+                            table = ui.table(columns=columns, rows=rows, row_key="date").classes("w-full")
+                            table.add_slot("body-cell-side", """
+                                <q-td :props="props">
+                                    <span :style="{ color: props.value === 'BUY' ? '#1f8f4c' : props.value === 'SELL' ? '#c0392b' : '#888',
+                                                     fontWeight: 600 }">
+                                        {{ props.value }}
+                                    </span>
+                                </q-td>
+                            """)
+                            table.add_slot("body-cell-executed", """
+                                <q-td :props="props">
+                                    <q-badge :color="props.value === 'LIVE' ? 'green' : 'grey'" :label="props.value" />
+                                </q-td>
+                            """)
 
-            # ── Allocation History ──
-            with ui.tab_panel(tab_alloc):
-                with ui.column().classes("tab-content"):
-                    ui.element("div").classes("w-full h-0.5 bg-black")
-                    ui.label("Allocation History").classes("text-base font-semibold")
-                    if not portfolio:
-                        ui.label("No allocation history yet.").classes("text-gray-500")
-                    else:
-                        columns = [
-                            {"name": "date", "label": "Date", "field": "date", "align": "left"},
-                            {"name": "shares", "label": "Shares", "field": "shares", "align": "right"},
-                            {"name": "price", "label": "Price", "field": "price", "align": "right"},
-                            {"name": "position", "label": "Position", "field": "position", "align": "right"},
-                            {"name": "equity", "label": "Equity", "field": "equity", "align": "right"},
-                            {"name": "target", "label": "Target", "field": "target", "align": "right"},
-                            {"name": "actual", "label": "Actual", "field": "actual", "align": "right"},
-                            {"name": "action", "label": "Action", "field": "action", "align": "center"},
-                        ]
-                        rows = []
-                        for p in reversed(portfolio):
-                            rows.append({
-                                "date": p["date"],
-                                "shares": p["shares"],
-                                "price": f"{p['price']:.2f}",
-                                "position": f"{p['position_value']:.0f} EUR",
-                                "equity": f"{p['equity']:.0f} EUR",
-                                "target": f"{p['target_alloc']*100:.0f}%",
-                                "actual": f"{p['actual_alloc']*100:.0f}%",
-                                "action": p["side"].upper(),
-                            })
-                        ui.table(columns=columns, rows=rows, row_key="date").classes("w-full")
+                # ── Allocation History ──
+                with ui.tab_panel(tab_alloc):
+                    with ui.column().classes("tab-content"):
+                        ui.element("div").classes("w-full h-0.5 bg-black")
+                        ui.label("Allocation History").classes("text-base font-semibold")
+                        if not portfolio:
+                            ui.label("No allocation history yet.").classes("text-gray-500")
+                        else:
+                            columns = [
+                                {"name": "date", "label": "Date", "field": "date", "align": "left"},
+                                {"name": "shares", "label": "Shares", "field": "shares", "align": "right"},
+                                {"name": "price", "label": "Price", "field": "price", "align": "right"},
+                                {"name": "position", "label": "Position", "field": "position", "align": "right"},
+                                {"name": "equity", "label": "Equity", "field": "equity", "align": "right"},
+                                {"name": "target", "label": "Target", "field": "target", "align": "right"},
+                                {"name": "actual", "label": "Actual", "field": "actual", "align": "right"},
+                                {"name": "action", "label": "Action", "field": "action", "align": "center"},
+                            ]
+                            rows = []
+                            for p in reversed(portfolio):
+                                rows.append({
+                                    "date": p["date"],
+                                    "shares": p["shares"],
+                                    "price": f"{p['price']:.2f}",
+                                    "position": f"{p['position_value']:.0f} EUR",
+                                    "equity": f"{p['equity']:.0f} EUR",
+                                    "target": f"{p['target_alloc']*100:.0f}%",
+                                    "actual": f"{p['actual_alloc']*100:.0f}%",
+                                    "action": p["side"].upper(),
+                                })
+                            ui.table(columns=columns, rows=rows, row_key="date").classes("w-full")
 
 
-ui.run(title="Risk-Off Strategy — Gregory Descamps", port=int(os.environ.get("WEBAPP_PORT", 8081)), reload=False)
+ui.run(title="Risk-Off Strategy — Gregory Descamps", port=int(os.environ.get("WEBAPP_PORT", 8081)),
+       reload=False, storage_secret=WEBAPP_SECRET)
