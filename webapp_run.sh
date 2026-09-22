@@ -17,6 +17,7 @@ fi
 
 docker run -d \
   --name "${CONTAINER_NAME}" \
+  --restart unless-stopped \
   -p 127.0.0.1:8080:8080 \
   -e WEBAPP_PASSWORD="${WEBAPP_PASSWORD}" \
   -e WEBAPP_SECRET="${WEBAPP_SECRET}" \
