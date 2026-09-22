@@ -103,12 +103,12 @@ latest close's decision, executed next morning).
 | `src/risk_off_strategy/backtest.py` | 5-panel chart since 2000 (`plot_backtest`, `last_days` for 1y/1m) |
 | `src/risk_off_strategy/run.py` | entry point → charts + `signal.json` (QQQ only) |
 | `src/download_ohlcv.py`, `download_macro_data.py` | refresh `data/*.parquet` |
-| `src/real_bourso.py`, `src/bourso/` | morning PEA execution + email notifications |
+| `src/real_bourso.py`, `src/bourso/` | morning PEA execution on every managed Bourso account (up to 4 `.env` slots, `src/bourso/accounts.py`) + one email per account |
 | `src/bourso/check_cli.py` | daily bourso-cli health check (tests + account + upstream) → email |
 | `external/bourso-api` (submodule) | pinned fork [gdescamps/bourso-api](https://github.com/gdescamps/bourso-api), branch `myqtm` = upstream tag + `trade summary` patch |
 | `2_bourso_cli_update.sh` | build/install `bourso-cli` from the submodule (`--pull` to bump) |
 | `tests/` | pytest dry-run + live-account checks for `bourso-cli` |
-| `src/webapp.py` | NiceGUI dashboard (backtests, allocations, trade history) — protégé par un mot de passe unique (`WEBAPP_PASSWORD`) |
+| `src/webapp.py` | NiceGUI dashboard (backtests, per-account status in **Comptes**, gains / allocations / trade history per account) — protégé par un mot de passe unique (`WEBAPP_PASSWORD`) |
 
 ## Running
 

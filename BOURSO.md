@@ -163,9 +163,30 @@ Formats : `csv`, `json`. Sans `--output`, ecrit sur stdout.
 20:00  cron check (check_cli.py)   →  tests dry-run + maj upstream + email
 ```
 
-- **ETF**: PUST (Amundi PEA Nasdaq-100), symbole Bourso `1rTPUST`
-- **Levier**: x1 uniquement (LQQ x2 trop cher par part a 2000+ EUR)
-- **Compte**: PEA DESCAMPS
+- **ETF**: PUST (Amundi PEA Nasdaq-100), symbole Bourso `1rTPUST` — ou LQQ (x2) via `TRADE_INSTRUMENT=LQQ` dans `.env`
+- **Comptes**: jusqu'a 4 logins Bourso (voir ci-dessous), chacun avec son PEA
+
+## Multicompte
+
+Les comptes sont declares dans `.env` par slots (`src/bourso/accounts.py`) :
+
+```
+BOURSO_ID_1="..."      BOURSO_CODE_1="..."      BOURSO_MAIL_1="proprietaire@..."
+BOURSO_ID_2=""         BOURSO_CODE_2=""         BOURSO_MAIL_2=""      # vide -> ignore
+BOURSO_ID_3=""         ...
+BOURSO_ID_4=""         ...
+```
+
+- Un slot n'est **gere** que si `BOURSO_ID_n` ET `BOURSO_CODE_n` sont renseignes ; un slot vide n'est pas traite.
+- `BOURSO_MAIL_n` = destinataire des mails de CE compte (rapport du matin, recap du soir, alerte split). Vide -> `MAILING_LIST` de `notify.py`.
+- L'ancienne paire `BOURSO_ID`/`BOURSO_CODE` reste acceptee comme slot 1 si `BOURSO_ID_1` est absent.
+- Chaque login Bourso a son propre PEA : l'id (hexa 32 car.) est **decouvert une fois** via `bourso-cli accounts --trading` (compte de trading nomme `PEA ...`, hors `PEA-PME`) et mis en cache dans `logs/accounts.json` (nom + id + mail, jamais d'identifiant client — lu par la webapp). Forcer un id avec `BOURSO_PEA_ID_n`. Verifier avec `python -m src.bourso.accounts`.
+- Le **meme signal est replique** sur tous les comptes geres : chaque compte est lu, decide (bande de non-action sur SA propre allocation reelle) et execute a son tour. Un compte injoignable est relance toutes les heures jusqu'a 17h **sans bloquer les autres**, puis recoit un mail `CONNEXION KO` et une ligne `connection_error` dans `trades.jsonl`. Code de sortie 1 si au moins un compte a echoue.
+- **Un mail par compte chaque matin** a `BOURSO_MAIL_n` : connexion (OK/ECHEC), allocation conseillee vs reelle (avant/apres), action du jour, especes/titres/total, mode LIVE/DRY-RUN. Le recap du soir (`notify --recap`) envoie de meme un mail par compte avec l'apercu de l'action du lendemain sur ce compte.
+- `trades.jsonl` : champs `account` (slot) et `account_name` ; les anciennes lignes sans `account` = slot 1. `logs/last_price.json` : cles `INSTRUMENT#slot` (l'ancienne cle `INSTRUMENT` = slot 1).
+- `python -m src.real_bourso --account 2` limite un run a un slot ; `python -m src.bourso.execute pea PUST buy 4 --account 2` pour un ordre manuel sur un autre compte ; `python -m src.bourso.list_accounts` liste tous les PEA geres.
+- `check_cli` (cron 20h) teste la connexion de **chaque** compte et alerte `CONNEXION COMPTE KO` si l'un echoue.
+- Webapp : onglet **Comptes** (une carte de statut par compte) ; Gain reel / Trades / Allocations sont affiches par compte.
 
 ## Cron
 
@@ -223,10 +244,11 @@ Le backtest ecrit `outputs/qqq_strategy/signal.json` :
 
 | Script | Role |
 |---|---|
-| `src/real_bourso.py` | Execution matin: lit signal, PEA prepare, achat/vente PUST |
-| `src/bourso/prepare.py` | Lecture etat PEA (cash/positions/cours) via `trade summary` |
-| `src/bourso/execute.py` | Execution manuelle interactive (PEA ou CTO) |
-| `src/bourso/list_accounts.py` | Liste tous les comptes et soldes |
+| `src/real_bourso.py` | Execution matin: lit signal, puis pour CHAQUE compte gere : etat PEA, achat/vente, mail |
+| `src/bourso/accounts.py` | Slots multicompte du `.env` + decouverte/cache du PEA de chaque login |
+| `src/bourso/prepare.py` | Lecture etat PEA (cash/positions/cours) via `trade summary` (`creds=` par compte) |
+| `src/bourso/execute.py` | Execution manuelle interactive (PEA ou CTO, `--account N`) |
+| `src/bourso/list_accounts.py` | Liste les PEA de tous les comptes geres et leurs soldes |
 | `src/bourso/check_cli.py` | Cron 20h: tests dry-run + check commits upstream + email |
 | `2_bourso_cli_update.sh` | Build/install bourso-cli depuis le submodule `external/bourso-api` |
 
@@ -234,7 +256,8 @@ Le backtest ecrit `outputs/qqq_strategy/signal.json` :
 
 - `logs/cron_backtest.log` — sortie du backtest du soir
 - `logs/cron_pea.log` — sortie de l'execution matin
-- `logs/trades.jsonl` — historique des ordres (lu par la webapp)
+- `logs/trades.jsonl` — historique des ordres, une ligne par compte et par jour (lu par la webapp)
+- `logs/accounts.json` — cache des PEA decouverts par slot (nom, id, mail)
 - `logs/cron_bourso_check.log` — sortie du check quotidien bourso-cli (20h)
 
 ## Execution manuelle
@@ -243,9 +266,16 @@ Le backtest ecrit `outputs/qqq_strategy/signal.json` :
 # Dry-run (voir ce qui serait fait)
 python -m src.real_bourso
 
-# Execution reelle
+# Execution reelle (tous les comptes geres)
 python -m src.real_bourso --execute
 
-# Ordre manuel interactif
-python -m src.bourso.execute pea PUST buy 4
+# Un seul compte
+python -m src.real_bourso --account 2
+
+# Ordre manuel interactif (slot 1 par defaut, --account N pour un autre)
+python -m src.bourso.execute pea PUST buy 4 --account 2
+
+# Comptes geres + PEA decouverts
+python -m src.bourso.accounts
+python -m src.bourso.list_accounts
 ```
