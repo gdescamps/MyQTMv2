@@ -10,9 +10,16 @@ Bascule via l'env TRADE_INSTRUMENT=LQQ. Le SIGNAL (allocation) est identique ;
 seul l'instrument tradé change : LQQ donne 2x l'expo pour la meme fraction de
 capital (= la variante "strategie x2.0" du backtest). x1 reste en prod par defaut.
 
+Multicompte : le meme signal est REPLIQUE sur chaque compte Bourso gere (slots
+BOURSO_ID_n/CODE_n/MAIL_n du .env, cf. src/bourso/accounts.py). Chaque compte est lu,
+decide (bande de non-action sur SA propre allocation reelle) et execute a son tour ;
+un mail par compte (connexion + allocation + action) part a l'adresse du compte.
+Un compte injoignable n'empeche pas les autres de s'executer.
+
 Usage:
   python -m src.real_bourso                  # dry-run (instrument = $TRADE_INSTRUMENT ou PUST)
   python -m src.real_bourso --execute        # live execution
+  python -m src.real_bourso --account 2      # un seul slot
   TRADE_INSTRUMENT=LQQ python -m src.real_bourso   # dry-run en x2 (LQQ)
 """
 
@@ -147,11 +154,26 @@ def load_signal():
     return signal
 
 
-def get_pea_state():
-    """Get PEA cash and position (instrument actif) via bourso-cli prepare."""
-    from src.bourso.prepare import prepare_order, PEA_ACCOUNT_ID, SYMBOLS
+def _default_account():
+    """Slot 1 (compat mono-compte des anciens appels sans `account`)."""
+    from src.bourso.accounts import load_accounts
+    accs = load_accounts()
+    if not accs:
+        raise RuntimeError("aucun compte Bourso gere (BOURSO_ID_1/BOURSO_CODE_1 vides)")
+    return accs[0]
 
-    data = prepare_order(PEA_ACCOUNT_ID, SYMBOLS[INSTRUMENT])
+
+def get_pea_state(account=None):
+    """Get PEA cash and position (instrument actif) via bourso-cli `trade summary`.
+
+    account: BoursoAccount (cf. accounts.py) ; None -> slot 1. L'id du PEA du login est
+    decouvert/cache par `resolve_pea` (chaque login Bourso a son propre PEA)."""
+    from src.bourso.prepare import prepare_order, SYMBOLS
+    from src.bourso.accounts import resolve_pea
+
+    account = account or _default_account()
+    resolve_pea(account)
+    data = prepare_order(account.pea_account_id, SYMBOLS[INSTRUMENT], creds=account.creds)
     acct = data["account"]
     sym = data["symbol"]
 
@@ -162,9 +184,11 @@ def get_pea_state():
         "etf_price": sym["last_price"],
         "etf_shares": data["quantity_held"],
         "etf_value": data["quantity_held"] * sym["last_price"],
+        "account": account.slot,
+        "account_name": acct["name"] or account.name,
     }
 
-    print(f"\nPEA {acct['name']}:")
+    print(f"\n{acct['name']} (compte {account.slot}):")
     print(f"  Especes:  {state['cash']:>10.2f} EUR")
     print(f"  Titres:   {state['stocks']:>10.2f} EUR")
     print(f"  Total:    {state['equity']:>10.2f} EUR")
@@ -247,13 +271,13 @@ def compute_orders(target_alloc, pea_state):
         return None, 0, "Aucune action (dans la bande de non-action)"
 
 
-def execute_order(side, quantity, dry_run=True, tolerance=LIMIT_TOLERANCE_PCT):
-    """Execute order via bourso-cli.
+def execute_order(side, quantity, dry_run=True, tolerance=LIMIT_TOLERANCE_PCT, account=None):
+    """Execute order via bourso-cli, sur le PEA du compte `account` (None -> slot 1).
 
     Ordre LIMITE avec tolerance : la limite = cours ± tolerance% (achat +, vente -),
     ce qui tampon le gap d'ouverture et fiabilise le remplissage tout en bornant le
     prix. tolerance=None -> ordre limite pile au cours (ancien comportement)."""
-    from src.bourso.prepare import PEA_ACCOUNT_ID, SYMBOLS, _run_cli_raw
+    from src.bourso.prepare import SYMBOLS, _run_cli_raw
 
     tol_txt = f" (limite ±{tolerance}%)" if tolerance is not None else ""
     action = f"{'ACHAT' if side == 'buy' else 'VENTE'} {quantity}x {INSTRUMENT}{tol_txt}"
@@ -263,18 +287,20 @@ def execute_order(side, quantity, dry_run=True, tolerance=LIMIT_TOLERANCE_PCT):
         return {"status": "dry-run", "side": side, "quantity": quantity,
                 "order_type": "LIM", "tolerance": tolerance}
 
-    print(f"  [EXECUTE] {action}")
+    from src.bourso.accounts import resolve_pea
+    account = resolve_pea(account or _default_account())
+    print(f"  [EXECUTE] {action} — {account.label}")
     cli_args = [
         "trade", "order", "new",
         "--side", side,
-        "--account", PEA_ACCOUNT_ID,
+        "--account", account.pea_account_id,
         "--symbol", SYMBOLS[INSTRUMENT],
         "--quantity", str(quantity),
         "--order-type", "LIM",
     ]
     if tolerance is not None:
         cli_args += ["--tolerance", str(tolerance)]
-    stdout, stderr, rc = _run_cli_raw(*cli_args)
+    stdout, stderr, rc = _run_cli_raw(*cli_args, creds=account.creds)
 
     output = (stdout + stderr).strip()
     if rc != 0:
@@ -295,25 +321,38 @@ def log_trade(record):
     print(f"  Log → {TRADE_LOG}")
 
 
-def load_last_price(instrument):
-    """Dernier prix connu de l'instrument (seance precedente), ou None si inconnu."""
+def _price_key(instrument, slot):
+    """Cle du prix de reference : par (instrument, compte) — les comptes lisent le cours
+    a des instants differents et un split doit etre absorbe compte par compte."""
+    return f"{instrument}#{slot}"
+
+
+def load_last_price(instrument, slot=1):
+    """Dernier prix connu de l'instrument sur ce compte (seance precedente), ou None.
+    Repli sur l'ancienne cle mono-compte `instrument` pour le slot 1 (transition)."""
     if not LAST_PRICE_FILE.exists():
         return None
     try:
-        return json.loads(LAST_PRICE_FILE.read_text()).get(instrument)
+        data = json.loads(LAST_PRICE_FILE.read_text())
     except Exception:  # noqa: BLE001
         return None
+    v = data.get(_price_key(instrument, slot))
+    if v is None and slot == 1:
+        v = data.get(instrument)
+    return v
 
 
-def save_last_price(instrument, price):
-    """Memorise le prix de reference de l'instrument (pour la detection de split)."""
+def save_last_price(instrument, price, slot=1):
+    """Memorise le prix de reference de l'instrument pour ce compte (detection de split)."""
     data = {}
     if LAST_PRICE_FILE.exists():
         try:
             data = json.loads(LAST_PRICE_FILE.read_text())
         except Exception:  # noqa: BLE001
             data = {}
-    data[instrument] = price
+    data[_price_key(instrument, slot)] = price
+    if slot == 1:
+        data[instrument] = price   # ancienne cle, gardee a jour pour compat
     LAST_PRICE_FILE.write_text(json.dumps(data, indent=2))
 
 
@@ -328,138 +367,200 @@ def detect_split(prev_price, cur_price, factor=SPLIT_DETECT_FACTOR):
     return ratio if ratio >= factor else None
 
 
+def _send_account_email(account, subject, body):
+    """Mail a l'adresse du compte (repli MAILING_LIST) — jamais bloquant."""
+    try:
+        from src.bourso.notify import send_email
+        send_email(subject, body, to=account.recipients)
+    except Exception as e:  # noqa: BLE001
+        print(f"[WARN] Email non envoye ({account.label}): {e}")
+
+
+def _base_record(account, signal, target_alloc, execute):
+    return {
+        "date": str(date.today()), "model_date": signal["date"],
+        "probability": signal["probability"], "target_alloc": target_alloc,
+        "instrument": INSTRUMENT, "leverage": LEVERAGE,
+        "account": account.slot, "account_name": account.name,
+        "executed": execute,
+    }
+
+
+def process_account(account, signal, target_alloc, execute):
+    """Lit le PEA du compte, decide et execute l'ordre du jour, journalise et envoie le
+    mail du compte. Leve si le PEA reste illisible (le mail d'echec est envoye par main).
+
+    Retourne le dict {side, quantity, reason, result, state}."""
+    mode = "LIVE" if execute else "DRY-RUN"
+    print(f"\n{'-'*60}\n  {account.label.upper()}\n{'-'*60}")
+
+    # 1. Etat du PEA (cash, position) — backoff court ; la relance horaire est geree
+    #    par main() sur l'ensemble des comptes en echec (un compte KO ne bloque pas
+    #    les autres pendant des heures).
+    pea_state = retry(lambda: get_pea_state(account), label=f"PEA state {account.label}")
+    if pea_state["equity"] <= 0:
+        raise RuntimeError("PEA vide (equity=0)")
+
+    # 2. Detection de split / anomalie de prix -> aucune position aujourd'hui
+    cur_price = pea_state["etf_price"]
+    prev_price = load_last_price(INSTRUMENT, account.slot)
+    split_ratio = detect_split(prev_price, cur_price)
+    if execute:
+        save_last_price(INSTRUMENT, cur_price, account.slot)
+    if split_ratio is not None:
+        msg = (f"SPLIT / anomalie de prix detecte sur {INSTRUMENT} : "
+               f"{prev_price:.2f} -> {cur_price:.2f} EUR (facteur x{split_ratio:.1f}). "
+               f"Aucune position prise aujourd'hui — on attend la prochaine seance.")
+        print(f"\n{'!'*60}\n  {msg}\n{'!'*60}")
+        _send_account_email(account,
+            f"[MyQTM] SPLIT detecte {INSTRUMENT} — aucune position prise — {account.name}",
+            f"{account.name} (compte {account.slot}) — {date.today()}\n\n"
+            f"  Connexion:   OK\n"
+            f"  ⚠️ {msg}\n\n"
+            f"  Instrument:  {INSTRUMENT} ({INSTRUMENTS[INSTRUMENT]['label']})\n"
+            f"  Prix veille: {prev_price:.2f} EUR\n"
+            f"  Prix actuel: {cur_price:.2f} EUR\n"
+            f"  Facteur:     x{split_ratio:.1f}\n"
+            f"  Action:      AUCUNE (garde-fou split) — reprise a la prochaine seance\n"
+            f"  Mode:        {mode}\n")
+        rec = _base_record(account, signal, target_alloc, execute)
+        rec.update(side=None, quantity=0, etf_price=cur_price, equity=pea_state["equity"],
+                   current_shares=pea_state["etf_shares"],
+                   reason=f"split detecte (x{split_ratio:.1f}, {prev_price:.2f}->{cur_price:.2f}) — no trade",
+                   result={"status": "split_detected", "prev_price": prev_price,
+                           "cur_price": cur_price, "factor": split_ratio})
+        log_trade(rec)
+        return {"side": None, "quantity": 0, "reason": rec["reason"], "result": rec["result"],
+                "state": pea_state}
+
+    # 3. Decision (bande asymetrique sur l'allocation reelle de CE compte)
+    side, quantity, reason = compute_orders(target_alloc, pea_state)
+    print(f"\nDecision: {reason}")
+
+    # 4. Execution — backoff court (relance horaire par main si echec)
+    result = None
+    if side and quantity > 0:
+        try:
+            result = retry(
+                lambda: execute_order(side, quantity, dry_run=not execute, account=account),
+                label=f"Execution ordre {account.label}",
+            )
+        except Exception as e:  # noqa: BLE001
+            print(f"[ERREUR] Ordre echoue: {e}")
+            result = {"status": "error", "error": str(e)}
+
+    # 5. Mail du compte : connexion + allocation + action (tous les jours)
+    equity = pea_state["equity"]
+    current_alloc = pea_state["etf_shares"] * cur_price / equity if equity > 0 else 0
+    # position apres l'ordre du jour (inchangee si l'ordre est parti en erreur)
+    order_ok = (result or {}).get("status") in ("executed", "dry-run")
+    delta = (quantity if side == "buy" else -quantity if side == "sell" else 0) if order_ok else 0
+    post_alloc = (pea_state["etf_shares"] + delta) * cur_price / equity if equity > 0 else 0
+    if side and quantity > 0:
+        action = f"{'ACHAT' if side == 'buy' else 'VENTE'} {quantity} parts {INSTRUMENT}"
+        status = (result or {}).get("status", "?")
+        action_line = f"{action} — {status.upper()}"
+        if status == "error":
+            action_line += f" : {(result or {}).get('error', '')[:200]}"
+        subject_tail = f"{'ACHAT' if side == 'buy' else 'VENTE'} {quantity}x {INSTRUMENT}"
+        if status == "error":
+            subject_tail = "ORDRE EN ERREUR " + subject_tail
+    else:
+        action_line = f"aucun ordre ({reason})"
+        subject_tail = "aucun changement"
+    subject = (f"[MyQTM] {mode} {account.name} — alloc {target_alloc*100:.0f}% — {subject_tail}")
+    body = (
+        f"{account.name} (compte {account.slot}) — {date.today()}\n\n"
+        f"  Connexion:   OK\n"
+        f"  Instrument:  {INSTRUMENT} ({INSTRUMENTS[INSTRUMENT]['label']}, levier x{LEVERAGE:.0f})\n"
+        f"  Signal du:   {signal['date']}  (probabilite {signal['probability']:.4f})\n\n"
+        f"  Allocation conseillee: {target_alloc*100:.0f}%  ->  exposition cible {target_alloc*LEVERAGE*100:.0f}% (x{LEVERAGE:.0f})\n"
+        f"  Allocation reelle:     {current_alloc*100:.0f}%  ({pea_state['etf_shares']} parts @ {cur_price:.2f} EUR)\n"
+        f"  Apres ordre du jour:   {post_alloc*100:.0f}%\n\n"
+        f"  Action:      {action_line}\n"
+        + (f"  Type ordre:  limite ±{LIMIT_TOLERANCE_PCT}% (tampon d'ouverture)\n" if side and quantity > 0 else "")
+        + f"\n  Especes:     {pea_state['cash']:.2f} EUR\n"
+        f"  Titres:      {pea_state['stocks']:.2f} EUR\n"
+        f"  Total:       {equity:.2f} EUR\n"
+        f"  Mode:        {mode}\n"
+    )
+    _send_account_email(account, subject, body)
+
+    # 6. Journal
+    rec = _base_record(account, signal, target_alloc, execute)
+    rec.update(side=side, quantity=quantity, etf_price=cur_price, equity=equity,
+               current_shares=pea_state["etf_shares"], reason=reason, result=result)
+    log_trade(rec)
+    return {"side": side, "quantity": quantity, "reason": reason, "result": result, "state": pea_state}
+
+
 def main():
     parser = argparse.ArgumentParser(description="Execution PEA matin — signal du backtest soir")
     parser.add_argument("--execute", action="store_true", help="Executer les ordres (defaut: dry-run)")
+    parser.add_argument("--account", type=int, default=None, metavar="N",
+                        help="Ne traiter que le slot N (defaut: tous les comptes geres)")
     args = parser.parse_args()
+
+    from src.bourso.accounts import load_accounts
+    accounts = load_accounts()
+    if args.account is not None:
+        accounts = [a for a in accounts if a.slot == args.account]
 
     print(f"{'='*60}")
     print(f"PEA {INSTRUMENT} ({INSTRUMENTS[INSTRUMENT]['label']}) — {date.today()}")
     print(f"Mode: {'LIVE' if args.execute else 'DRY-RUN'}")
+    print(f"Comptes geres: {', '.join(f'slot {a.slot}' for a in accounts) or 'AUCUN'}")
     print(f"{'='*60}")
+    if not accounts:
+        print("[ERREUR] Aucun compte Bourso gere (BOURSO_ID_n / BOURSO_CODE_n vides dans .env)")
+        sys.exit(1)
 
     # 1. Load signal from evening backtest
     signal = load_signal()
     if signal is None:
         sys.exit(1)
 
-    # 2. Emergency override
+    # 2. Emergency override (global : s'applique a tous les comptes)
     target_alloc = signal["allocation"]
     if is_emergency_off():
         target_alloc = 0.0
 
-    # 3. Get PEA state (cash, positions) — retry until Euronext close
+    # 3. Chaque compte a son tour ; ceux en echec (PEA illisible) sont relances toutes
+    #    les heures jusqu'a la cloture Euronext, sans bloquer les autres.
     euronext_close = datetime.now().replace(hour=17, minute=0, second=0)
-    try:
-        pea_state = retry(get_pea_state, label="PEA state",
-                          hourly_until=euronext_close)
-    except Exception as e:
-        print(f"[ERREUR] Impossible de lire le PEA: {e}")
-        sys.exit(1)
+    pending = list(accounts)
+    failures = {}
+    while pending:
+        failures = {}
+        for account in pending:
+            try:
+                process_account(account, signal, target_alloc, args.execute)
+            except Exception as e:  # noqa: BLE001
+                print(f"[ERREUR] {account.label}: {e}")
+                failures[account.slot] = (account, e)
+        pending = [a for a, _ in failures.values()]
+        if not pending or datetime.now() >= euronext_close:
+            break
+        print(f"\n[RETRY] {len(pending)} compte(s) en echec, nouvelle tentative dans 1h...")
+        time.sleep(3600)
 
-    if pea_state["equity"] <= 0:
-        print("[ERREUR] PEA vide (equity=0)")
-        sys.exit(1)
+    # 4. Comptes definitivement en echec : mail "connexion KO" + trace dans le journal
+    for account, err in failures.values():
+        msg = str(err)[:300]
+        _send_account_email(account,
+            f"[MyQTM] {'LIVE' if args.execute else 'DRY-RUN'} {account.name or account.label} — CONNEXION KO",
+            f"{account.name or account.label} (compte {account.slot}) — {date.today()}\n\n"
+            f"  Connexion:   ECHEC — {msg}\n"
+            f"  Allocation conseillee: {target_alloc*100:.0f}%  (signal du {signal['date']})\n"
+            f"  Action:      AUCUNE — le compte n'a pas pu etre lu, aucun ordre passe.\n"
+            f"  Verifier logs/cron_pea.log.\n")
+        rec = _base_record(account, signal, target_alloc, args.execute)
+        rec.update(side=None, quantity=0, etf_price=0, equity=0, current_shares=None,
+                   reason=f"connexion KO: {msg}", result={"status": "connection_error", "error": msg})
+        log_trade(rec)
 
-    # 3b. Detection de split / anomalie de prix -> on ne prend PAS de position
-    #     aujourd'hui (prix potentiellement fausse le jour du split), reprise demain.
-    cur_price = pea_state["etf_price"]
-    prev_price = load_last_price(INSTRUMENT)
-    split_ratio = detect_split(prev_price, cur_price)
-    if args.execute:
-        save_last_price(INSTRUMENT, cur_price)   # ref post-split -> reprise a la prochaine seance
-    if split_ratio is not None:
-        msg = (f"SPLIT / anomalie de prix detecte sur {INSTRUMENT} : "
-               f"{prev_price:.2f} -> {cur_price:.2f} EUR (facteur x{split_ratio:.1f}). "
-               f"Aucune position prise aujourd'hui — on attend la prochaine seance.")
-        print(f"\n{'!'*60}\n  {msg}\n{'!'*60}")
-        try:
-            from src.bourso.notify import send_email
-            body = (
-                f"PEA — {date.today()}\n\n"
-                f"  ⚠️ {msg}\n\n"
-                f"  Instrument:  {INSTRUMENT} ({INSTRUMENTS[INSTRUMENT]['label']})\n"
-                f"  Prix veille: {prev_price:.2f} EUR\n"
-                f"  Prix actuel: {cur_price:.2f} EUR\n"
-                f"  Facteur:     x{split_ratio:.1f}\n"
-                f"  Action:      AUCUNE (garde-fou split) — reprise a la prochaine seance\n"
-                f"  Mode:        {'LIVE' if args.execute else 'DRY-RUN'}\n"
-            )
-            send_email(f"[MyQTM] SPLIT detecte {INSTRUMENT} — aucune position prise", body)
-        except Exception as e:  # noqa: BLE001
-            print(f"[WARN] Email non envoye: {e}")
-        log_trade({
-            "date": str(date.today()), "model_date": signal["date"],
-            "probability": signal["probability"], "target_alloc": target_alloc,
-            "instrument": INSTRUMENT, "leverage": LEVERAGE, "side": None, "quantity": 0,
-            "etf_price": cur_price, "equity": pea_state["equity"],
-            "current_shares": pea_state["etf_shares"], "executed": args.execute,
-            "reason": f"split detecte (x{split_ratio:.1f}, {prev_price:.2f}->{cur_price:.2f}) — no trade",
-            "result": {"status": "split_detected", "prev_price": prev_price,
-                       "cur_price": cur_price, "factor": split_ratio},
-        })
-        print("\nTermine (garde-fou split).")
-        return
-
-    # 4. Compute orders
-    side, quantity, reason = compute_orders(target_alloc, pea_state)
-    print(f"\nDecision: {reason}")
-
-    # 5. Execute — retry until Euronext close
-    result = None
-    if side and quantity > 0:
-        try:
-            result = retry(
-                lambda: execute_order(side, quantity, dry_run=not args.execute),
-                label="Execution ordre",
-                hourly_until=euronext_close,
-            )
-        except Exception as e:
-            print(f"[ERREUR] Ordre echoue: {e}")
-            result = {"status": "error", "error": str(e)}
-
-        # 6. Notify by email if a position change was made
-        try:
-            from src.bourso.notify import send_email
-            action = "ACHAT" if side == "buy" else "VENTE"
-            mode = "LIVE" if args.execute else "DRY-RUN"
-            subject = f"[MyQTM] {mode} {action} {quantity}x {INSTRUMENT} @ {pea_state['etf_price']:.2f}"
-            body = (
-                f"PEA — {date.today()}\n\n"
-                f"  Instrument:  {INSTRUMENT} ({INSTRUMENTS[INSTRUMENT]['label']}, levier x{LEVERAGE:.0f})\n"
-                f"  Action:      {action} {quantity} parts {INSTRUMENT}\n"
-                f"  Type ordre:  limite ±{LIMIT_TOLERANCE_PCT}% (tampon d'ouverture)\n"
-                f"  Prix:        {pea_state['etf_price']:.2f} EUR\n"
-                f"  Allocation:  {target_alloc*100:.0f}% (poids)  ->  exposition cible {target_alloc*LEVERAGE*100:.0f}% (x{LEVERAGE:.0f})\n"
-                f"  Probabilite: {signal['probability']:.4f}\n"
-                f"  Signal du:   {signal['date']}\n\n"
-                f"  Especes:     {pea_state['cash']:.2f} EUR\n"
-                f"  Titres:      {pea_state['stocks']:.2f} EUR\n"
-                f"  Mode:        {mode}\n"
-            )
-            send_email(subject, body)
-        except Exception as e:
-            print(f"[WARN] Email non envoye: {e}")
-
-    # 7. Log
-    log_trade({
-        "date": str(date.today()),
-        "model_date": signal["date"],
-        "probability": signal["probability"],
-        "target_alloc": target_alloc,
-        "instrument": INSTRUMENT,
-        "leverage": LEVERAGE,
-        "side": side,
-        "quantity": quantity,
-        "etf_price": pea_state["etf_price"],
-        "equity": pea_state["equity"],
-        "current_shares": pea_state["etf_shares"],
-        "executed": args.execute,
-        "reason": reason,
-        "result": result,
-    })
-
-    print("\nTermine.")
+    print("\nTermine." + (f"  ({len(failures)} compte(s) en echec)" if failures else ""))
+    sys.exit(1 if failures else 0)
 
 
 if __name__ == "__main__":

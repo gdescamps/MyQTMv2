@@ -5,26 +5,28 @@ Layout inspired by dashboard/ — sidebar photo + tabbed content.
 
 Shows:
   - Backtests (full, 1y, 1m)
-  - PE Top 5 chart
   - Real Bourso allocations & trade history
   - Gains normalized (% and EUR)
 
 Usage:  python src/webapp.py
 """
 
+import asyncio
 import json
 import os
+import secrets
 from datetime import datetime
 from pathlib import Path
 
 import plotly.graph_objects as go
-from fastapi.responses import FileResponse
+from fastapi import Request
+from fastapi.responses import FileResponse, RedirectResponse
 from nicegui import app, ui
+from starlette.middleware.base import BaseHTTPMiddleware
 
 ROOT = Path(__file__).resolve().parent.parent
 OUTPUTS = ROOT / "outputs"
 QQQ_OUT = OUTPUTS / "qqq_strategy"
-PE_OUT = OUTPUTS / "pe"
 TRADE_LOG = ROOT / "logs" / "trades.jsonl"
 ASSETS_DIR = ROOT / "assets"
 SIDEBAR_IMAGE = ASSETS_DIR / "sidebar.jpg"
@@ -35,13 +37,70 @@ BACKTEST_10Y = QQQ_OUT / "backtest_10y.png"
 BACKTEST_5Y = QQQ_OUT / "backtest_5y.png"
 BACKTEST_1Y = QQQ_OUT / "backtest_1y.png"
 BACKTEST_1M = QQQ_OUT / "backtest_1m.png"
-PE_CHART = PE_OUT / "ndx_top5_pe_daily.png"
 CAPE_CHART = OUTPUTS / "shiller" / "cape_ecy.png"
+
+
+# ── Auth (mot de passe unique) ───────────────────────────
+# WEBAPP_PASSWORD : mot de passe d'acces (env ou .env). Le webapp refuse de
+# demarrer sans, pour ne jamais tourner ouvert par accident (le bouton Emergency
+# OFF peut liquider le PEA). WEBAPP_SECRET : cle de signature du cookie de session
+# (optionnel ; sans, une cle aleatoire par demarrage -> re-login apres restart).
+try:
+    from dotenv import load_dotenv
+    load_dotenv(ROOT / ".env")
+except ImportError:
+    pass
+
+WEBAPP_PASSWORD = os.environ.get("WEBAPP_PASSWORD", "")
+if not WEBAPP_PASSWORD:
+    raise SystemExit("WEBAPP_PASSWORD manquant (env ou .env) — refus de demarrer sans mot de passe")
+WEBAPP_SECRET = os.environ.get("WEBAPP_SECRET") or secrets.token_hex(32)
+
+UNRESTRICTED_PREFIXES = ("/login", "/_nicegui", "/assets/")
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    """Redirige vers /login toute requete (pages ET images /img/*) non authentifiee."""
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        if not path.startswith(UNRESTRICTED_PREFIXES) and not app.storage.user.get("authenticated", False):
+            return RedirectResponse("/login")
+        return await call_next(request)
+
+
+app.add_middleware(AuthMiddleware)
+
+
+@ui.page("/login", title="Connexion")
+async def login_page():
+    if app.storage.user.get("authenticated", False):
+        return RedirectResponse("/")
+
+    async def try_login():
+        if secrets.compare_digest(pwd.value or "", WEBAPP_PASSWORD):
+            app.storage.user["authenticated"] = True
+            ui.navigate.to("/")
+        else:
+            await asyncio.sleep(1)  # freine le brute-force
+            pwd.value = ""
+            ui.notify("Mot de passe incorrect", type="negative")
+
+    ui.add_head_html("""<style>
+        body { background: #1a1a1a; font-family: 'Inter', system-ui, sans-serif; }
+    </style>""")
+    with ui.card().classes("absolute-center items-center").style(
+            "width: 320px; padding: 32px 28px; background: #262626; color: #ddd; border-radius: 12px"):
+        # Volontairement sans titre ni sous-titre : ne rien reveler sur l'application
+        # a qui n'a pas le mot de passe (le titre d'onglet est neutre aussi, cf. @ui.page).
+        pwd = ui.input("Mot de passe", password=True, password_toggle_button=True) \
+            .props("dark outlined autofocus").classes("w-full") \
+            .on("keydown.enter", try_login)
+        ui.button("Entrer", on_click=try_login).props("color=green unelevated").classes("w-full mt-2")
 
 
 # ── Data loaders ──────────────────────────────────────────
 
-PE_DIR = ROOT / "data" / "pe"
 SHILLER_DIR = ROOT / "data" / "shiller"
 
 
@@ -64,63 +123,6 @@ def load_cape_ecy_latest():
             "cape_median": float(cape.median())}
 
 
-def load_ndx_excess_yield():
-    """Excess earnings yield NDX top-5/top-10 (trailing + forward vs taux reel).
-    None si le JSON est absent (lancer download_ndx_excess_yield)."""
-    fp = PE_DIR / "ndx_excess_yield.json"
-    if not fp.exists():
-        return None
-    try:
-        return json.loads(fp.read_text())
-    except Exception:  # noqa: BLE001
-        return None
-
-
-def load_ndx_top(n=20):
-    """Load top N NDX constituents with latest PE and PE date."""
-    constituents_file = PE_DIR / "ndx_constituents.json"
-    if not constituents_file.exists():
-        return [], None
-
-    with open(constituents_file) as f:
-        top = json.load(f)
-
-    results = []
-    pe_date = None
-    for t in top[:n]:
-        sym = t["symbol"]
-        qfile = PE_DIR / f"{sym}_quarterly.json"
-        pe = None
-        q_date = None
-        if qfile.exists():
-            with open(qfile) as f:
-                quarters = json.load(f)
-            if quarters:
-                latest = quarters[0]
-                pe = latest.get("peRatio")
-                q_date = latest.get("date")
-                if q_date and (pe_date is None or q_date > pe_date):
-                    pe_date = q_date
-
-        results.append({
-            "symbol": sym,
-            "name": t.get("name", "")[:25],
-            "mktCap": t.get("mktCap", 0),
-            "pe": pe,
-        })
-
-    # Interpolation date = last date in pe_top5_daily.parquet
-    interp_date = None
-    daily_file = PE_DIR / "pe_top5_daily.parquet"
-    if daily_file.exists():
-        import pandas as pd
-        pe_daily = pd.read_parquet(daily_file)
-        if len(pe_daily) > 0:
-            interp_date = str(pe_daily.index[-1].date())
-
-    return results, pe_date, interp_date
-
-
 def load_trades():
     if not TRADE_LOG.exists():
         return []
@@ -136,7 +138,86 @@ def load_trades():
     return trades
 
 
+ACCOUNTS_CACHE = ROOT / "logs" / "accounts.json"
+
+
+def load_account_names():
+    """{slot: {name, mail, ...}} ecrit par src/bourso/accounts.py (decouverte des PEA).
+    La webapp n'a pas acces au .env Bourso : c'est sa seule source de noms de comptes."""
+    if not ACCOUNTS_CACHE.exists():
+        return {}
+    try:
+        return {int(k): v for k, v in json.loads(ACCOUNTS_CACHE.read_text()).items() if k.isdigit()}
+    except (json.JSONDecodeError, ValueError, OSError):
+        return {}
+
+
+def _slot(t):
+    """Slot du compte d'une ligne de trades.jsonl (anciennes lignes mono-compte -> 1)."""
+    return int(t.get("account") or 1)
+
+
+def _is_connection_error(t):
+    return ((t.get("result") or {}).get("status") == "connection_error")
+
+
+def split_by_account(trades):
+    """Comptes -> {slot: {"name", "trades" (lignes exploitables), "last" (derniere ligne,
+    y compris un echec de connexion), "mail"}}, tries par slot. Les echecs de
+    connexion (equity=0, pas de prix) sont exclus des historiques/perf mais gardes
+    comme dernier statut."""
+    names = load_account_names()
+    accounts = {}
+    for t in trades:
+        slot = _slot(t)
+        acc = accounts.setdefault(slot, {"slot": slot, "trades": [], "last": None,
+                                         "name": "", "mail": ""})
+        acc["last"] = t
+        if not _is_connection_error(t):
+            acc["trades"].append(t)
+        if t.get("account_name"):
+            acc["name"] = t["account_name"]
+    for slot, info in names.items():
+        acc = accounts.setdefault(slot, {"slot": slot, "trades": [], "last": None,
+                                         "name": "", "mail": ""})
+        acc["name"] = info.get("name") or acc["name"]
+        acc["mail"] = info.get("mail", "")
+    for acc in accounts.values():
+        acc["name"] = acc["name"] or f"Compte {acc['slot']}"
+    return dict(sorted(accounts.items()))
+
+
+def account_status(acc):
+    """Statut synthetique d'un compte a partir de sa derniere ligne de journal."""
+    t = acc["last"]
+    if t is None:
+        return {"state": "unknown", "label": "JAMAIS EXECUTE", "color": "grey",
+                "date": "--", "detail": "Aucune ligne dans trades.jsonl"}
+    date = t.get("date", "--")
+    mode = "LIVE" if t.get("executed") else "DRY-RUN"
+    res = t.get("result") or {}
+    if _is_connection_error(t):
+        return {"state": "ko", "label": "CONNEXION KO", "color": "red", "date": date,
+                "mode": mode, "detail": res.get("error") or t.get("reason", "")}
+    if res.get("status") == "error":
+        return {"state": "error", "label": "ORDRE EN ERREUR", "color": "orange", "date": date,
+                "mode": mode, "detail": res.get("error", "")[:200]}
+    if res.get("status") == "split_detected":
+        return {"state": "split", "label": "SPLIT DETECTE", "color": "orange", "date": date,
+                "mode": mode, "detail": t.get("reason", "")}
+    return {"state": "ok", "label": "CONNEXION OK", "color": "green", "date": date,
+            "mode": mode, "detail": t.get("reason", "")}
+
+
 def compute_portfolio_history(trades):
+    """Historique position / allocation reelle, ligne par ligne de trades.jsonl.
+
+    `current_shares` = parts detenues sur le PEA, lues par real_bourso via
+    bourso-cli AVANT l'ordre du jour -> c'est la position reelle du compte, et on
+    lui applique l'ordre execute le jour meme (position post-ordre). Sans ce champ
+    (anciennes lignes), on retombe sur le cumul des ordres executes du journal —
+    qui derive des que des achats ont eu lieu hors journal.
+    """
     history = []
     shares = 0
     for t in trades:
@@ -148,6 +229,8 @@ def compute_portfolio_history(trades):
         prob = t.get("probability", 0)
         date = t.get("date", "")
         executed = t.get("executed", False)
+        if t.get("current_shares") is not None:
+            shares = t["current_shares"]
         if side == "buy" and executed:
             shares += qty
         elif side == "sell" and executed:
@@ -277,10 +360,6 @@ def _b1y():
 def _b1m():
     return _serve(BACKTEST_1M)
 
-@app.get("/img/pe_chart")
-def _pe():
-    return _serve(PE_CHART)
-
 @app.get("/img/cape_ecy")
 def _cape():
     return _serve(CAPE_CHART)
@@ -288,7 +367,7 @@ def _cape():
 
 # ── Styles (same as dashboard) ────────────────────────────
 
-ui.add_head_html(f"""
+PAGE_CSS = f"""
 <style>
     html, body {{
         margin: 0;
@@ -466,7 +545,7 @@ ui.add_head_html(f"""
         .sidebar {{ display: none; }}
     }}
 </style>
-""")
+"""
 
 
 # ── Emergency override ────────────────────────────────────
@@ -490,466 +569,448 @@ def set_emergency_off(active):
 
 # ── Page layout ───────────────────────────────────────────
 
-trades = load_trades()
-portfolio = compute_portfolio_history(trades)
-last_trade = trades[-1] if trades else {}
+def render_gain(trades):
+    """Onglet Gain reel pour UN compte (courbe time-weighted + KPI)."""
+    perf_series, perf_stats = compute_real_performance(trades)
+    if not perf_series:
+        ui.label("Pas encore assez d'historique réel.").classes("text-gray-500")
+        return
+    gcls = "gain-positive" if perf_stats["cum_return"] >= 0 else "gain-negative"
+    eur_sign = "+" if perf_stats["total_gain_eur"] >= 0 else ""
 
-current_alloc = last_trade.get("target_alloc", 0)
-current_prob = last_trade.get("probability", 0)
-current_price = last_trade.get("etf_price", 0)
-model_date = last_trade.get("model_date", "--")
-n_exec = sum(1 for t in trades if t.get("executed"))
+    def kpi(label, value, cls=""):
+        with ui.element("div").classes("card").style("flex:1; text-align:center"):
+            ui.html(f'<div style="font-size:0.7rem;text-transform:uppercase;'
+                    f'letter-spacing:0.06em;color:#888">{label}</div>')
+            ui.html(f'<div class="{cls}" style="font-size:1.6rem;'
+                    f'font-weight:700;margin-top:6px">{value}</div>')
 
-with ui.element("div").classes("layout"):
-    # ── Sidebar ──
-    with ui.element("div").classes("sidebar"):
-        ui.element("div").classes("sidebar-photo")
-        with ui.element("div").classes("sidebar-title"):
-            ui.html("<h2>Risk-Off</h2>")
-            ui.html('<div class="sub">QQQ / PUST — Boursorama PEA</div>')
-        ui.element("div").classes("sidebar-divider")
-        with ui.element("div").classes("sidebar-metrics"):
-            alloc_color = "gain-positive" if current_alloc >= 0.5 else "gain-negative"
-            for label, value, extra_class in [
-                ("Allocation", f"{current_alloc*100:.0f}%", alloc_color),
-                ("Probability", f"{current_prob:.3f}", ""),
-                ("PUST", f"{current_price:.2f} EUR", ""),
-                ("Trades", f"{n_exec}", ""),
-                ("Model", model_date, "mono"),
-            ]:
-                with ui.element("div").classes("sidebar-metric"):
-                    ui.html(f'<span class="label">{label}</span>')
-                    ui.html(f'<span class="value {extra_class}">{value}</span>')
-        # Emergency OFF button
-        with ui.element("div").classes("sidebar-emergency"):
-            emergency_active = is_emergency_off()
+    with ui.row().classes("w-full gap-4"):
+        kpi("Capital actuel", f"{perf_stats['current_equity']:.0f} EUR")
+        kpi("Gain cumulé", f"{perf_stats['cum_return']*100:+.1f}%", gcls)
+        kpi("Gain réel", f"{eur_sign}{perf_stats['total_gain_eur']:.0f} EUR", gcls)
+        kpi("Annualisé", f"{perf_stats['annualized']*100:+.1f}%", gcls)
 
-            status_label = ui.label(
-                "EMERGENCY OFF" if emergency_active else "MODEL ACTIVE"
-            ).classes("emergency-status").style(
-                f"color: {'#ef5350' if emergency_active else '#4caf50'}"
-            )
+    xs = [datetime.strptime(s["date"], "%Y-%m-%d") for s in perf_series]
+    ys = [s["cum_return"] * 100 for s in perf_series]
 
-            def toggle_emergency():
-                if not is_emergency_off():
-                    # Activate emergency — show confirmation dialog
-                    with ui.dialog() as dlg, ui.card():
-                        ui.label("Desallocation d'urgence").style("font-weight: 700; font-size: 1.1rem")
-                        ui.label("Cela va forcer l'allocation a 0% et vendre toutes les positions.").style("color: #666")
-                        ui.label("Confirmer ?").style("font-weight: 600; margin-top: 8px")
-                        with ui.row().classes("gap-4 mt-4"):
-                            def confirm():
-                                set_emergency_off(True)
-                                btn.classes("on", remove="off")
-                                btn.text = "REACTIVER LE MODEL"
-                                status_label.text = "EMERGENCY OFF"
-                                status_label.style("color: #ef5350")
-                                dlg.close()
-                                ui.notify("Emergency OFF active — allocation forcee a 0%", type="warning")
-                            ui.button("CONFIRMER", on_click=confirm).props("color=red")
-                            ui.button("Annuler", on_click=dlg.close).props("flat")
-                    dlg.open()
-                else:
-                    # Deactivate emergency — back to model
-                    set_emergency_off(False)
-                    btn.classes("off", remove="on")
-                    btn.text = "EMERGENCY OFF"
-                    status_label.text = "MODEL ACTIVE"
-                    status_label.style("color: #4caf50")
-                    ui.notify("Model reactif — le model reprend le controle demain matin", type="positive")
+    # Insérer les points de croisement à y=0 pour clipper net
+    ax, ay = [], []
+    for i in range(len(xs)):
+        if i > 0 and ((ys[i-1] < 0 < ys[i]) or (ys[i-1] > 0 > ys[i])):
+            frac = -ys[i-1] / (ys[i] - ys[i-1])
+            ax.append(xs[i-1] + (xs[i] - xs[i-1]) * frac)
+            ay.append(0.0)
+        ax.append(xs[i])
+        ay.append(ys[i])
 
-            btn = ui.button(
-                "REACTIVER LE MODEL" if emergency_active else "EMERGENCY OFF",
-                on_click=toggle_emergency,
-            )
-            btn.classes(f"emergency-btn {'on' if emergency_active else 'off'}")
+    pos_fill = [y if y >= 0 else 0.0 for y in ay]
+    neg_fill = [y if y <= 0 else 0.0 for y in ay]
+    pos_line = [y if y >= 0 else None for y in ay]
+    neg_line = [y if y <= 0 else None for y in ay]
 
-        with ui.element("div").classes("sidebar-footer"):
-            ui.html(f'{datetime.now().strftime("%d %b %Y &nbsp; %H:%M")}')
+    GREEN, RED = "#2e7d32", "#ef5350"
+    fig_gain = go.Figure()
+    # Remplissages (sous la courbe), vert au-dessus / rouge en dessous
+    fig_gain.add_trace(go.Scatter(
+        x=ax, y=neg_fill, fill="tozeroy", mode="none",
+        fillcolor="rgba(239,83,80,0.20)", hoverinfo="skip", showlegend=False))
+    fig_gain.add_trace(go.Scatter(
+        x=ax, y=pos_fill, fill="tozeroy", mode="none",
+        fillcolor="rgba(46,125,50,0.20)", hoverinfo="skip", showlegend=False))
+    # Lignes colorées par signe (se rejoignent au croisement)
+    fig_gain.add_trace(go.Scatter(
+        x=ax, y=neg_line, mode="lines", line=dict(color=RED, width=2),
+        connectgaps=False, hoverinfo="skip", showlegend=False))
+    fig_gain.add_trace(go.Scatter(
+        x=ax, y=pos_line, mode="lines", line=dict(color=GREEN, width=2),
+        connectgaps=False, hoverinfo="skip", showlegend=False))
+    # Marqueurs sur les vrais points, colorés par signe + hover
+    fig_gain.add_trace(go.Scatter(
+        x=xs, y=ys, mode="markers",
+        marker=dict(size=6, color=[RED if y < 0 else GREEN for y in ys]),
+        hovertemplate="%{x|%d %b %Y}<br>%{y:+.2f}%<extra></extra>",
+        showlegend=False))
+    fig_gain.add_hline(y=0, line=dict(color="#888", width=1, dash="dot"))
+    fig_gain.update_layout(
+        title=dict(text="Rendement cumulé (time-weighted) du compte PEA", x=0.5),
+        margin=dict(t=46, b=30, l=50, r=20), height=420,
+        yaxis=dict(title="Gain (%)", ticksuffix="%", zeroline=False),
+        xaxis=dict(title="", type="date"),
+        plot_bgcolor="white", hovermode="x unified",
+    )
+    ui.plotly(fig_gain).classes("w-full")
 
-    # ── Content ──
-    with ui.column().classes("content-panel"):
-        # Tabs
-        with ui.tabs().classes("w-full custom-tabs").props("dense") as tabs:
-            tab_full = ui.tab("Backtest")
-            tab_10y = ui.tab("10 Years")
-            tab_5y = ui.tab("5 Years")
-            tab_1y = ui.tab("1 Year")
-            tab_1m = ui.tab("1 Month")
-            tab_ndx5 = ui.tab("NDX Top 5")
-            tab_ndx20 = ui.tab("NDX Top 20")
-            tab_val = ui.tab("Valorisation")
-            tab_gain = ui.tab("Gain réel")
-            tab_trades = ui.tab("Trades")
-            tab_alloc = ui.tab("Allocations")
+    if abs(perf_stats["total_deposits"]) >= 5.0:
+        ui.label(
+            f"Apports/retraits neutralisés : {perf_stats['total_deposits']:+.0f} EUR "
+            f"(exclus du rendement)"
+        ).style("font-size:0.75rem; color:#999")
+    ui.label(
+        f"Capital initial {perf_stats['start_equity']:.0f} EUR · "
+        f"{perf_stats['days']} jours · frais de vente (0.5%) inclus"
+    ).style("font-size:0.75rem; color:#999")
 
-        with ui.tab_panels(tabs, value=tab_full).classes("w-full flex-1 custom-tab-panels"):
 
-            # ── Backtest Full ──
-            with ui.tab_panel(tab_full):
-                with ui.column().classes("tab-content"):
-                    ui.element("div").classes("w-full h-0.5 bg-black")
-                    ui.label("Walk-Forward Backtest — Full History").classes("text-base font-semibold")
-                    if BACKTEST_FULL.exists():
-                        ui.image("/img/backtest_full").classes("w-full rounded-lg shadow-lg")
+def render_trades(trades, portfolio):
+    """Onglet Trades pour UN compte : uniquement les ordres (BUY / SELL) — les jours sans
+    mouvement (side absent = HOLD) restent visibles dans l'onglet Allocations."""
+    orders = [t for t in trades if (t.get("side") or "").lower() in ("buy", "sell")]
+    # allocation reelle post-ordre (position PEA lue le matin + ordre du jour),
+    # meme calcul que l'onglet Allocations, indexe par ligne du journal
+    real_alloc_by_row = {id(t): p["actual_alloc"] for t, p in zip(trades, portfolio)}
+    if not orders:
+        ui.label("No trades yet.").classes("text-gray-500")
+        return
+    columns = [
+        {"name": "date", "label": "Date", "field": "date", "align": "left"},
+        {"name": "side", "label": "Action", "field": "side", "align": "left"},
+        {"name": "quantity", "label": "Qty", "field": "quantity", "align": "right"},
+        {"name": "etf_price", "label": "Price", "field": "etf_price", "align": "right"},
+        {"name": "value", "label": "Value", "field": "value", "align": "right"},
+        {"name": "probability", "label": "Prob", "field": "probability", "align": "right"},
+        {"name": "real_alloc", "label": "Real alloc", "field": "real_alloc", "align": "right"},
+        {"name": "executed", "label": "Status", "field": "executed", "align": "center"},
+    ]
+    rows = []
+    for t in reversed(orders):
+        qty = t.get("quantity", 0)
+        price = t.get("etf_price", 0)
+        rows.append({
+            "date": t.get("date", ""),
+            "side": t["side"].upper(),
+            "quantity": qty,
+            "etf_price": f"{price:.2f}",
+            "value": f"{qty * price:.0f} EUR",
+            "probability": f"{t.get('probability', 0):.3f}",
+            "real_alloc": f"{real_alloc_by_row.get(id(t), 0)*100:.0f}%",
+            "executed": "LIVE" if t.get("executed") else "DRY-RUN",
+        })
+    table = ui.table(columns=columns, rows=rows, row_key="date").classes("w-full")
+    table.add_slot("body-cell-side", """
+        <q-td :props="props">
+            <span :style="{ color: props.value === 'BUY' ? '#1f8f4c' : props.value === 'SELL' ? '#c0392b' : '#888',
+                             fontWeight: 600 }">
+                {{ props.value }}
+            </span>
+        </q-td>
+    """)
+    table.add_slot("body-cell-executed", """
+        <q-td :props="props">
+            <q-badge :color="props.value === 'LIVE' ? 'green' : 'grey'" :label="props.value" />
+        </q-td>
+    """)
+
+
+def render_allocations(portfolio):
+    """Onglet Allocations pour UN compte (historique position / allocation reelle)."""
+    if not portfolio:
+        ui.label("No allocation history yet.").classes("text-gray-500")
+        return
+    columns = [
+        {"name": "date", "label": "Date", "field": "date", "align": "left"},
+        {"name": "shares", "label": "Shares", "field": "shares", "align": "right"},
+        {"name": "price", "label": "Price", "field": "price", "align": "right"},
+        {"name": "position", "label": "Position", "field": "position", "align": "right"},
+        {"name": "equity", "label": "Equity", "field": "equity", "align": "right"},
+        {"name": "target", "label": "Advised alloc", "field": "target", "align": "right"},
+        {"name": "actual", "label": "Real alloc", "field": "actual", "align": "right"},
+        {"name": "action", "label": "Action", "field": "action", "align": "center"},
+    ]
+    rows = []
+    for p in reversed(portfolio):
+        rows.append({
+            "date": p["date"],
+            "shares": p["shares"],
+            "price": f"{p['price']:.2f}",
+            "position": f"{p['position_value']:.0f} EUR",
+            "equity": f"{p['equity']:.0f} EUR",
+            "target": f"{p['target_alloc']*100:.0f}%",
+            "actual": f"{p['actual_alloc']*100:.0f}%",
+            "action": p["side"].upper(),
+        })
+    ui.table(columns=columns, rows=rows, row_key="date").classes("w-full")
+
+
+def render_account_card(acc):
+    """Carte de statut d'UN compte (onglet Comptes) : connexion, dernier run, allocation
+    conseillee vs reelle, action du jour."""
+    st = account_status(acc)
+    last = acc["last"] or {}
+    hist = compute_portfolio_history(acc["trades"])
+    cur = hist[-1] if hist else {}
+    real_alloc = cur.get("actual_alloc", 0)
+    target = last.get("target_alloc", 0)
+    equity = last.get("equity", 0) or cur.get("equity", 0)
+    instrument = last.get("instrument", "PUST")
+    n_live = sum(1 for t in acc["trades"] if t.get("executed") and (t.get("side") or "") in ("buy", "sell"))
+
+    with ui.element("div").classes("card"):
+        with ui.row().classes("w-full items-center justify-between"):
+            with ui.row().classes("items-baseline gap-3"):
+                ui.label(acc["name"]).classes("text-lg font-semibold")
+                ui.label(f"compte {acc['slot']}").style("font-size:0.75rem; color:#999")
+                if acc.get("mail"):
+                    ui.label(acc["mail"]).style("font-size:0.75rem; color:#999")
+            with ui.row().classes("items-center gap-2"):
+                if st.get("mode"):
+                    ui.badge(st["mode"], color="green" if st["mode"] == "LIVE" else "grey")
+                ui.badge(st["label"], color=st["color"]).props("outline" if st["state"] == "unknown" else "")
+
+        def cell(label, value, cls=""):
+            with ui.element("div").style("flex:1; min-width:120px"):
+                ui.html(f'<div style="font-size:0.65rem;text-transform:uppercase;'
+                        f'letter-spacing:0.06em;color:#888">{label}</div>')
+                ui.html(f'<div class="{cls}" style="font-size:1.15rem;font-weight:700;'
+                        f'margin-top:4px">{value}</div>')
+
+        with ui.row().classes("w-full gap-4 mt-3"):
+            cell("Dernier run", st["date"], "mono")
+            cell("Capital", f"{equity:.0f} EUR" if equity else "--")
+            cell("Advised alloc", f"{target*100:.0f}%" if last else "--")
+            cell("Real alloc", f"{real_alloc*100:.0f}%" if hist else "--",
+                 "gain-positive" if real_alloc >= 0.5 else "gain-negative")
+            cell("Position", f"{cur.get('shares', 0)} {instrument}" if hist else "--")
+            cell("Trades LIVE", f"{n_live}")
+        if st.get("detail"):
+            color = "#c62828" if st["state"] in ("ko", "error") else "#666"
+            ui.label(st["detail"]).style(f"font-size:0.8rem; color:{color}; margin-top:8px")
+
+
+def account_header(acc, n_accounts):
+    """Sous-titre d'une section par compte (masque s'il n'y a qu'un compte)."""
+    if n_accounts > 1:
+        st = account_status(acc)
+        with ui.row().classes("w-full items-center gap-3 mt-2"):
+            ui.label(f"{acc['name']}").classes("text-base font-semibold")
+            ui.label(f"compte {acc['slot']}").style("font-size:0.75rem; color:#999")
+            ui.badge(st["label"], color=st["color"])
+
+
+@ui.page("/")
+def index_page():
+    """Dashboard (protege par AuthMiddleware). Les donnees sont relues a chaque
+    visite -> plus besoin de redemarrer le conteneur apres un trade."""
+    ui.add_head_html(PAGE_CSS)
+
+    trades = load_trades()
+    accounts = split_by_account(trades)
+    n_accounts = len(accounts)
+    # Signal (allocation conseillee, proba, date modele) = commun a tous les comptes :
+    # on le lit sur la derniere ligne exploitable du journal, tous comptes confondus.
+    usable = [t for t in trades if not _is_connection_error(t)]
+    last_trade = usable[-1] if usable else {}
+
+    current_alloc = last_trade.get("target_alloc", 0)
+    current_prob = last_trade.get("probability", 0)
+    current_price = last_trade.get("etf_price", 0)
+    instrument = last_trade.get("instrument", "PUST")
+    model_date = last_trade.get("model_date", "--")
+    n_exec = sum(1 for t in usable if t.get("executed") and (t.get("side") or "") in ("buy", "sell"))
+    n_ko = sum(1 for acc in accounts.values() if account_status(acc)["state"] != "ok")
+
+    with ui.element("div").classes("layout"):
+        # ── Sidebar ──
+        with ui.element("div").classes("sidebar"):
+            ui.element("div").classes("sidebar-photo")
+            with ui.element("div").classes("sidebar-title"):
+                ui.html("<h2>Risk-Off</h2>")
+                ui.html(f'<div class="sub">QQQ / {instrument} — Boursorama PEA</div>')
+            ui.element("div").classes("sidebar-divider")
+            with ui.element("div").classes("sidebar-metrics"):
+                alloc_color = "gain-positive" if current_alloc >= 0.5 else "gain-negative"
+                acc_color = "gain-negative" if n_ko else ("gain-positive" if n_accounts else "")
+                for label, value, extra_class in [
+                    ("Allocation", f"{current_alloc*100:.0f}%", alloc_color),
+                    ("Probability", f"{current_prob:.3f}", ""),
+                    (instrument, f"{current_price:.2f} EUR", ""),
+                    ("Trades", f"{n_exec}", ""),
+                    ("Comptes", f"{n_accounts - n_ko}/{n_accounts} OK" if n_accounts else "0", acc_color),
+                    ("Model", model_date, "mono"),
+                ]:
+                    with ui.element("div").classes("sidebar-metric"):
+                        ui.html(f'<span class="label">{label}</span>')
+                        ui.html(f'<span class="value {extra_class}">{value}</span>')
+            # Emergency OFF button
+            with ui.element("div").classes("sidebar-emergency"):
+                emergency_active = is_emergency_off()
+
+                status_label = ui.label(
+                    "EMERGENCY OFF" if emergency_active else "MODEL ACTIVE"
+                ).classes("emergency-status").style(
+                    f"color: {'#ef5350' if emergency_active else '#4caf50'}"
+                )
+
+                def toggle_emergency():
+                    if not is_emergency_off():
+                        # Activate emergency — show confirmation dialog
+                        with ui.dialog() as dlg, ui.card():
+                            ui.label("Desallocation d'urgence").style("font-weight: 700; font-size: 1.1rem")
+                            ui.label("Cela va forcer l'allocation a 0% et vendre toutes les positions "
+                                     "(sur TOUS les comptes geres).").style("color: #666")
+                            ui.label("Confirmer ?").style("font-weight: 600; margin-top: 8px")
+                            with ui.row().classes("gap-4 mt-4"):
+                                def confirm():
+                                    set_emergency_off(True)
+                                    btn.classes("on", remove="off")
+                                    btn.text = "REACTIVER LE MODEL"
+                                    status_label.text = "EMERGENCY OFF"
+                                    status_label.style("color: #ef5350")
+                                    dlg.close()
+                                    ui.notify("Emergency OFF active — allocation forcee a 0%", type="warning")
+                                ui.button("CONFIRMER", on_click=confirm).props("color=red")
+                                ui.button("Annuler", on_click=dlg.close).props("flat")
+                        dlg.open()
                     else:
-                        ui.label("Run: python src/risk_off_strategy/run.py QQQ").classes("text-gray-500")
+                        # Deactivate emergency — back to model
+                        set_emergency_off(False)
+                        btn.classes("off", remove="on")
+                        btn.text = "EMERGENCY OFF"
+                        status_label.text = "MODEL ACTIVE"
+                        status_label.style("color: #4caf50")
+                        ui.notify("Model reactif — le model reprend le controle demain matin", type="positive")
 
-            # ── 10Y ──
-            with ui.tab_panel(tab_10y):
-                with ui.column().classes("tab-content"):
-                    ui.element("div").classes("w-full h-0.5 bg-black")
-                    ui.label("Last 10 Years").classes("text-base font-semibold")
-                    if BACKTEST_10Y.exists():
-                        ui.image("/img/backtest_10y").classes("w-full rounded-lg shadow-lg")
+                btn = ui.button(
+                    "REACTIVER LE MODEL" if emergency_active else "EMERGENCY OFF",
+                    on_click=toggle_emergency,
+                )
+                btn.classes(f"emergency-btn {'on' if emergency_active else 'off'}")
 
-            # ── 5Y ──
-            with ui.tab_panel(tab_5y):
-                with ui.column().classes("tab-content"):
-                    ui.element("div").classes("w-full h-0.5 bg-black")
-                    ui.label("Last 5 Years").classes("text-base font-semibold")
-                    if BACKTEST_5Y.exists():
-                        ui.image("/img/backtest_5y").classes("w-full rounded-lg shadow-lg")
+            with ui.element("div").classes("sidebar-footer"):
+                ui.html(f'{datetime.now().strftime("%d %b %Y &nbsp; %H:%M")}')
 
-            # ── 1Y ──
-            with ui.tab_panel(tab_1y):
-                with ui.column().classes("tab-content"):
-                    ui.element("div").classes("w-full h-0.5 bg-black")
-                    ui.label("Last 252 Trading Days").classes("text-base font-semibold")
-                    if BACKTEST_1Y.exists():
-                        ui.image("/img/backtest_1y").classes("w-full rounded-lg shadow-lg")
+        # ── Content ──
+        with ui.column().classes("content-panel"):
+            # Tabs
+            with ui.tabs().classes("w-full custom-tabs").props("dense") as tabs:
+                tab_full = ui.tab("Backtest")
+                tab_10y = ui.tab("10 Years")
+                tab_5y = ui.tab("5 Years")
+                tab_1y = ui.tab("1 Year")
+                tab_1m = ui.tab("1 Month")
+                tab_accounts = ui.tab("Comptes")
+                tab_gain = ui.tab("Gain réel")
+                tab_trades = ui.tab("Trades")
+                tab_alloc = ui.tab("Allocations")
+                tab_val = ui.tab("Valorisation")
 
-            # ── 1M ──
-            with ui.tab_panel(tab_1m):
-                with ui.column().classes("tab-content"):
-                    ui.element("div").classes("w-full h-0.5 bg-black")
-                    ui.label("Last 21 Trading Days").classes("text-base font-semibold")
-                    if BACKTEST_1M.exists():
-                        ui.image("/img/backtest_1m").classes("w-full rounded-lg shadow-lg")
+            with ui.tab_panels(tabs, value=tab_full).classes("w-full flex-1 custom-tab-panels"):
 
-            # ── NASDAQ-100 Top 5 & Top 20 (shared render function) ──
-            def render_ndx_tab(n):
-                ndx_data, pe_date, interp_date = load_ndx_top(n)
-                if not ndx_data:
-                    ui.label("No data. Run: python src/download_pe_qqq_top5.py").classes("text-gray-500")
-                    return
+                # ── Backtest Full ──
+                with ui.tab_panel(tab_full):
+                    with ui.column().classes("tab-content"):
+                        ui.element("div").classes("w-full h-0.5 bg-black")
+                        ui.label("Walk-Forward Backtest — Full History").classes("text-base font-semibold")
+                        if BACKTEST_FULL.exists():
+                            ui.image("/img/backtest_full").classes("w-full rounded-lg shadow-lg")
+                        else:
+                            ui.label("Run: python src/risk_off_strategy/run.py QQQ").classes("text-gray-500")
 
-                with ui.row().classes("gap-6"):
-                    ui.label(f"PE trimestriel : {pe_date or '—'}").style("font-size: 0.8rem; color: #999")
-                    ui.label(f"Interpolation : {interp_date or '—'}").style("font-size: 0.8rem; color: #999")
+                # ── 10Y ──
+                with ui.tab_panel(tab_10y):
+                    with ui.column().classes("tab-content"):
+                        ui.element("div").classes("w-full h-0.5 bg-black")
+                        ui.label("Last 10 Years").classes("text-base font-semibold")
+                        if BACKTEST_10Y.exists():
+                            ui.image("/img/backtest_10y").classes("w-full rounded-lg shadow-lg")
 
-                labels = [d["symbol"] for d in ndx_data]
-                caps = [d["mktCap"] / 1e9 for d in ndx_data]
-                pes = [d["pe"] if d["pe"] and d["pe"] > 0 else 0 for d in ndx_data]
-                total_cap = sum(caps)
+                # ── 5Y ──
+                with ui.tab_panel(tab_5y):
+                    with ui.column().classes("tab-content"):
+                        ui.element("div").classes("w-full h-0.5 bg-black")
+                        ui.label("Last 5 Years").classes("text-base font-semibold")
+                        if BACKTEST_5Y.exists():
+                            ui.image("/img/backtest_5y").classes("w-full rounded-lg shadow-lg")
 
-                def pe_color(pe):
-                    if pe <= 0: return "#999"
-                    if pe < 25: return "#4caf50"
-                    if pe < 35: return "#8bc34a"
-                    if pe < 50: return "#ff9800"
-                    return "#f44336"
+                # ── 1Y ──
+                with ui.tab_panel(tab_1y):
+                    with ui.column().classes("tab-content"):
+                        ui.element("div").classes("w-full h-0.5 bg-black")
+                        ui.label("Last 252 Trading Days").classes("text-base font-semibold")
+                        if BACKTEST_1Y.exists():
+                            ui.image("/img/backtest_1y").classes("w-full rounded-lg shadow-lg")
 
-                colors = [pe_color(p) for p in pes]
-                hover_text = [
-                    f"{d['name']}<br>${d['mktCap']/1e9:.0f}B<br>PE: {d['pe']:.1f}" if d['pe'] and d['pe'] > 0
-                    else f"{d['name']}<br>${d['mktCap']/1e9:.0f}B<br>PE: N/A"
-                    for d in ndx_data
-                ]
+                # ── 1M ──
+                with ui.tab_panel(tab_1m):
+                    with ui.column().classes("tab-content"):
+                        ui.element("div").classes("w-full h-0.5 bg-black")
+                        ui.label("Last 21 Trading Days").classes("text-base font-semibold")
+                        if BACKTEST_1M.exists():
+                            ui.image("/img/backtest_1m").classes("w-full rounded-lg shadow-lg")
 
-                with ui.row().classes("w-full gap-4"):
-                    fig_cap = go.Figure(go.Pie(
-                        labels=labels, values=caps, textinfo="label+percent",
-                        textposition="inside", hovertext=hover_text, hoverinfo="text",
-                        marker=dict(colors=colors, line=dict(color="#fff", width=1)), hole=0.35,
-                    ))
-                    fig_cap.update_layout(
-                        title=dict(text=f"Market Cap (${total_cap:.0f}B)", x=0.5),
-                        showlegend=False, margin=dict(t=40, b=10, l=10, r=10), height=420,
-                    )
-                    ui.plotly(fig_cap).classes("flex-1")
+                # ── Comptes (statut separe par compte Bourso) ──
+                with ui.tab_panel(tab_accounts):
+                    with ui.column().classes("tab-content"):
+                        ui.element("div").classes("w-full h-0.5 bg-black")
+                        ui.label("Comptes Bourso — statut par compte").classes("text-base font-semibold")
+                        ui.label("Le meme signal est replique sur chaque compte gere ; chaque compte "
+                                 "est lu, decide et execute independamment (bande de non-action sur "
+                                 "sa propre allocation reelle).").style("font-size: 0.8rem; color: #666")
+                        if not accounts:
+                            ui.label("Aucun compte connu (trades.jsonl / logs/accounts.json vides).") \
+                                .classes("text-gray-500")
+                        for acc in accounts.values():
+                            render_account_card(acc)
 
-                    pe_labels = [f"{s}\nPE {p:.0f}" if p > 0 else f"{s}\nN/A"
-                                 for s, p in zip(labels, pes)]
-                    fig_pe = go.Figure(go.Pie(
-                        labels=pe_labels, values=caps, textinfo="label",
-                        textposition="inside", hovertext=hover_text, hoverinfo="text",
-                        marker=dict(colors=colors, line=dict(color="#fff", width=1)), hole=0.35,
-                    ))
-                    valid = [(c, p) for c, p in zip(caps, pes) if p > 0]
-                    w_pe = sum(c * p for c, p in valid) / sum(c for c, p in valid) if valid else 0
-                    fig_pe.update_layout(
-                        title=dict(text=f"PE Ratio (weighted: {w_pe:.1f})", x=0.5),
-                        showlegend=False, margin=dict(t=40, b=10, l=10, r=10), height=420,
-                        annotations=[dict(text=f"{w_pe:.1f}", x=0.5, y=0.5,
-                                          font_size=24, showarrow=False, font_color="#333")],
-                    )
-                    ui.plotly(fig_pe).classes("flex-1")
-
-                with ui.row().classes("gap-4 mt-2"):
-                    for color, lbl in [("#4caf50", "PE < 25"), ("#8bc34a", "PE 25-35"),
-                                       ("#ff9800", "PE 35-50"), ("#f44336", "PE > 50"), ("#999", "N/A")]:
-                        with ui.row().classes("items-center gap-1"):
-                            ui.element("div").style(f"width:12px; height:12px; border-radius:50%; background:{color}")
-                            ui.label(lbl).style("font-size: 0.75rem; color: #666")
-
-                ui.element("div").classes("w-full h-0.5 bg-black mt-4")
-                ndx_columns = [
-                    {"name": "rank", "label": "#", "field": "rank", "align": "right"},
-                    {"name": "symbol", "label": "Ticker", "field": "symbol", "align": "left"},
-                    {"name": "name", "label": "Name", "field": "name", "align": "left"},
-                    {"name": "cap", "label": "Cap ($B)", "field": "cap", "align": "right"},
-                    {"name": "weight", "label": "Weight", "field": "weight", "align": "right"},
-                    {"name": "pe", "label": "PE TTM", "field": "pe", "align": "right"},
-                ]
-                ndx_rows = []
-                for i, d in enumerate(ndx_data, 1):
-                    pe_val = d["pe"]
-                    ndx_rows.append({
-                        "rank": i, "symbol": d["symbol"], "name": d["name"],
-                        "cap": f"{d['mktCap']/1e9:.0f}",
-                        "weight": f"{d['mktCap']/1e9/total_cap*100:.1f}%",
-                        "pe": f"{pe_val:.1f}" if pe_val and pe_val > 0 else "N/A",
-                    })
-                ui.table(columns=ndx_columns, rows=ndx_rows, row_key="rank").classes("w-full")
-
-            with ui.tab_panel(tab_ndx5):
-                with ui.column().classes("tab-content"):
-                    ui.element("div").classes("w-full h-0.5 bg-black")
-                    ui.label("NASDAQ-100 Top 5 — Market Cap & PE").classes("text-base font-semibold")
-                    render_ndx_tab(5)
-
-            with ui.tab_panel(tab_ndx20):
-                with ui.column().classes("tab-content"):
-                    ui.element("div").classes("w-full h-0.5 bg-black")
-                    ui.label("NASDAQ-100 Top 20 — Market Cap & PE").classes("text-base font-semibold")
-                    render_ndx_tab(20)
-
-            # ── Valorisation (CAPE / ECY S&P, Shiller) ──
-            with ui.tab_panel(tab_val):
-                with ui.column().classes("tab-content"):
-                    ui.element("div").classes("w-full h-0.5 bg-black")
-                    ui.label("Valorisation — CAPE & Excess CAPE Yield (S&P 500, Shiller)") \
-                        .classes("text-base font-semibold")
-                    val = load_cape_ecy_latest()
-                    if not val:
-                        ui.label("Pas de données. Lancer : python -m src.download_shiller_cape") \
-                            .classes("text-gray-500")
-                    else:
-                        ecy_s = f"{val['ecy']*100:+.2f}%" if val["ecy"] is not None else "—"
-                        with ui.row().classes("gap-6 items-baseline"):
-                            ui.label(f"CAPE {val['cape']:.1f}").classes("text-lg font-semibold")
-                            ui.label(f"percentile {val['cape_pct']:.0f} "
-                                     f"(médiane {val['cape_median']:.1f})") \
-                                .style("font-size: 0.8rem; color: #999")
-                            ui.label(f"ECY {ecy_s}").classes("text-lg font-semibold")
-                            ui.label(f"données Shiller au {val['date']}") \
-                                .style("font-size: 0.8rem; color: #999")
-                        ui.label("Valorisation ajustée des taux, comparable entre époques "
-                                 "(≠ PE brut). Contexte — hors stratégie.") \
-                            .style("font-size: 0.8rem; color: #666")
-                    if CAPE_CHART.exists():
-                        ui.image("/img/cape_ecy").classes("w-full rounded-lg shadow-lg")
-
-                    # ── Leaders Nasdaq : excess earnings yield top-5 / top-10 ──
-                    ney = load_ndx_excess_yield()
-                    if ney:
-                        ui.element("div").classes("w-full h-0.5 bg-black mt-4")
-                        ui.label("Leaders Nasdaq — Excess earnings yield (top-5 / top-10)") \
+                # ── Valorisation (CAPE / ECY S&P, Shiller) ──
+                with ui.tab_panel(tab_val):
+                    with ui.column().classes("tab-content"):
+                        ui.element("div").classes("w-full h-0.5 bg-black")
+                        ui.label("Valorisation — CAPE & Excess CAPE Yield (S&P 500, Shiller)") \
                             .classes("text-base font-semibold")
-                        rr = ney["real_rate"] * 100
-                        ui.label(f"rendement bénéfices cap-pondéré − taux réel 10 ans "
-                                 f"({rr:.2f} %, DFII10) · au {ney['date']}") \
-                            .style("font-size: 0.8rem; color: #999")
+                        val = load_cape_ecy_latest()
+                        if not val:
+                            ui.label("Pas de données. Lancer : python -m src.download_shiller_cape") \
+                                .classes("text-gray-500")
+                        else:
+                            ecy_s = f"{val['ecy']*100:+.2f}%" if val["ecy"] is not None else "—"
+                            with ui.row().classes("gap-6 items-baseline"):
+                                ui.label(f"CAPE {val['cape']:.1f}").classes("text-lg font-semibold")
+                                ui.label(f"percentile {val['cape_pct']:.0f} "
+                                         f"(médiane {val['cape_median']:.1f})") \
+                                    .style("font-size: 0.8rem; color: #999")
+                                ui.label(f"ECY {ecy_s}").classes("text-lg font-semibold")
+                                ui.label(f"données Shiller au {val['date']}") \
+                                    .style("font-size: 0.8rem; color: #999")
+                            ui.label("Valorisation ajustée des taux, comparable entre époques "
+                                     "(≠ PE brut). Contexte — hors stratégie.") \
+                                .style("font-size: 0.8rem; color: #666")
+                        if CAPE_CHART.exists():
+                            ui.image("/img/cape_ecy").classes("w-full rounded-lg shadow-lg")
 
-                        def _p(x):
-                            return f"{x*100:+.2f}%" if x is not None else "—"
+                # ── Gain réel (une section par compte) ──
+                with ui.tab_panel(tab_gain):
+                    with ui.column().classes("tab-content"):
+                        ui.element("div").classes("w-full h-0.5 bg-black")
+                        ui.label("Gain réel du compte — rendement sur le capital").classes("text-base font-semibold")
+                        if not accounts:
+                            ui.label("Pas encore assez d'historique réel.").classes("text-gray-500")
+                        for acc in accounts.values():
+                            account_header(acc, n_accounts)
+                            render_gain(acc["trades"])
 
-                        cols = [
-                            {"name": "b", "label": "Panier", "field": "b", "align": "left"},
-                            {"name": "et", "label": "Excess (trailing)", "field": "et", "align": "right"},
-                            {"name": "ef", "label": "Excess (forward)", "field": "ef", "align": "right"},
-                            {"name": "g", "label": "Δ croissance", "field": "g", "align": "right"},
-                        ]
-                        rws = []
-                        for lbl, key in [("Top-5", "top5"), ("Top-10", "top10")]:
-                            b = ney[key]
-                            et, ef = b["excess_trailing"], b["excess_forward"]
-                            gap = (ef - et) if (et is not None and ef is not None) else None
-                            rws.append({"b": lbl, "et": _p(et), "ef": _p(ef), "g": _p(gap)})
-                        if val and val.get("ecy") is not None:
-                            rws.append({"b": "S&P 500 (ECY, réf.)",
-                                        "et": f"{val['ecy']*100:+.2f}%", "ef": "—", "g": "—"})
-                        ui.table(columns=cols, rows=rws, row_key="b").classes("w-full")
-                        ui.label("Trailing = bénéfices actuels ; forward = bénéfices attendus "
-                                 "(estimations analystes, optimistes) ; le Δ croissance chiffre le "
-                                 "« crédit IA ». Marges proches de records → le trailing peut flatter. "
-                                 "≠ CAPE lissé (inutilisable sur des compounders). Contexte — hors stratégie.") \
-                            .style("font-size: 0.8rem; color: #666")
+                # ── Trades (une section par compte) ──
+                with ui.tab_panel(tab_trades):
+                    with ui.column().classes("tab-content"):
+                        ui.element("div").classes("w-full h-0.5 bg-black")
+                        ui.label("Trade History").classes("text-base font-semibold")
+                        if not accounts:
+                            ui.label("No trades yet.").classes("text-gray-500")
+                        for acc in accounts.values():
+                            account_header(acc, n_accounts)
+                            render_trades(acc["trades"], compute_portfolio_history(acc["trades"]))
 
-            # ── Gain réel ──
-            with ui.tab_panel(tab_gain):
-                with ui.column().classes("tab-content"):
-                    ui.element("div").classes("w-full h-0.5 bg-black")
-                    ui.label("Gain réel du compte — rendement sur le capital").classes("text-base font-semibold")
-                    perf_series, perf_stats = compute_real_performance(trades)
-                    if not perf_series:
-                        ui.label("Pas encore assez d'historique réel.").classes("text-gray-500")
-                    else:
-                        gcls = "gain-positive" if perf_stats["cum_return"] >= 0 else "gain-negative"
-                        eur_sign = "+" if perf_stats["total_gain_eur"] >= 0 else ""
-
-                        def kpi(label, value, cls=""):
-                            with ui.element("div").classes("card").style("flex:1; text-align:center"):
-                                ui.html(f'<div style="font-size:0.7rem;text-transform:uppercase;'
-                                        f'letter-spacing:0.06em;color:#888">{label}</div>')
-                                ui.html(f'<div class="{cls}" style="font-size:1.6rem;'
-                                        f'font-weight:700;margin-top:6px">{value}</div>')
-
-                        with ui.row().classes("w-full gap-4"):
-                            kpi("Capital actuel", f"{perf_stats['current_equity']:.0f} EUR")
-                            kpi("Gain cumulé", f"{perf_stats['cum_return']*100:+.1f}%", gcls)
-                            kpi("Gain réel", f"{eur_sign}{perf_stats['total_gain_eur']:.0f} EUR", gcls)
-                            kpi("Annualisé", f"{perf_stats['annualized']*100:+.1f}%", gcls)
-
-                        xs = [datetime.strptime(s["date"], "%Y-%m-%d") for s in perf_series]
-                        ys = [s["cum_return"] * 100 for s in perf_series]
-
-                        # Insérer les points de croisement à y=0 pour clipper net
-                        ax, ay = [], []
-                        for i in range(len(xs)):
-                            if i > 0 and ((ys[i-1] < 0 < ys[i]) or (ys[i-1] > 0 > ys[i])):
-                                frac = -ys[i-1] / (ys[i] - ys[i-1])
-                                ax.append(xs[i-1] + (xs[i] - xs[i-1]) * frac)
-                                ay.append(0.0)
-                            ax.append(xs[i])
-                            ay.append(ys[i])
-
-                        pos_fill = [y if y >= 0 else 0.0 for y in ay]
-                        neg_fill = [y if y <= 0 else 0.0 for y in ay]
-                        pos_line = [y if y >= 0 else None for y in ay]
-                        neg_line = [y if y <= 0 else None for y in ay]
-
-                        GREEN, RED = "#2e7d32", "#ef5350"
-                        fig_gain = go.Figure()
-                        # Remplissages (sous la courbe), vert au-dessus / rouge en dessous
-                        fig_gain.add_trace(go.Scatter(
-                            x=ax, y=neg_fill, fill="tozeroy", mode="none",
-                            fillcolor="rgba(239,83,80,0.20)", hoverinfo="skip", showlegend=False))
-                        fig_gain.add_trace(go.Scatter(
-                            x=ax, y=pos_fill, fill="tozeroy", mode="none",
-                            fillcolor="rgba(46,125,50,0.20)", hoverinfo="skip", showlegend=False))
-                        # Lignes colorées par signe (se rejoignent au croisement)
-                        fig_gain.add_trace(go.Scatter(
-                            x=ax, y=neg_line, mode="lines", line=dict(color=RED, width=2),
-                            connectgaps=False, hoverinfo="skip", showlegend=False))
-                        fig_gain.add_trace(go.Scatter(
-                            x=ax, y=pos_line, mode="lines", line=dict(color=GREEN, width=2),
-                            connectgaps=False, hoverinfo="skip", showlegend=False))
-                        # Marqueurs sur les vrais points, colorés par signe + hover
-                        fig_gain.add_trace(go.Scatter(
-                            x=xs, y=ys, mode="markers",
-                            marker=dict(size=6, color=[RED if y < 0 else GREEN for y in ys]),
-                            hovertemplate="%{x|%d %b %Y}<br>%{y:+.2f}%<extra></extra>",
-                            showlegend=False))
-                        fig_gain.add_hline(y=0, line=dict(color="#888", width=1, dash="dot"))
-                        fig_gain.update_layout(
-                            title=dict(text="Rendement cumulé (time-weighted) du compte PEA", x=0.5),
-                            margin=dict(t=46, b=30, l=50, r=20), height=420,
-                            yaxis=dict(title="Gain (%)", ticksuffix="%", zeroline=False),
-                            xaxis=dict(title="", type="date"),
-                            plot_bgcolor="white", hovermode="x unified",
-                        )
-                        ui.plotly(fig_gain).classes("w-full")
-
-                        if abs(perf_stats["total_deposits"]) >= 5.0:
-                            ui.label(
-                                f"Apports/retraits neutralisés : {perf_stats['total_deposits']:+.0f} EUR "
-                                f"(exclus du rendement)"
-                            ).style("font-size:0.75rem; color:#999")
-                        ui.label(
-                            f"Capital initial {perf_stats['start_equity']:.0f} EUR · "
-                            f"{perf_stats['days']} jours · frais de vente (0.5%) inclus"
-                        ).style("font-size:0.75rem; color:#999")
-
-            # ── Trades ──
-            with ui.tab_panel(tab_trades):
-                with ui.column().classes("tab-content"):
-                    ui.element("div").classes("w-full h-0.5 bg-black")
-                    ui.label("Trade History").classes("text-base font-semibold")
-                    if not trades:
-                        ui.label("No trades yet.").classes("text-gray-500")
-                    else:
-                        columns = [
-                            {"name": "date", "label": "Date", "field": "date", "align": "left"},
-                            {"name": "side", "label": "Action", "field": "side", "align": "left"},
-                            {"name": "quantity", "label": "Qty", "field": "quantity", "align": "right"},
-                            {"name": "etf_price", "label": "Price", "field": "etf_price", "align": "right"},
-                            {"name": "value", "label": "Value", "field": "value", "align": "right"},
-                            {"name": "probability", "label": "Prob", "field": "probability", "align": "right"},
-                            {"name": "target_alloc", "label": "Target", "field": "target_alloc", "align": "right"},
-                            {"name": "executed", "label": "Status", "field": "executed", "align": "center"},
-                        ]
-                        rows = []
-                        for t in reversed(trades):
-                            qty = t.get("quantity", 0)
-                            price = t.get("etf_price", 0)
-                            rows.append({
-                                "date": t.get("date", ""),
-                                "side": (t.get("side") or "hold").upper(),
-                                "quantity": qty,
-                                "etf_price": f"{price:.2f}",
-                                "value": f"{qty * price:.0f} EUR",
-                                "probability": f"{t.get('probability', 0):.3f}",
-                                "target_alloc": f"{t.get('target_alloc', 0)*100:.0f}%",
-                                "executed": "LIVE" if t.get("executed") else "DRY-RUN",
-                            })
-                        table = ui.table(columns=columns, rows=rows, row_key="date").classes("w-full")
-                        table.add_slot("body-cell-side", """
-                            <q-td :props="props">
-                                <span :style="{ color: props.value === 'BUY' ? '#1f8f4c' : props.value === 'SELL' ? '#c0392b' : '#888',
-                                                 fontWeight: 600 }">
-                                    {{ props.value }}
-                                </span>
-                            </q-td>
-                        """)
-                        table.add_slot("body-cell-executed", """
-                            <q-td :props="props">
-                                <q-badge :color="props.value === 'LIVE' ? 'green' : 'grey'" :label="props.value" />
-                            </q-td>
-                        """)
-
-            # ── Allocation History ──
-            with ui.tab_panel(tab_alloc):
-                with ui.column().classes("tab-content"):
-                    ui.element("div").classes("w-full h-0.5 bg-black")
-                    ui.label("Allocation History").classes("text-base font-semibold")
-                    if not portfolio:
-                        ui.label("No allocation history yet.").classes("text-gray-500")
-                    else:
-                        columns = [
-                            {"name": "date", "label": "Date", "field": "date", "align": "left"},
-                            {"name": "shares", "label": "Shares", "field": "shares", "align": "right"},
-                            {"name": "price", "label": "Price", "field": "price", "align": "right"},
-                            {"name": "position", "label": "Position", "field": "position", "align": "right"},
-                            {"name": "equity", "label": "Equity", "field": "equity", "align": "right"},
-                            {"name": "target", "label": "Target", "field": "target", "align": "right"},
-                            {"name": "actual", "label": "Actual", "field": "actual", "align": "right"},
-                            {"name": "action", "label": "Action", "field": "action", "align": "center"},
-                        ]
-                        rows = []
-                        for p in reversed(portfolio):
-                            rows.append({
-                                "date": p["date"],
-                                "shares": p["shares"],
-                                "price": f"{p['price']:.2f}",
-                                "position": f"{p['position_value']:.0f} EUR",
-                                "equity": f"{p['equity']:.0f} EUR",
-                                "target": f"{p['target_alloc']*100:.0f}%",
-                                "actual": f"{p['actual_alloc']*100:.0f}%",
-                                "action": p["side"].upper(),
-                            })
-                        ui.table(columns=columns, rows=rows, row_key="date").classes("w-full")
+                # ── Allocation History (une section par compte) ──
+                with ui.tab_panel(tab_alloc):
+                    with ui.column().classes("tab-content"):
+                        ui.element("div").classes("w-full h-0.5 bg-black")
+                        ui.label("Allocation History").classes("text-base font-semibold")
+                        if not accounts:
+                            ui.label("No allocation history yet.").classes("text-gray-500")
+                        for acc in accounts.values():
+                            account_header(acc, n_accounts)
+                            render_allocations(compute_portfolio_history(acc["trades"]))
 
 
-ui.run(title="Risk-Off Strategy — Gregory Descamps", port=int(os.environ.get("WEBAPP_PORT", 8081)), reload=False)
+ui.run(title="Risk-Off Strategy — Gregory Descamps", port=int(os.environ.get("WEBAPP_PORT", 8080)),
+       reload=False, storage_secret=WEBAPP_SECRET)

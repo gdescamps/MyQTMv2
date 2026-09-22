@@ -93,8 +93,47 @@ def send_email(subject, body, to=None, images=None):
     print(f"Email envoye a {', '.join(to)}: {subject}")
 
 
+def _account_preview(account, alloc, alloc_pct):
+    """Apercu de l'action du matin pour UN compte, en REUTILISANT le vrai chemin
+    d'execution (real_bourso) : meme instrument actif (TRADE_INSTRUMENT), meme bande
+    asymetrique et meme force cash. Source unique -> le recap ne peut pas diverger
+    de ce que le cron du matin fera reellement."""
+    from src.real_bourso import (
+        get_pea_state, compute_orders, INSTRUMENT, INSTRUMENTS, LEVERAGE,
+    )
+    state = get_pea_state(account)
+    price = state["etf_price"]
+    shares = state["etf_shares"]
+    equity = state["equity"]
+    current_alloc = (shares * price) / equity if equity > 0 else 0
+    side, qty, reason = compute_orders(alloc, state)
+
+    label = INSTRUMENTS[INSTRUMENT]["label"]
+    if side == "buy":
+        preview = f"ACHAT {qty} parts {INSTRUMENT} prevu demain matin"
+    elif side == "sell":
+        preview = f"VENTE {qty} parts {INSTRUMENT} prevue demain matin"
+    else:
+        preview = f"Pas de changement prevu demain matin ({reason})"
+
+    # exposition visee vs realisee (utile en LQQ : 1 part = 2x le poids)
+    realized_w = ((shares + (qty if side == "buy" else -qty if side == "sell" else 0))
+                  * price) / equity if equity > 0 else 0
+    preview += (
+        f"\n  Compte:     {state['account_name']} (compte {account.slot}) — connexion OK"
+        f"\n  Instrument: {INSTRUMENT} ({label}, levier x{LEVERAGE:.0f})"
+        f"\n  PEA actuel: {shares} parts, {state['cash']:.0f} EUR especes, "
+        f"alloc poids {current_alloc*100:.0f}% -> {alloc_pct}"
+        f"\n  Exposition: {current_alloc*LEVERAGE*100:.0f}% -> {realized_w*LEVERAGE*100:.0f}% "
+        f"(cible {alloc*LEVERAGE*100:.0f}%)"
+    )
+    return preview
+
+
 def send_recap():
-    """Send evening recap email with signal info and backtest chart."""
+    """Recap du soir : signal + graphe, puis UN mail par compte Bourso gere (a l'adresse
+    du compte) avec l'apercu de l'action du matin sur CE compte. Sans compte gere,
+    le recap part a la MAILING_LIST sans apercu."""
     if not SIGNAL_PATH.exists():
         print("[ERREUR] signal.json introuvable")
         return False
@@ -115,60 +154,36 @@ def send_recap():
         return False
 
     alloc_pct = f"{alloc*100:.0f}%"
-
-    # Predit l'action du matin en REUTILISANT le vrai chemin d'execution
-    # (real_bourso) : meme instrument actif (TRADE_INSTRUMENT: PUST x1 / LQQ x2),
-    # meme bande asymetrique et meme force cash. Source unique -> le recap ne peut
-    # plus diverger de ce que le cron du matin fera reellement (avant : PUST en dur
-    # + ancienne logique de seuil -> prevoyait des parts PUST meme en LQQ).
-    action_preview = ""
-    try:
-        from src.real_bourso import (
-            get_pea_state, compute_orders, INSTRUMENT, INSTRUMENTS, LEVERAGE,
-        )
-        state = get_pea_state()
-        price = state["etf_price"]
-        shares = state["etf_shares"]
-        equity = state["equity"]
-        current_alloc = (shares * price) / equity if equity > 0 else 0
-        side, qty, reason = compute_orders(alloc, state)
-
-        label = INSTRUMENTS[INSTRUMENT]["label"]
-        if side == "buy":
-            action_preview = f"ACHAT {qty} parts {INSTRUMENT} prevu demain matin"
-        elif side == "sell":
-            action_preview = f"VENTE {qty} parts {INSTRUMENT} prevue demain matin"
-        else:
-            action_preview = f"Pas de changement prevu demain matin ({reason})"
-
-        # exposition visee vs realisee (utile en LQQ : 1 part = 2x le poids)
-        realized_w = ((shares + (qty if side == "buy" else -qty if side == "sell" else 0))
-                      * price) / equity if equity > 0 else 0
-        action_preview += (
-            f"\n  Instrument: {INSTRUMENT} ({label}, levier x{LEVERAGE:.0f})"
-            f"\n  PEA actuel: {shares} parts, {state['cash']:.0f} EUR especes, "
-            f"alloc poids {current_alloc*100:.0f}% -> {alloc_pct}"
-            f"\n  Exposition: {current_alloc*LEVERAGE*100:.0f}% -> {realized_w*LEVERAGE*100:.0f}% "
-            f"(cible {alloc*LEVERAGE*100:.0f}%)"
-        )
-    except Exception as e:
-        action_preview = f"(impossible de verifier le PEA: {e})"
-
-    subject = f"[MyQTM] {ticker} {date} — alloc {alloc_pct} (prob {prob:.3f})"
-    body = (
+    header = (
         f"Backtest {ticker} termine avec succes.\n\n"
         f"  Date:        {date}\n"
         f"  Probabilite: {prob:.4f}\n"
         f"  Allocation:  {alloc_pct}\n\n"
-        f"{action_preview}\n"
     )
+    images = [BACKTEST_1M] if BACKTEST_1M.exists() else []
 
-    images = []
-    if BACKTEST_1M.exists():
-        images.append(BACKTEST_1M)
+    from src.bourso.accounts import load_accounts
+    accounts = load_accounts()
+    if not accounts:
+        send_email(f"[MyQTM] {ticker} {date} — alloc {alloc_pct} (prob {prob:.3f})",
+                   header + "(aucun compte Bourso gere)\n", images=images)
+        return True
 
-    send_email(subject, body, images=images)
-    return True
+    ok = True
+    for account in accounts:
+        try:
+            preview = _account_preview(account, alloc, alloc_pct)
+        except Exception as e:  # noqa: BLE001
+            preview = (f"  Compte:     {account.label} — CONNEXION KO ({str(e)[:200]})"
+                       f"\n  Impossible de verifier le PEA ; l'execution du matin reessaiera.")
+            ok = False
+        subject = f"[MyQTM] {ticker} {date} — alloc {alloc_pct} (prob {prob:.3f}) — {account.name or account.label}"
+        try:
+            send_email(subject, header + preview + "\n", to=account.recipients, images=images)
+        except Exception as e:  # noqa: BLE001
+            print(f"[ERREUR] envoi recap {account.label}: {e}")
+            ok = False
+    return ok
 
 
 if __name__ == "__main__":

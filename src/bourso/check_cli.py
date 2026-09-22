@@ -88,31 +88,54 @@ def check_parse():
 
 
 def check_account():
-    """Verifie la connexion au compte reel — equivalent de src/bourso/prepare.py.
+    """Verifie la connexion a CHAQUE compte Bourso gere (cf. accounts.py).
 
-    Lance un vrai `bourso-cli trade summary` (via prepare_order) sur le PEA/PUST :
-    cela authentifie aupres de BoursoBank et lit cours + cash + position. C'est
-    le meme chemin que le recap du soir et l'execution du matin. Aucun ordre emis.
+    Pour chaque slot : decouverte/cache du PEA puis un vrai `bourso-cli trade summary`
+    (via prepare_order) sur PUST : authentification BoursoBank + lecture cours/cash/
+    position. C'est le meme chemin que le recap du soir et l'execution du matin.
+    Aucun ordre emis.
 
-    Retourne {ok, detail, error}.
+    Retourne {ok, detail, error, accounts: [{slot, name, ok, detail|error}]}.
     """
-    info = {"ok": False, "detail": None, "error": None}
+    info = {"ok": False, "detail": None, "error": None, "accounts": []}
     try:
-        from src.bourso.prepare import prepare_order, PEA_ACCOUNT_ID, SYMBOLS
-        data = prepare_order(PEA_ACCOUNT_ID, SYMBOLS["PUST"])
-        price = data["symbol"]["last_price"]
-        cash = data["account"]["cash"]
-        qty = data["quantity_held"]
-        if not price or price <= 0:
-            raise RuntimeError(f"cours PUST invalide: {price!r}")
-        if cash is None:
-            raise RuntimeError("cash du compte illisible (None)")
-        info["ok"] = True
-        info["detail"] = (
-            f"PUST {price:.4f} EUR — PEA: {cash:.2f} EUR especes, {qty} part(s)"
-        )
+        from src.bourso.accounts import load_accounts, resolve_pea
+        from src.bourso.prepare import prepare_order, SYMBOLS
+        accounts = load_accounts()
     except Exception as e:
         info["error"] = str(e)
+        return info
+    if not accounts:
+        info["error"] = "aucun compte gere (BOURSO_ID_n / BOURSO_CODE_n vides)"
+        return info
+
+    lines = []
+    all_ok = True
+    for acc in accounts:
+        row = {"slot": acc.slot, "name": acc.name, "ok": False}
+        try:
+            resolve_pea(acc)
+            row["name"] = acc.name
+            data = prepare_order(acc.pea_account_id, SYMBOLS["PUST"], creds=acc.creds)
+            price = data["symbol"]["last_price"]
+            cash = data["account"]["cash"]
+            qty = data["quantity_held"]
+            if not price or price <= 0:
+                raise RuntimeError(f"cours PUST invalide: {price!r}")
+            if cash is None:
+                raise RuntimeError("cash du compte illisible (None)")
+            row["ok"] = True
+            row["detail"] = f"PUST {price:.4f} EUR — {cash:.2f} EUR especes, {qty} part(s) PUST"
+            lines.append(f"compte {acc.slot} ({acc.name}): OK — {row['detail']}")
+        except Exception as e:
+            all_ok = False
+            row["error"] = str(e)
+            lines.append(f"compte {acc.slot} ({acc.name or '?'}): ECHEC — {str(e)[:200]}")
+        info["accounts"].append(row)
+    info["ok"] = all_ok
+    info["detail"] = "\n   ".join(lines)
+    if not all_ok:
+        info["error"] = "\n   ".join(lines)
     return info
 
 
@@ -195,9 +218,9 @@ def build_report(tests_ok, tests_summary, parse, acct, up):
     else:
         parse_line = f"ECHEC — order/prepare ne deserialise plus :\n   {parse.get('error')}"
     if acct.get("ok"):
-        acct_line = f"OK — {acct['detail']}"
+        acct_line = f"OK ({len(acct.get('accounts', []))} compte(s))\n   {acct['detail']}"
     else:
-        acct_line = f"ECHEC — {acct.get('error')}"
+        acct_line = f"ECHEC\n   {acct.get('error')}"
 
     if up.get("error"):
         up_block = f"Verification amont IMPOSSIBLE: {up['error']}"
@@ -224,7 +247,7 @@ def build_report(tests_ok, tests_summary, parse, acct, up):
         f"1. Build installe (tests dry-run): {tests_line}\n"
         f"   {tests_summary}\n\n"
         f"2. Deserialisation CLI (cargo test order/prepare): {parse_line}\n\n"
-        f"3. Connexion compte reel (trade summary PEA/PUST): {acct_line}\n\n"
+        f"3. Connexion comptes reels (trade summary PEA/PUST): {acct_line}\n\n"
         f"4. Depot amont (azerpas/bourso-api):\n"
         f"   {up_block}\n"
     )

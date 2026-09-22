@@ -13,29 +13,38 @@ import tempfile
 
 
 def _get_credentials():
-    bourso_id = os.environ.get("BOURSO_ID")
-    bourso_code = os.environ.get("BOURSO_CODE")
-    if bourso_id and bourso_code:
-        return bourso_id, bourso_code
+    """Credentials par defaut = slot 1 (BOURSO_ID_1/CODE_1, ou l'ancienne paire BOURSO_ID/CODE).
+
+    Le multicompte passe explicitement `creds=` a _run_cli_raw (cf. accounts.py) ;
+    ce repli conserve le comportement mono-compte des anciens appels."""
+    for suffix in ("", "_1"):
+        bourso_id = os.environ.get(f"BOURSO_ID{suffix}")
+        bourso_code = os.environ.get(f"BOURSO_CODE{suffix}")
+        if bourso_id and bourso_code:
+            return bourso_id, bourso_code
     env_path = os.path.join(os.path.dirname(__file__), "..", "..", ".env")
     if not os.path.exists(env_path):
         env_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", ".env")
+    found = {}
     if os.path.exists(env_path):
         with open(env_path) as f:
             for line in f:
                 line = line.strip()
-                if line.startswith("BOURSO_ID="):
-                    bourso_id = line.split("=", 1)[1].strip('"').strip("'")
-                elif line.startswith("BOURSO_CODE="):
-                    bourso_code = line.split("=", 1)[1].strip('"').strip("'")
-    if not bourso_id or not bourso_code:
-        raise RuntimeError("BOURSO_ID and BOURSO_CODE must be set in environment or .env")
-    return bourso_id, bourso_code
+                for key in ("BOURSO_ID", "BOURSO_CODE", "BOURSO_ID_1", "BOURSO_CODE_1"):
+                    if line.startswith(key + "="):
+                        found[key] = line.split("=", 1)[1].strip('"').strip("'")
+    for suffix in ("", "_1"):
+        bourso_id, bourso_code = found.get(f"BOURSO_ID{suffix}"), found.get(f"BOURSO_CODE{suffix}")
+        if bourso_id and bourso_code:
+            return bourso_id, bourso_code
+    raise RuntimeError("BOURSO_ID_1 and BOURSO_CODE_1 (or BOURSO_ID/BOURSO_CODE) must be set in environment or .env")
 
 
-def _run_cli_raw(*args):
-    """Run bourso-cli, return stdout+stderr combined."""
-    bourso_id, bourso_code = _get_credentials()
+def _run_cli_raw(*args, creds=None):
+    """Run bourso-cli, return (stdout, stderr, returncode).
+
+    creds: tuple (bourso_id, bourso_code) du compte vise ; None -> slot 1 / legacy."""
+    bourso_id, bourso_code = creds if creds else _get_credentials()
     creds = json.dumps({"clientId": bourso_id, "password": bourso_code})
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         f.write(creds)
@@ -93,14 +102,15 @@ def _val(d, key):
     return x.get("value") if isinstance(x, dict) else x
 
 
-def get_account_summary(account_id):
+def get_account_summary(account_id, creds=None):
     """Lit l'etat du compte trading via `bourso-cli trade summary` (read-only).
 
+    creds: (id, code) du login Bourso proprietaire de `account_id` (None = slot 1).
     Retourne:
       {"account": {name, type, cash, stocks, equity, balance},
        "positions": {symbol: {quantity, last_price, label, amount, currency}}}
     """
-    stdout, stderr, rc = _run_cli_raw("trade", "summary", "--account", account_id)
+    stdout, stderr, rc = _run_cli_raw("trade", "summary", "--account", account_id, creds=creds)
     combined = stdout + stderr
     data = _extract_json_array(combined)
     if data is None:
@@ -131,15 +141,16 @@ def get_account_summary(account_id):
     return {"account": account, "positions": positions}
 
 
-def prepare_order(account_id, symbol):
+def prepare_order(account_id, symbol, creds=None):
     """Etat du compte + cours d'un symbole (dry-run, aucun ordre).
 
     Reconstruit a partir de `trade summary`. Si le symbole n'est pas detenu
     (0 part, donc absent des positions), le cours est recupere via le scraping
     HTTP Boursorama (`quote.py`, car le `quote` du CLI est en 410). Conserve la
     forme de retour attendue par les consommateurs (real_bourso, notify, etc.).
+    creds: (id, code) du login Bourso (None = slot 1 / legacy).
     """
-    summary = get_account_summary(account_id)
+    summary = get_account_summary(account_id, creds=creds)
     acct = summary["account"]
     pos = summary["positions"].get(symbol, {})
 
@@ -210,7 +221,8 @@ def print_prepare(account_id, symbol):
     print(f"Validite:    {data['order_config']['min_expiry']} -> {data['order_config']['max_expiry']}")
 
 
-# Constantes comptes (a adapter)
+# Constantes comptes du slot 1 (legacy mono-compte). En multicompte, l'id du PEA de
+# chaque login est decouvert via `accounts.resolve_pea` (cache logs/accounts.json).
 PEA_ACCOUNT_ID = "faab190372918f26c5d2d518fd307d05"
 CTO_ACCOUNT_ID = "e0aeafb04e60bdbe140479e499fd79d2"
 

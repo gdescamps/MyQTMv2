@@ -1540,3 +1540,60 @@ Decision: Vente ignoree: delta 0.3% < seuil 50%
   Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
 
 Termine.
+============================================================
+PEA LQQ (Nasdaq x2 (leverage)) — 2026-09-22
+Mode: LIVE
+Comptes geres: slot 1, slot 2
+============================================================
+Signal du 2026-09-21 (status=ok, age: 10.6h)
+  Probabilite: 0.7858
+  Allocation:  79%
+
+------------------------------------------------------------
+  COMPTE 1 (PEA DESCAMPS)
+------------------------------------------------------------
+
+PEA DESCAMPS (compte 1):
+  Especes:     9364.36 EUR
+  Titres:     46904.55 EUR
+  Total:      56268.91 EUR
+  LQQ:  4585 parts @ 10.23 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 83.4% (4585 parts, 46905 EUR)
+  Cible:    78.6% (44216 EUR)
+  Delta:    -4.8% (-2689 EUR)
+
+Decision: Vente ignoree: delta 4.8% < seuil 50%
+Email envoye a descamps.gregory@gmail.com: [MyQTM] LIVE PEA DESCAMPS — alloc 79% — aucun changement
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+------------------------------------------------------------
+  COMPTE 2 (PEA DESCAMPS)
+------------------------------------------------------------
+
+PEA DESCAMPS (compte 2):
+  Especes:     3010.00 EUR
+  Titres:         0.00 EUR
+  Total:       3010.00 EUR
+  LQQ:  0 parts @ 10.23 EUR (Nasdaq x2 (leverage))
+
+Allocation:
+  Actuelle: 0.0% (0 parts, 0 EUR)
+  Cible:    78.6% (2365 EUR)
+  Delta:    +78.6% (+2365 EUR)
+
+Decision: Acheter 231 parts (+78.6%)
+  [EXECUTE] ACHAT 231x LQQ (limite ±3.0%) — compte 2 (PEA DESCAMPS)
+  [ERREUR] bourso-cli code 1: INFO bourso_cli: Welcome to BoursoBank CLI 👋
+ INFO bourso_cli: ℹ️ - Version 0.5.4. Make sure you're running the latest version: https://github.com/azerpas/bourso-api
+ INFO bourso_cli: We'll try to log you in with your customer id: 70974800
+ INFO bourso_cli: If you want to change it, run `bourso config --username <customer_id>`
+ INFO bourso_cli: We'll need your password to log you in. It will not be stored anywhere and will be asked everytime you run a command. The password will be hidden while typing.
+ INFO bourso_api::client: 🔓 You are now logged in with user: 8c8193cd184aed1
+ INFO bourso_cli: Login successful ✅
+Error: Failed to get order check response: {"error":{"code":360,"message":"[-1]","params":{},"type":"Wbs_Api_Error"},"data":{"resourceId":"9a5d15b5bb61f","assignOrder":null,"forceOrder":null,"mifidCode":"F094","link":{"label":"Continuer","featureId":"portal.trading_orderframe_only","web":"https:\/\/bourse.boursobank.com\/feature-redirect?featureId=portal.trading_orderframe_only&params%5BresourceId%5D=9a5d15b5bb61f&params%5BmifidCode%5D=F094&params%5Bsymbol%5D=1rTLQQ&params%5BaccountKey%5D=e0042f97beb6bc86fa8ed495fdd681a5&params%5BorderQuantity%5D=231&params%5BorderType%5D=LIM&params%5BorderSide%5D=B&params%5BorderPriceLimit%5D=10.539&params%5BorderExpirationDate%5D=2026-09-22&params%5BorderRiskMode%5D=CPT","api":{"href":"\/","method":"GET","params":{"resourceId":"9a5d15b5bb61f","mifidCode":"F094","symbol":"1rTLQQ","accountKey":"e0042f97beb6bc86fa8ed495fdd681a5","orderQuantity":231,"orderType":"LIM","orderSide":"B","orderPriceLimit":10.539,"orderExpirationDate":"2026-09-22","orderRiskMode":"CPT","stopPx":null,"trailPct":null}},"disabled":false}}}
+Email envoye a nathdescamps59@gmail.com: [MyQTM] LIVE PEA DESCAMPS — alloc 79% — ORDRE EN ERREUR ACHAT 231x LQQ
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.

@@ -5,6 +5,7 @@
             "name": "QQQ backtest",
             "type": "debugpy",
             "request": "launch",
+            "python": "${workspaceFolder}/venv/bin/python",
             "program": "${workspaceFolder}/src/risk_off_strategy/run.py",
             "args": ["QQQ"],
             "console": "integratedTerminal",
@@ -14,6 +15,7 @@
             "name": "ALL backtests + comparison",
             "type": "debugpy",
             "request": "launch",
+            "python": "${workspaceFolder}/venv/bin/python",
             "program": "${workspaceFolder}/src/risk_off_strategy/run.py",
             "args": ["ALL"],
             "console": "integratedTerminal",
@@ -23,12 +25,42 @@
             "name": "Webapp Risk-Off",
             "type": "debugpy",
             "request": "launch",
+            "python": "${workspaceFolder}/venv/bin/python",
             "program": "${workspaceFolder}/src/webapp.py",
             "console": "integratedTerminal",
             "justMyCode": true,
             "env": {
                 "WEBAPP_PORT": "8082"
+            },
+            // Des que NiceGUI affiche "ready to go", ouvre l'URL dans le navigateur
+            // interne de VS Code (Simple Browser) via la config auxiliaire ci-dessous
+            // (serverReadyAction n'a pas d'action native "Simple Browser").
+            "serverReadyAction": {
+                "pattern": "NiceGUI ready to go on http://localhost:([0-9]+)",
+                "action": "startDebugging",
+                "name": "Webapp: ouvrir Simple Browser"
             }
+        },
+        {
+            // Config auxiliaire : ne lance rien, sert uniquement a executer la commande
+            // simpleBrowser.api.open (input "openWebappSimpleBrowser"). La commande ne
+            // renvoie rien -> VS Code annule le lancement, ce qui est le but.
+            "name": "Webapp: ouvrir Simple Browser",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/venv/bin/python",
+            "code": "pass",
+            "console": "internalConsole",
+            "presentation": { "hidden": true },
+            "env": { "SIMPLE_BROWSER": "${input:openWebappSimpleBrowser}" }
+        }
+    ],
+    "inputs": [
+        {
+            "id": "openWebappSimpleBrowser",
+            "type": "command",
+            "command": "simpleBrowser.api.open",
+            "args": "http://localhost:8082/"
         }
     ]
 }
