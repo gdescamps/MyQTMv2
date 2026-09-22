@@ -16,7 +16,7 @@ COPY requirements_webapp.txt ./
 RUN pip install --upgrade pip && pip install -r requirements_webapp.txt
 
 COPY src/webapp.py ./src/webapp.py
-COPY dashboard/assets ./dashboard/assets
+COPY assets ./assets
 COPY logs ./logs
 
 RUN chown -R app:app /app

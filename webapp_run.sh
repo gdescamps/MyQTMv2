@@ -22,5 +22,6 @@ docker run -d \
   -e WEBAPP_SECRET="${WEBAPP_SECRET}" \
   -v "$(pwd)/outputs:/app/outputs:ro" \
   -v "$(pwd)/logs:/app/logs:ro" \
-  -v "$(pwd)/dashboard/assets:/app/dashboard/assets:ro" \
+  -v "$(pwd)/assets:/app/assets:ro" \
+  -v "$(pwd)/data/shiller:/app/data/shiller:ro" \
   ghcr.io/gdescamps/${IMAGE_NAME}:dev
