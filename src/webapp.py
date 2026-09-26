@@ -1051,7 +1051,8 @@ def index_page():
                 with ui.tab_panel(tab_full):
                     with ui.column().classes("tab-content"):
                         ui.element("div").classes("w-full h-0.5 bg-black")
-                        ui.label("Walk-Forward Backtest — Full History").classes("text-base font-semibold")
+                        ui.label("Backtest depuis 2000 — stratégie déployée PUST + LQQ x1.7 (net de frais) "
+                                 "vs B&H QQQ").classes("text-base font-semibold")
                         if BACKTEST_FULL.exists():
                             ui.image("/img/backtest_full").classes("w-full rounded-lg shadow-lg")
                         else:

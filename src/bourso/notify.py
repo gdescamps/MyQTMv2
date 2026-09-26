@@ -147,11 +147,15 @@ def send_recap():
         return False
 
     alloc_pct = f"{alloc*100:.0f}%"
+    from src.risk_off_strategy.strategy import E_MAX, target_exposure
+    expo = signal.get("exposure", target_exposure(alloc, E_MAX))
     header = (
         f"Backtest {ticker} termine avec succes.\n\n"
         f"  Date:        {date}\n"
         f"  Probabilite: {prob:.4f}\n"
-        f"  Allocation:  {alloc_pct}\n\n"
+        f"  Allocation:  {alloc_pct}\n"
+        f"  Exposition:  {expo*100:.0f}% = min(2 x {alloc_pct}, {E_MAX*100:.0f}%) via PUST + LQQ\n"
+        f"  Graphe joint: dernier mois — strategie deployee PUST + LQQ x{E_MAX} (net de frais) vs B&H {ticker}\n\n"
     )
     images = [BACKTEST_1M] if BACKTEST_1M.exists() else []
 

@@ -28,11 +28,14 @@ position only earns the **next** return (close[i]→close[i+1]) — **no 1-day l
 | Buy & Hold | 8.7% | −83% | 0.45 | 0.10 |
 | trend150 + VM (baseline) | 10.2% | −65% | 0.65 | 0.16 |
 | **deployed rule** | **11.9%** | **−36%** | **0.81** | **0.33** |
+| **deployed x1.7 PUST+LQQ, net of fees** | **17.3%** | **−29%** | **0.82** | **0.60** |
 
 > Regenerate with `python -m src.risk_off_strategy.run` — the chart
-> (`outputs/qqq_strategy/backtest.png`) shows equity vs B&H since 2000 with the volatility,
-> allocation, NFCI and inflation panels; `backtest_1y.png` / `backtest_1m.png` are the same
-> layout windowed to the last year / month.
+> (`outputs/qqq_strategy/backtest.png`, shown in the webapp and attached to the evening
+> recap mail) compares **only two lines** since 2000: B&H (index) and the **deployed
+> PUST + LQQ x1.7 strategy net of fees** (gross in dotted), with the volatility, allocation,
+> NFCI, inflation and CAPE/ECY panels; `backtest_10y/5y/1y/1m.png` are the same layout
+> windowed to the last 10 years / 5 years / year / month.
 
 ## How it works
 
@@ -102,7 +105,7 @@ latest close's decision, executed next morning).
 |------|------|
 | `src/risk_off_strategy/strategy.py` | the allocation formula + `simulate` |
 | `src/risk_off_strategy/data.py` | `load_price` + `load_macro` (NFCI, CPI YoY) |
-| `src/risk_off_strategy/backtest.py` | 5-panel chart since 2000 (`plot_backtest`, `last_days` for 1y/1m) |
+| `src/risk_off_strategy/backtest.py` | 6-panel chart since 2000: B&H vs the deployed PUST+LQQ x1.7 strategy, net of fees (`plot_backtest`, `last_days` for 10y/5y/1y/1m) |
 | `src/risk_off_strategy/run.py` | entry point → charts + `signal.json` (QQQ only) |
 | `src/download_ohlcv.py`, `download_macro_data.py` | refresh `data/*.parquet` |
 | `src/real_bourso.py`, `src/bourso/` | morning PEA execution on every managed Bourso account (up to 4 `.env` slots, `src/bourso/accounts.py`) + one email per account |

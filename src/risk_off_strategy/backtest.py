@@ -1,11 +1,12 @@
 """
 Backtest + graphiques de la strategie deployee (trend250 + vol-managed + garde-fous).
 
-exec_lag=1, historique depuis 2000. Le tableau + les courbes equity affichent les
-resultats NET DE FRAIS (via simulate_net) : x1 = PUST net de TER + vente 0.5% au
-seuil live ; x2.0 = LQQ (part >100%) + PUST, net du financement du levier. Les
-courbes brutes restent en pointille pour visualiser le cout des frais ; funding=None
-(taux court FRED indispo) -> repli sur le brut.
+exec_lag=1, historique depuis 2000. Le tableau + la courbe equity n'affichent que
+DEUX lignes : le B&H (index) et la strategie DEPLOYEE (PUST + LQQ, exposition
+plafonnee a E_MAX) NET DE FRAIS via simulate_net (TER PUST/LQQ, financement du
+levier, vente 0.5% au seuil live). La courbe brute de la meme strategie reste en
+pointille pour visualiser le cout des frais ; funding=None (taux court FRED
+indispo) -> repli sur le brut.
   plot_backtest(..., last_days=None) : chart 6 panneaux (equity+SMA250, vol,
   allocation, NFCI, inflation, CAPE/ECY S&P Shiller), bandes rouges = top-5 crises.
   last_days=252 / 21 -> meme mise en page, fenetree sur la derniere annee / mois
@@ -126,41 +127,24 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, cape=None, ecy=None, ndx_ey
     w0 = 0 if last_days is None else max(0, n - last_days)
     d = dates[w0:]
 
-    # positions (exec_lag=1)
-    pos_m = np.concatenate([[0.0], alloc[:-1]])
+    # B&H (index) = reference
     pos_bh = np.ones(n)
-    em, cagr_m, dd_m, sh_m = _window_metrics(ret, pos_m, w0)
     ebh, cagr_bh, dd_bh, sh_bh = _window_metrics(ret, pos_bh, w0)
 
-    # variante LEVIER x2.0 : on detient LQQ (Nasdaq x2) dimensionne par l'alloc x1
-    # (risk-off precoce inclus) -> multiplicateur PLAT 2 sur l'expo. Rendement
-    # quotidien = 2 * alloc * ret : le decay de levier emerge du compounding
-    # quotidien. Rebalance quotidien, SANS frais ni cout de financement -> optimiste
-    # pour le levier (LQQ reel : ~0.6%/an de frais + portage du financement x2).
-    def _lever(L):
-        pos = np.concatenate([[0.0], alloc[:-1]])
-        e, cg, dd, sh = _window_metrics(ret * L, pos, w0)
-        return alloc * L, e, cg, dd, sh
-
-    lev20, e20, cagr20, dd20, sh20 = _lever(2.0)
-
-    # ── variantes NETTES DE FRAIS (execution discretisee Bourso) ──
-    # x1 net (PUST + cash, TER + vente 0.5% au seuil live) ; x2 net (PUST-base +
-    # LQQ pour la part >100% + financement du levier). funding=None -> pas de net x2.
-    net1 = simulate_net(price, alloc, leverage=1, funding=funding)
-    net2 = simulate_net(price, alloc, leverage=2, funding=funding)
-    # strategie DEPLOYEE : PUST + LQQ, exposition plafonnee a E_MAX (cf. strategy.py)
+    # ── strategie DEPLOYEE : PUST + LQQ, exposition E = min(2.alloc, E_MAX) ──
+    # BRUT : rendement quotidien = E * ret, rebalance quotidien, sans frais ni
+    # financement (le decay de levier emerge du compounding) -> reference optimiste,
+    # tracee en pointille pour visualiser le cout des frais.
+    expo_d = np.minimum(alloc * 2.0, E_MAX)    # expo cible (signal du soir)
+    pos_d = np.concatenate([[0.0], expo_d[:-1]])   # positions (exec_lag=1)
+    edg, cagrdg, dddg, shdg = _window_metrics(ret, pos_d, w0)
+    # NET DE FRAIS (execution discretisee Bourso : TER PUST/LQQ, financement du
+    # levier au taux court, bande asymetrique, vente 0.5%). funding=None -> pas de net.
     netd = simulate_net(price, alloc, leverage=2, funding=funding, e_max=E_MAX)
-    if net1 is not None:
-        eq1n, fees1, rev1 = net1
-        e1n, cagr1n, dd1n, sh1n = _metrics_from_equity(eq1n, w0)
-    if net2 is not None:
-        eq2n, fees2, rev2 = net2
-        e2n, cagr2n, dd2n, sh2n = _metrics_from_equity(eq2n, w0)
     if netd is not None:
         eqdn, feesd, revd = netd
         edn, cagrdn, dddn, shdn = _metrics_from_equity(eqdn, w0)
-    expo_d = np.minimum(lev20, E_MAX)          # expo deployee (positions, exec_lag=1)
+    lbl_d = f"x{E_MAX} PUST+LQQ"
 
     # SMA250 rebasee sur le PRIX au debut de fenetre (meme base que le B&H rebasee),
     # sinon elle est mal positionnee dans les vues fenetrees (1y/1m).
@@ -197,24 +181,15 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, cape=None, ecy=None, ndx_ey
         return [name, cagr_s, f"{(e[-1]-1)*100:+.0f}%",
                 f"{dd*100:.0f}%", f"{sh:.2f}", cal_s, fees_s, rev_s]
 
-    # brut = reference (pointille sur le chart) ; net = ligne pleine + frais/revisions.
+    # deux lignes seulement : B&H (reference) + strategie deployee NET de frais
+    # (repli sur le brut si le taux court FRED est indisponible).
     table_rows = [_row("B&H (index)", ebh, cagr_bh, dd_bh, sh_bh)]
     row_colors = ["black"]
-    if net1 is not None:
-        table_rows.append(_row("x1 (net)", e1n, cagr1n, dd1n, sh1n, fees1, rev1))
-        row_colors.append("crimson")
-    else:
-        table_rows.append(_row("x1 (brut)", em, cagr_m, dd_m, sh_m))
-        row_colors.append("crimson")
     if netd is not None:
-        table_rows.append(_row(f"x{E_MAX} PUST+LQQ (net)", edn, cagrdn, dddn, shdn, feesd, revd))
-        row_colors.append("darkorange")
-    if net2 is not None:
-        table_rows.append(_row("x2.0 LQQ (net)", e2n, cagr2n, dd2n, sh2n, fees2, rev2))
-        row_colors.append("purple")
+        table_rows.append(_row(f"{lbl_d} (net)", edn, cagrdn, dddn, shdn, feesd, revd))
     else:
-        table_rows.append(_row("x2.0 (brut)", e20, cagr20, dd20, sh20))
-        row_colors.append("purple")
+        table_rows.append(_row(f"{lbl_d} (brut)", edg, cagrdg, dddg, shdg))
+    row_colors.append("darkorange")
     ax_tbl.axis("off")
     tbl = ax_tbl.table(cellText=table_rows,
                        colLabels=["strategie", "CAGR", "rendement total", "maxDD", "Sharpe",
@@ -229,21 +204,14 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, cape=None, ecy=None, ndx_ey
         elif c == 0:
             cell.set_text_props(weight="bold", color=row_colors[r - 1])
 
-    # ── P1 equity : SMA250, B&H, x1/x2 NET (plein) + brut (pointille = cout des frais) ──
+    # ── P1 equity : B&H, SMA250, strategie deployee NET (plein) + brut (pointille = cout des frais) ──
     a1.semilogy(d, ebh, color="black", lw=1.0, label="B&H (index)")
     a1.semilogy(d, sma_reb, color="green", lw=0.9, alpha=0.8, label=f"SMA{SMA_LONG}")
-    if net1 is not None:
-        a1.semilogy(d, em, color="crimson", lw=0.8, ls=":", alpha=0.5, label="x1 brut")
-        a1.semilogy(d, e1n, color="crimson", lw=1.6, label="strategie x1 (net)")
-    else:
-        a1.semilogy(d, em, color="crimson", lw=1.5, label="strategie x1")
-    if net2 is not None:
-        a1.semilogy(d, e20, color="purple", lw=0.8, ls=":", alpha=0.5, label="x2.0 brut")
-        a1.semilogy(d, e2n, color="purple", lw=1.0, alpha=0.8, label="strategie x2.0 LQQ (net)")
-    else:
-        a1.semilogy(d, e20, color="purple", lw=1.2, label="strategie x2.0 (LQQ)")
     if netd is not None:
-        a1.semilogy(d, edn, color="darkorange", lw=1.6, label=f"strategie x{E_MAX} PUST+LQQ (net, deployee)")
+        a1.semilogy(d, edg, color="darkorange", lw=0.8, ls=":", alpha=0.5, label=f"{lbl_d} brut")
+        a1.semilogy(d, edn, color="darkorange", lw=1.6, label=f"strategie {lbl_d} (net, deployee)")
+    else:
+        a1.semilogy(d, edg, color="darkorange", lw=1.6, label=f"strategie {lbl_d} (brut, deployee)")
     a1.set_ylabel("Equity (log, base 1)")
     a1.legend(loc="upper left", fontsize=8, ncol=2); a1.grid(True, which="both", alpha=0.2)
 
@@ -258,13 +226,12 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, cape=None, ecy=None, ndx_ey
     a2.legend(loc="upper left", fontsize=8); a2.grid(True, alpha=0.2)
 
     a3 = next(ax)
-    a3.fill_between(d, alloc[w0:], color="steelblue", alpha=0.35, step="mid", label="allocation x1")
-    a3.plot(d, lev20[w0:], color="purple", lw=0.7, alpha=0.6, label="expo x2.0 (LQQ)")
-    a3.plot(d, expo_d[w0:], color="darkorange", lw=0.9, alpha=0.95, label=f"expo deployee (plafond {E_MAX})")
+    a3.fill_between(d, alloc[w0:], color="steelblue", alpha=0.35, step="mid", label="allocation x1 (signal)")
+    a3.plot(d, expo_d[w0:], color="darkorange", lw=0.9, alpha=0.95,
+            label=f"expo deployee = min(2 . alloc, {E_MAX}) via PUST + LQQ")
     a3.axhline(1.0, color="grey", ls=":", lw=0.6)
     a3.axhline(E_MAX, color="darkorange", ls=":", lw=0.6, alpha=0.7)
-    a3.axhline(2.0, color="purple", ls=":", lw=0.5, alpha=0.5)
-    a3.set_ylabel("allocation / expo", fontsize=9); a3.set_ylim(-0.05, 2.15); a3.grid(True, alpha=0.2)
+    a3.set_ylabel("allocation / expo", fontsize=9); a3.set_ylim(-0.05, E_MAX + 0.2); a3.grid(True, alpha=0.2)
     a3.legend(loc="upper left", fontsize=7, ncol=2)
 
     if nfci is not None:
@@ -341,14 +308,14 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, cape=None, ecy=None, ndx_ey
     plt.close(fig)
 
     # metriques plein-echantillon (pour le log de run.py) quand chart complet :
-    # net x1 si dispo (ce que le compte encaisse reellement), sinon brut.
+    # strategie deployee nette si dispo (ce que le compte encaisse reellement), sinon brute.
     if last_days is None:
-        if net1 is not None:
-            _, cf, df_, shf = _metrics_from_equity(eq1n, 0)
+        if netd is not None:
+            _, cf, df_, shf = _metrics_from_equity(eqdn, 0)
             return {"cagr": cf, "maxdd": df_, "sharpe": shf,
                     "calmar": cf / abs(df_) if df_ < 0 else np.inf,
-                    "fees_yr": fees1, "revis_yr": rev1, "net": True}
-        _, cagr_f, dd_f, sh_f = _window_metrics(ret, pos_m, 0)
+                    "fees_yr": feesd, "revis_yr": revd, "net": True}
+        _, cagr_f, dd_f, sh_f = _window_metrics(ret, pos_d, 0)
         return {"cagr": cagr_f, "maxdd": dd_f, "sharpe": sh_f,
                 "calmar": cagr_f / abs(dd_f) if dd_f < 0 else np.inf, "net": False}
     return None

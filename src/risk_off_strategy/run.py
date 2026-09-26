@@ -211,7 +211,7 @@ def run_ticker(ticker):
 
     net_tag = ""
     if m.get("net"):
-        net_tag = (f"  [NET x1 : frais {m['fees_yr']:.2f}%/an, {m['revis_yr']:.0f} revis/an]")
+        net_tag = (f"  [NET x{E_MAX} PUST+LQQ : frais {m['fees_yr']:.2f}%/an, {m['revis_yr']:.0f} revis/an]")
     print(f"Backtest {price.index[0].date()}->{price.index[-1].date()}  "
           f"CAGR {m['cagr']*100:.1f}%  maxDD {m['maxdd']*100:.0f}%  "
           f"Sharpe {m['sharpe']:.2f}  Calmar {m['calmar']:.2f}{net_tag}")
