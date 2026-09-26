@@ -1,0 +1,5 @@
+outs:
+- md5: b1e2be8d15e0e2b5d8606f3344bd25f4
+  size: 6152376
+  hash: md5
+  path: rsi_dca_entry_results.pkl
