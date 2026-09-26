@@ -146,9 +146,79 @@ SELL_FEE = 0.005      # frais de vente Bourso (0.5%) ; achats gratuits
 BUY_THR_ALLOC = 0.25   # seuil d'ACHAT (montee d'expo) — gratuit
 SELL_THR_ALLOC = 0.50  # seuil de VENTE (baisse d'expo) — limite les frais, laisse courir
 
+# ── Strategie DEPLOYEE : PUST + LQQ, exposition plafonnee ──────────────────────
+# Exposition cible E = min(LEVERAGE_MAX . alloc, E_MAX), realisee "drag-minimale" :
+#   E <= 1 : PUST = E,     LQQ = 0,     cash = 1 - E
+#   E >  1 : PUST = 2 - E, LQQ = E - 1, cash = 0     (LQQ ne porte que la part > 100%)
+# vs l'ancien live "LQQ + cash" (poids w = E/2 en LQQ, reste en cash) : a exposition
+# egale, la derive de l'expo entre deux rebalancements est ~2.7x plus lente (dE ~ 0.24 r
+# contre 0.64 r a E = 1.6), le portage du levier est paye au minimum, et tout le cash
+# travaille. Plafond E_MAX = 1.7 : sweep net 2000-2026 (myfiles/x2_lqq_levers_*.py,
+# PUST+LQQ, bande 0.50/1.00 en expo) — 2.0 : CAGR 17.9% / maxDD -33% / Calmar 0.54 ;
+# 1.8 : 17.5% / -30% / 0.58 ; 1.7 : 17.3% / -29% / Calmar 0.60, Sharpe 0.82, frais
+# 0.42%/an, 3.8 revis/an ; 1.6 : 16.2% / -31% / 0.53. Moities H1/H2 : 0.30 / 0.93
+# (2.0 : 0.26 / 0.81). Le plafond est un curseur risque/rendement (pas un gain gratuit) :
+# ~-0.5 pt de CAGR contre ~4 pts de maxDD en moins et 15% de trades en moins.
+LEVERAGE_MAX = 2.0     # levier de l'instrument x2 (LQQ) = expo max theorique 2 . alloc
+E_MAX = 1.7            # plafond d'exposition deployee (PUST + LQQ)
+# Seuils de bande en ESPACE EXPOSITION (= seuils alloc . levier, comme simulate_net)
+BUY_THR_E = BUY_THR_ALLOC * LEVERAGE_MAX     # 0.50 : on remonte l'expo (achats gratuits)
+SELL_THR_E = SELL_THR_ALLOC * LEVERAGE_MAX   # 1.00 : on la baisse (vente 0.5%)
+
+
+def target_exposure(alloc, e_max=E_MAX, leverage=LEVERAGE_MAX):
+    """Exposition cible deployee : min(levier . alloc, e_max), bornee a [0, 2]."""
+    return float(np.clip(leverage * float(alloc), 0.0, min(e_max, 2.0)))
+
+
+def composition(e):
+    """Realisation drag-minimale d'une exposition e in [0, 2] -> poids (PUST, LQQ, cash)."""
+    e = float(np.clip(e, 0.0, 2.0))
+    if e <= 1.0:
+        return e, 0.0, 1.0 - e
+    return 2.0 - e, e - 1.0, 0.0
+
+
+# ── Deploiement progressif d'un APPORT de capital (DCA pilote par le RSI) ───────
+# Un apport detecte sur le PEA n'est pas investi d'un coup : un budget B (part de
+# l'apport liberee, 0 au depart) grossit chaque semaine SI le RSI(14) du QQQ est sous
+# DCA_RSI_GATE, d'une tranche DCA_BASE + DCA_SLOPE . (gate - RSI) (plus le RSI est
+# bas, plus la tranche est grosse) ; la part non liberee est RESERVEE (exclue de
+# l'equity que la strategie alloue). Filet : tout est libere apres DCA_MAX_WEEKS.
+# Calibre sur 1300 apports simules 2001-2025 (myfiles/rsi_dca_entry_test.py, 1 an
+# apres l'apport, x1 net) : vs entree immediate, pire 5% des drawdowns de 1ere annee
+# -17.1% -> ~-14/-15%, aucune annee < -10%, pour ~-1.5 pt de rendement moyen de 1ere
+# annee (CAGR 3 ans 11.6% -> 11.0%) : c'est une assurance contre une tres mauvaise
+# premiere annee, pas un gain.
+DCA_RSI_GATE = 50.0    # tranche uniquement si RSI(14) < gate
+DCA_BASE = 0.20        # tranche de base (part de l'apport) par semaine eligible
+DCA_SLOPE = 0.02       # + DCA_SLOPE par point de RSI sous la gate (RSI 30 -> 0.60)
+DCA_MAX_WEEKS = 26     # filet : tout l'apport est libere au plus tard apres 26 semaines
+DCA_WEEK_DAYS = 7      # cadence des tranches (jours calendaires)
+
+
+def rsi_wilder(close, n=14):
+    """RSI de Wilder (lissage exponentiel alpha=1/n), causal ; 50 avant warmup."""
+    d = pd.Series(np.asarray(close, float)).diff()
+    up = d.clip(lower=0).ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
+    dn = (-d.clip(upper=0)).ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
+    rsi = 100 - 100 / (1 + up / dn.replace(0, np.nan))
+    rsi = rsi.where(~((dn == 0) & (up > 0)), 100.0)     # que des hausses -> 100
+    return rsi.fillna(50).values
+
+
+def dca_tranche(rsi, gate=DCA_RSI_GATE, base=DCA_BASE, slope=DCA_SLOPE):
+    """Part de l'apport liberee cette semaine : 0 si RSI >= gate, sinon
+    clip(base + slope . (gate - rsi), 0, 1). rsi=None (inconnu) -> tranche de base."""
+    if rsi is None or not np.isfinite(rsi):
+        return base
+    if rsi >= gate:
+        return 0.0
+    return float(np.clip(base + slope * (gate - rsi), 0.0, 1.0))
+
 
 def simulate_net(price, alloc, leverage=1, funding=None, cash_rate=0.0,
-                 sell_thr=None, buy_thr=None, exec_lag=1):
+                 sell_thr=None, buy_thr=None, exec_lag=1, e_max=None):
     """Backtest NET DE FRAIS, execution discretisee a la Bourso.
 
     Modele des instruments (espace index QQQ, cf. convention du repo) :
@@ -164,6 +234,9 @@ def simulate_net(price, alloc, leverage=1, funding=None, cash_rate=0.0,
     de l'effective d'au moins buy_thr (montee, achats gratuits -> seuil fin) ou sell_thr
     (baisse, vente 0.5% -> seuil grossier), ou passage a/depuis le cash total. Frais de
     0.5% sur le notionnel VENDU seulement. exec_lag=1 (close J -> J+1).
+
+    e_max : plafond d'exposition (None = 2.0) ; la strategie deployee = leverage=2,
+    e_max=E_MAX (PUST + LQQ plafonne a 1.7).
 
     funding requis si leverage>1 (financement LQQ) ; sinon renvoie None (le backtest
     retombe sur le brut). Renvoie (equity_full, fees_yr_%, revis_yr)."""
@@ -183,7 +256,7 @@ def simulate_net(price, alloc, leverage=1, funding=None, cash_rate=0.0,
     r_lqq = 2 * ret - (fund + SWAP_SPREAD + TER_LQQ) / ANN
     r_cash = cash_rate / ANN
 
-    E = np.clip(leverage * a, 0.0, 2.0)
+    E = np.clip(leverage * a, 0.0, 2.0 if e_max is None else min(float(e_max), 2.0))
     Etgt = np.concatenate([np.zeros(exec_lag), E[:-exec_lag]]) if exec_lag else E
     vp = vl = 0.0
     vc = 1.0

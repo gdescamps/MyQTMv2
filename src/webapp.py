@@ -200,8 +200,12 @@ def account_status(acc):
         return {"state": "ko", "label": "CONNEXION KO", "color": "red", "date": date,
                 "mode": mode, "detail": res.get("error") or t.get("reason", "")}
     if res.get("status") == "error":
+        errs = [e for e in (res.get("errors") or []) if e] or [res.get("error", "")]
         return {"state": "error", "label": "ORDRE EN ERREUR", "color": "orange", "date": date,
-                "mode": mode, "detail": res.get("error", "")[:200]}
+                "mode": mode, "detail": " ; ".join(str(e)[:200] for e in errs)}
+    if res.get("status") == "pending_cash":
+        return {"state": "pending", "label": "ACHAT DIFFERE (cash en attente)", "color": "orange",
+                "date": date, "mode": mode, "detail": t.get("reason", "")}
     if res.get("status") == "split_detected":
         return {"state": "split", "label": "SPLIT DETECTE", "color": "orange", "date": date,
                 "mode": mode, "detail": t.get("reason", "")}
@@ -209,40 +213,118 @@ def account_status(acc):
             "mode": mode, "detail": t.get("reason", "")}
 
 
-def compute_portfolio_history(trades):
-    """Historique position / allocation reelle, ligne par ligne de trades.jsonl.
+LEVERAGE = {"PUST": 1.0, "LQQ": 2.0}
+INSTRUMENT_ORDER = ("PUST", "LQQ")
+CAPITAL_FILE = ROOT / "logs" / "capital.json"
+PENDING_FILE = ROOT / "logs" / "pending_orders.json"
 
-    `current_shares` = parts detenues sur le PEA, lues par real_bourso via
-    bourso-cli AVANT l'ordre du jour -> c'est la position reelle du compte, et on
-    lui applique l'ordre execute le jour meme (position post-ordre). Sans ce champ
-    (anciennes lignes), on retombe sur le cumul des ordres executes du journal —
-    qui derive des que des achats ont eu lieu hors journal.
+
+def _load_json(path):
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def load_capital_entry(slot):
+    """Entree logs/capital.json du slot (apport detecte / DCA en cours), ou {}."""
+    return _load_json(CAPITAL_FILE).get(str(slot), {})
+
+
+def load_pending_entry(slot):
+    """Achat reporte (cash non credite) en attente pour ce slot, ou None."""
+    return _load_json(PENDING_FILE).get(str(slot))
+
+
+def row_view(t):
+    """Vue unifiee d'une ligne de trades.jsonl, ancien schema (un instrument :
+    current_shares / etf_price / side / quantity) ou nouveau (PUST+LQQ : positions /
+    orders / cash / exposure_*). positions = AVANT les ordres du jour."""
+    equity = float(t.get("equity") or 0)
+    if isinstance(t.get("positions"), dict):
+        positions = {k: {"shares": int(v.get("shares") or 0), "price": float(v.get("price") or 0)}
+                     for k, v in t["positions"].items()}
+        orders = [{"instrument": o.get("instrument"), "side": o.get("side"),
+                   "quantity": int(o.get("quantity") or 0), "price": float(o.get("price") or 0),
+                   "status": o.get("status"),
+                   "done": o.get("status") in ("executed", "dry-run") and bool(t.get("executed"))}
+                  for o in (t.get("orders") or [])]
+        cash = float(t.get("cash") if t.get("cash") is not None else
+                     equity - sum(p["shares"] * p["price"] for p in positions.values()))
+        legacy = False
+    else:
+        ins = t.get("instrument", "PUST")
+        shares = int(t.get("current_shares") or 0)
+        price = float(t.get("etf_price") or 0)
+        positions = {ins: {"shares": shares, "price": price}}
+        side = (t.get("side") or "").lower()
+        orders = ([{"instrument": ins, "side": side, "quantity": int(t.get("quantity") or 0),
+                    "price": price, "status": (t.get("result") or {}).get("status"),
+                    "done": bool(t.get("executed"))}]
+                  if side in ("buy", "sell") and (t.get("quantity") or 0) > 0 else [])
+        cash = equity - shares * price
+        legacy = True
+    return {"date": t.get("date", ""), "equity": equity, "cash": cash, "positions": positions,
+            "orders": orders, "legacy": legacy, "target_alloc": float(t.get("target_alloc") or 0),
+            "target_exposure": t.get("target_exposure"), "probability": float(t.get("probability") or 0),
+            "executed": bool(t.get("executed")), "capital": t.get("capital") or {},
+            "reserved": float(t.get("reserved") or 0)}
+
+
+def positions_after(view):
+    """Positions apres les ordres du jour qui ont abouti (LIVE seulement)."""
+    pos = {k: dict(v) for k, v in view["positions"].items()}
+    cash = view["cash"]
+    for o in view["orders"]:
+        if not o["done"] or not o["instrument"]:
+            continue
+        p = pos.setdefault(o["instrument"], {"shares": 0, "price": o["price"]})
+        if o["side"] == "buy":
+            p["shares"] += o["quantity"]; cash -= o["quantity"] * o["price"]
+        elif o["side"] == "sell":
+            p["shares"] -= o["quantity"]; cash += o["quantity"] * o["price"] * (1 - SELL_FEE)
+    return pos, cash
+
+
+def exposure_of(pos, equity):
+    if equity <= 0:
+        return 0.0
+    return sum(LEVERAGE.get(k, 1.0) * p["shares"] * p["price"] for k, p in pos.items()) / equity
+
+
+def compute_portfolio_history(trades):
+    """Historique position / exposition reelle, ligne par ligne de trades.jsonl.
+
+    Les positions du journal sont lues par real_bourso via bourso-cli AVANT l'ordre
+    du jour -> position reelle du compte, a laquelle on applique les ordres executes
+    le jour meme (position post-ordre). Fonctionne pour l'ancien schema (un
+    instrument) comme pour le nouveau (PUST + LQQ + cash, exposition plafonnee).
     """
     history = []
-    shares = 0
     for t in trades:
-        side = t.get("side")
-        qty = t.get("quantity", 0)
-        price = t.get("etf_price", 0)
-        equity = t.get("equity", 0)
-        alloc = t.get("target_alloc", 0)
-        prob = t.get("probability", 0)
-        date = t.get("date", "")
-        executed = t.get("executed", False)
-        if t.get("current_shares") is not None:
-            shares = t["current_shares"]
-        if side == "buy" and executed:
-            shares += qty
-        elif side == "sell" and executed:
-            shares -= qty
-        position_value = shares * price if price else 0
+        v = row_view(t)
+        pos, cash = positions_after(v)
+        position_value = sum(p["shares"] * p["price"] for p in pos.values())
+        equity = v["equity"]
+        target_e = v["target_exposure"]
+        if target_e is None:                      # anciennes lignes : expo = levier . alloc
+            target_e = v["target_alloc"] * max([LEVERAGE.get(k, 1.0) for k in pos] or [1.0])
         history.append({
-            "date": date, "shares": shares, "price": price,
+            "date": v["date"], "positions": pos, "cash": cash,
+            "shares": sum(p["shares"] for p in pos.values()),
+            "price": next((p["price"] for k, p in pos.items() if p["shares"] > 0), 0.0),
             "position_value": position_value, "equity": equity,
-            "target_alloc": alloc,
+            "target_alloc": v["target_alloc"], "target_exposure": target_e,
             "actual_alloc": position_value / equity if equity > 0 else 0,
-            "probability": prob, "side": side or "hold",
-            "quantity": qty, "executed": executed,
+            "exposure": exposure_of(pos, equity),
+            "weights": {k: (p["shares"] * p["price"] / equity if equity > 0 else 0) for k, p in pos.items()},
+            "cash_weight": cash / equity if equity > 0 else 0,
+            "probability": v["probability"],
+            "side": (t.get("side") or "hold"),
+            "orders": v["orders"], "executed": v["executed"],
+            "capital": v["capital"], "reserved": v["reserved"],
         })
     return history
 
@@ -258,16 +340,16 @@ def compute_real_performance(trades):
     rendement de la stratégie sur le capital disponible à l'instant — et non
     l'effet d'un ajout d'argent. Les frais de vente restent comptés (coût réel).
     """
-    # Ne garder que les vraies lectures du compte : prix réel, equity > 0, et
-    # soit un ordre exécuté, soit un snapshot d'état (side=None). Les plans
-    # dry-run (side=buy/sell, executed=False) et placeholders sont écartés.
+    # Ne garder que les vraies lectures du compte : equity > 0, et soit un ordre
+    # exécuté, soit un snapshot d'état (side=None). Les plans dry-run (side=buy/sell,
+    # executed=False) et placeholders sont écartés.
     raw = [t for t in trades
-           if t.get("equity", 0) > 0 and t.get("etf_price", 0) > 0 and t.get("date")
+           if t.get("equity", 0) > 0 and t.get("date") and not _is_connection_error(t)
            and (t.get("executed") or t.get("side") is None)]
     # Un seul point faisant foi par date (la dernière lecture l'emporte)
     by_date = {}
     for t in raw:
-        by_date[t["date"]] = t
+        by_date[t["date"]] = row_view(t)
     points = [by_date[d] for d in sorted(by_date)]
     if len(points) < 2:
         return [], {}
@@ -280,22 +362,13 @@ def compute_real_performance(trades):
     prev = points[0]
     for t in points[1:]:
         equity = t["equity"]
-        shares = t.get("current_shares", 0)
-        price = t.get("etf_price", 0)
-
-        # Cash avant le trade précédent, puis flux causé par ce trade
-        prev_cash = prev["equity"] - prev.get("current_shares", 0) * prev.get("etf_price", 0)
-        pside, pqty, pprice = prev.get("side"), prev.get("quantity", 0), prev.get("etf_price", 0)
-        if pside == "buy" and prev.get("executed"):
-            trade_cash = -pqty * pprice
-        elif pside == "sell" and prev.get("executed"):
-            trade_cash = +pqty * pprice * (1 - SELL_FEE)
-        else:
-            trade_cash = 0.0
-
-        # Écart cash inexpliqué = apport/retrait externe (bruit < 5 EUR ignoré)
-        deposit = (equity - shares * price) - (prev_cash + trade_cash)
-        if abs(deposit) < 5.0:
+        # Cash attendu = cash de la veille apres les flux de ses ordres executes
+        _, expected_cash = positions_after(prev)
+        # Écart cash inexpliqué = apport/retrait externe. Bruit = prix de remplissage
+        # des ordres limites (±3%) : seuil 5% du notionnel traite, plancher 5 EUR.
+        traded = sum(o["quantity"] * o["price"] for o in prev["orders"] if o["done"])
+        deposit = t["cash"] - expected_cash
+        if abs(deposit) < max(5.0, 0.05 * traded):
             deposit = 0.0
 
         period_gain = equity - prev["equity"] - deposit
@@ -653,40 +726,36 @@ def render_gain(trades):
 
 
 def render_trades(trades, portfolio):
-    """Onglet Trades pour UN compte : uniquement les ordres (BUY / SELL) — les jours sans
-    mouvement (side absent = HOLD) restent visibles dans l'onglet Allocations."""
-    orders = [t for t in trades if (t.get("side") or "").lower() in ("buy", "sell")]
-    # allocation reelle post-ordre (position PEA lue le matin + ordre du jour),
-    # meme calcul que l'onglet Allocations, indexe par ligne du journal
-    real_alloc_by_row = {id(t): p["actual_alloc"] for t, p in zip(trades, portfolio)}
-    if not orders:
+    """Onglet Trades pour UN compte : uniquement les ordres (BUY / SELL), une ligne par
+    instrument — les jours sans mouvement restent visibles dans l'onglet Allocations."""
+    rows = []
+    for t, p in zip(reversed(trades), reversed(portfolio)):
+        for o in reversed(p["orders"]):
+            if o["side"] not in ("buy", "sell") or o["quantity"] <= 0:
+                continue
+            status = "LIVE" if o["done"] else ("DRY-RUN" if not t.get("executed") else (o.get("status") or "?").upper())
+            rows.append({
+                "date": p["date"], "side": o["side"].upper(), "instrument": o["instrument"],
+                "quantity": o["quantity"], "price": f"{o['price']:.3f}",
+                "value": f"{o['quantity'] * o['price']:.0f} EUR",
+                "target": f"{p['target_exposure']*100:.0f}%",
+                "real": f"{p['exposure']*100:.0f}%", "status": status,
+            })
+    if not rows:
         ui.label("No trades yet.").classes("text-gray-500")
         return
     columns = [
         {"name": "date", "label": "Date", "field": "date", "align": "left"},
         {"name": "side", "label": "Action", "field": "side", "align": "left"},
+        {"name": "instrument", "label": "ETF", "field": "instrument", "align": "left"},
         {"name": "quantity", "label": "Qty", "field": "quantity", "align": "right"},
-        {"name": "etf_price", "label": "Price", "field": "etf_price", "align": "right"},
+        {"name": "price", "label": "Price", "field": "price", "align": "right"},
         {"name": "value", "label": "Value", "field": "value", "align": "right"},
-        {"name": "probability", "label": "Prob", "field": "probability", "align": "right"},
-        {"name": "real_alloc", "label": "Real alloc", "field": "real_alloc", "align": "right"},
-        {"name": "executed", "label": "Status", "field": "executed", "align": "center"},
+        {"name": "target", "label": "Expo cible", "field": "target", "align": "right"},
+        {"name": "real", "label": "Expo réelle", "field": "real", "align": "right"},
+        {"name": "status", "label": "Status", "field": "status", "align": "center"},
     ]
-    rows = []
-    for t in reversed(orders):
-        qty = t.get("quantity", 0)
-        price = t.get("etf_price", 0)
-        rows.append({
-            "date": t.get("date", ""),
-            "side": t["side"].upper(),
-            "quantity": qty,
-            "etf_price": f"{price:.2f}",
-            "value": f"{qty * price:.0f} EUR",
-            "probability": f"{t.get('probability', 0):.3f}",
-            "real_alloc": f"{real_alloc_by_row.get(id(t), 0)*100:.0f}%",
-            "executed": "LIVE" if t.get("executed") else "DRY-RUN",
-        })
-    table = ui.table(columns=columns, rows=rows, row_key="date").classes("w-full")
+    table = ui.table(columns=columns, rows=rows).classes("w-full")
     table.add_slot("body-cell-side", """
         <q-td :props="props">
             <span :style="{ color: props.value === 'BUY' ? '#1f8f4c' : props.value === 'SELL' ? '#c0392b' : '#888',
@@ -695,55 +764,70 @@ def render_trades(trades, portfolio):
             </span>
         </q-td>
     """)
-    table.add_slot("body-cell-executed", """
+    table.add_slot("body-cell-status", """
         <q-td :props="props">
-            <q-badge :color="props.value === 'LIVE' ? 'green' : 'grey'" :label="props.value" />
+            <q-badge :color="props.value === 'LIVE' ? 'green' : props.value === 'DRY-RUN' ? 'grey' : 'orange'" :label="props.value" />
         </q-td>
     """)
 
 
 def render_allocations(portfolio):
-    """Onglet Allocations pour UN compte (historique position / allocation reelle)."""
+    """Onglet Allocations pour UN compte : composition PUST / LQQ / cash et exposition
+    reelle vs cible, jour par jour (position post-ordre)."""
     if not portfolio:
         ui.label("No allocation history yet.").classes("text-gray-500")
         return
     columns = [
         {"name": "date", "label": "Date", "field": "date", "align": "left"},
-        {"name": "shares", "label": "Shares", "field": "shares", "align": "right"},
-        {"name": "price", "label": "Price", "field": "price", "align": "right"},
-        {"name": "position", "label": "Position", "field": "position", "align": "right"},
+        {"name": "pust", "label": "PUST", "field": "pust", "align": "right"},
+        {"name": "lqq", "label": "LQQ", "field": "lqq", "align": "right"},
+        {"name": "cash", "label": "Cash", "field": "cash", "align": "right"},
         {"name": "equity", "label": "Equity", "field": "equity", "align": "right"},
-        {"name": "target", "label": "Advised alloc", "field": "target", "align": "right"},
-        {"name": "actual", "label": "Real alloc", "field": "actual", "align": "right"},
+        {"name": "alloc", "label": "Alloc x1", "field": "alloc", "align": "right"},
+        {"name": "target", "label": "Expo cible", "field": "target", "align": "right"},
+        {"name": "actual", "label": "Expo réelle", "field": "actual", "align": "right"},
         {"name": "action", "label": "Action", "field": "action", "align": "center"},
     ]
+
+    def _cell(p, ins):
+        pos = p["positions"].get(ins)
+        if not pos or pos["shares"] <= 0:
+            return "—"
+        return f"{pos['shares']} ({p['weights'].get(ins, 0)*100:.0f}%)"
+
     rows = []
     for p in reversed(portfolio):
+        action = " + ".join(f"{o['side'].upper()} {o['quantity']} {o['instrument']}" for o in p["orders"]
+                            if o["side"] in ("buy", "sell") and o["quantity"] > 0) or "HOLD"
+        if p.get("reserved"):
+            action += f" · réserve DCA {p['reserved']:.0f} EUR"
         rows.append({
-            "date": p["date"],
-            "shares": p["shares"],
-            "price": f"{p['price']:.2f}",
-            "position": f"{p['position_value']:.0f} EUR",
+            "date": p["date"], "pust": _cell(p, "PUST"), "lqq": _cell(p, "LQQ"),
+            "cash": f"{p['cash']:.0f} EUR ({p['cash_weight']*100:.0f}%)",
             "equity": f"{p['equity']:.0f} EUR",
-            "target": f"{p['target_alloc']*100:.0f}%",
-            "actual": f"{p['actual_alloc']*100:.0f}%",
-            "action": p["side"].upper(),
+            "alloc": f"{p['target_alloc']*100:.0f}%",
+            "target": f"{p['target_exposure']*100:.0f}%",
+            "actual": f"{p['exposure']*100:.0f}%",
+            "action": action,
         })
     ui.table(columns=columns, rows=rows, row_key="date").classes("w-full")
 
 
 def render_account_card(acc):
-    """Carte de statut d'UN compte (onglet Comptes) : connexion, dernier run, allocation
-    conseillee vs reelle, action du jour."""
+    """Carte de statut d'UN compte (onglet Comptes) : connexion, dernier run, exposition
+    cible vs reelle, repartition PUST / LQQ / cash, capital a allouer detecte."""
     st = account_status(acc)
     last = acc["last"] or {}
     hist = compute_portfolio_history(acc["trades"])
     cur = hist[-1] if hist else {}
-    real_alloc = cur.get("actual_alloc", 0)
-    target = last.get("target_alloc", 0)
     equity = last.get("equity", 0) or cur.get("equity", 0)
-    instrument = last.get("instrument", "PUST")
-    n_live = sum(1 for t in acc["trades"] if t.get("executed") and (t.get("side") or "") in ("buy", "sell"))
+    target_e = cur.get("target_exposure", 0)
+    real_e = cur.get("exposure", 0)
+    n_live = sum(1 for p in hist for o in p["orders"] if o["done"] and o["side"] in ("buy", "sell"))
+    cap = load_capital_entry(acc["slot"])
+    dca = cap.get("dca") if cap else None
+    dca_active = bool(dca and not dca.get("done"))
+    pending = load_pending_entry(acc["slot"])
 
     with ui.element("div").classes("card"):
         with ui.row().classes("w-full items-center justify-between"):
@@ -753,6 +837,10 @@ def render_account_card(acc):
                 if acc.get("mail"):
                     ui.label(acc["mail"]).style("font-size:0.75rem; color:#999")
             with ui.row().classes("items-center gap-2"):
+                if dca_active:
+                    ui.badge("CAPITAL À ALLOUER DÉTECTÉ", color="blue")
+                if pending:
+                    ui.badge("ACHAT DIFFÉRÉ", color="orange")
                 if st.get("mode"):
                     ui.badge(st["mode"], color="green" if st["mode"] == "LIVE" else "grey")
                 ui.badge(st["label"], color=st["color"]).props("outline" if st["state"] == "unknown" else "")
@@ -767,11 +855,62 @@ def render_account_card(acc):
         with ui.row().classes("w-full gap-4 mt-3"):
             cell("Dernier run", st["date"], "mono")
             cell("Capital", f"{equity:.0f} EUR" if equity else "--")
-            cell("Advised alloc", f"{target*100:.0f}%" if last else "--")
-            cell("Real alloc", f"{real_alloc*100:.0f}%" if hist else "--",
-                 "gain-positive" if real_alloc >= 0.5 else "gain-negative")
-            cell("Position", f"{cur.get('shares', 0)} {instrument}" if hist else "--")
+            cell("Expo cible", f"{target_e*100:.0f}%" if hist else "--")
+            cell("Expo réelle", f"{real_e*100:.0f}%" if hist else "--",
+                 "gain-positive" if real_e >= 1.0 else "gain-negative")
             cell("Trades LIVE", f"{n_live}")
+
+        # Repartition PUST / LQQ / cash (barre + detail)
+        if hist:
+            w = cur.get("weights", {})
+            wp, wl = w.get("PUST", 0), w.get("LQQ", 0)
+            wc = max(0.0, cur.get("cash_weight", 0))
+            with ui.row().classes("w-full gap-4 mt-3 items-end"):
+                for ins, color in (("PUST", "#1565c0"), ("LQQ", "#6a1b9a")):
+                    pos = cur["positions"].get(ins, {"shares": 0, "price": 0})
+                    cell(f"{ins} (x{LEVERAGE[ins]:.0f})",
+                         f"{pos['shares']} parts · {w.get(ins, 0)*100:.0f}%" if pos["shares"] else "0",
+                         "")
+                cell("Cash", f"{cur.get('cash', 0):.0f} EUR · {wc*100:.0f}%")
+            ui.html(
+                '<div style="display:flex;width:100%;height:12px;border-radius:6px;overflow:hidden;'
+                'margin-top:8px;background:#eee">'
+                f'<div title="PUST {wp*100:.0f}%" style="width:{wp*100:.1f}%;background:#1565c0"></div>'
+                f'<div title="LQQ {wl*100:.0f}%" style="width:{wl*100:.1f}%;background:#6a1b9a"></div>'
+                f'<div title="cash {wc*100:.0f}%" style="width:{wc*100:.1f}%;background:#bdbdbd"></div>'
+                '</div>'
+                '<div style="font-size:0.7rem;color:#888;margin-top:4px">'
+                '<span style="color:#1565c0">■</span> PUST &nbsp; '
+                '<span style="color:#6a1b9a">■</span> LQQ &nbsp; '
+                '<span style="color:#bdbdbd">■</span> cash &nbsp;·&nbsp; '
+                f'exposition = PUST + 2 × LQQ = {real_e*100:.0f}%</div>')
+
+        # Capital a allouer (apport detecte, deploiement progressif DCA / RSI)
+        if dca_active:
+            reserved = dca["deposit"] * (1 - dca["released"])
+            last_tr = dca.get("last_tranche")
+            with ui.element("div").style(
+                    "width:100%; margin-top:12px; padding:10px 14px; border-radius:8px; "
+                    "background:#e3f2fd; border:1px solid #90caf9"):
+                ui.html(f'<div style="font-weight:700;color:#0d47a1">Capital à allouer détecté : '
+                        f'+{dca["deposit"]:.0f} EUR (le {dca.get("detected", "?")})</div>')
+                ui.html(f'<div style="font-size:0.8rem;color:#333;margin-top:4px">'
+                        f'Déployé {dca["released"]*100:.0f}% · réservé {reserved:.0f} EUR · '
+                        f'{dca.get("weeks", 0)} tranche(s) · dernière tranche {last_tr or "—"}<br>'
+                        f'Règle : chaque semaine, tranche = 20% + 2% × (50 − RSI14) si RSI14 &lt; 50 '
+                        f'(0 sinon) ; tout investi au plus tard après 26 semaines.</div>')
+                ui.html('<div style="width:100%;height:8px;border-radius:4px;background:#bbdefb;margin-top:6px">'
+                        f'<div style="width:{dca["released"]*100:.1f}%;height:8px;border-radius:4px;'
+                        'background:#1976d2"></div></div>')
+        elif cap.get("deposits"):
+            d = cap["deposits"][-1]
+            ui.label(f"Dernier apport détecté : {d.get('amount', 0):+.0f} EUR le {d.get('date', '?')} (entièrement déployé)") \
+                .style("font-size:0.75rem; color:#666; margin-top:8px")
+        if pending:
+            ui.label(f"Achat différé depuis le {pending.get('date')} : "
+                     + ", ".join(f"{b.get('quantity')} {b.get('instrument')}" for b in pending.get("buys", []))
+                     + f" — {pending.get('reason', '')} ; repris au prochain run.") \
+                .style("font-size:0.8rem; color:#e65100; margin-top:8px")
         if st.get("detail"):
             color = "#c62828" if st["state"] in ("ko", "error") else "#666"
             ui.label(st["detail"]).style(f"font-size:0.8rem; color:{color}; margin-top:8px")
@@ -803,11 +942,17 @@ def index_page():
 
     current_alloc = last_trade.get("target_alloc", 0)
     current_prob = last_trade.get("probability", 0)
-    current_price = last_trade.get("etf_price", 0)
+    last_view = row_view(last_trade) if last_trade else {"positions": {}, "target_exposure": None}
+    current_expo = last_view["target_exposure"]
+    if current_expo is None:
+        current_expo = current_alloc * max([LEVERAGE.get(k, 1.0) for k in last_view["positions"]] or [1.0])
+    prices = {k: p["price"] for k, p in last_view["positions"].items() if p.get("price")}
     instrument = last_trade.get("instrument", "PUST")
     model_date = last_trade.get("model_date", "--")
-    n_exec = sum(1 for t in usable if t.get("executed") and (t.get("side") or "") in ("buy", "sell"))
+    n_exec = sum(1 for t in usable for o in row_view(t)["orders"] if o["done"] and o["side"] in ("buy", "sell"))
     n_ko = sum(1 for acc in accounts.values() if account_status(acc)["state"] != "ok")
+    n_dca = sum(1 for acc in accounts.values()
+                if (load_capital_entry(acc["slot"]).get("dca") or {}).get("done") is False)
 
     with ui.element("div").classes("layout"):
         # ── Sidebar ──
@@ -820,14 +965,20 @@ def index_page():
             with ui.element("div").classes("sidebar-metrics"):
                 alloc_color = "gain-positive" if current_alloc >= 0.5 else "gain-negative"
                 acc_color = "gain-negative" if n_ko else ("gain-positive" if n_accounts else "")
-                for label, value, extra_class in [
+                metrics = [
                     ("Allocation", f"{current_alloc*100:.0f}%", alloc_color),
+                    ("Exposition", f"{current_expo*100:.0f}%", alloc_color),
                     ("Probability", f"{current_prob:.3f}", ""),
-                    (instrument, f"{current_price:.2f} EUR", ""),
+                ]
+                metrics += [(k, f"{v:.2f} EUR", "") for k, v in prices.items()]
+                metrics += [
                     ("Trades", f"{n_exec}", ""),
                     ("Comptes", f"{n_accounts - n_ko}/{n_accounts} OK" if n_accounts else "0", acc_color),
-                    ("Model", model_date, "mono"),
-                ]:
+                ]
+                if n_dca:
+                    metrics.append(("Capital à allouer", f"{n_dca} compte(s)", "gain-positive"))
+                metrics.append(("Model", model_date, "mono"))
+                for label, value, extra_class in metrics:
                     with ui.element("div").classes("sidebar-metric"):
                         ui.html(f'<span class="label">{label}</span>')
                         ui.html(f'<span class="value {extra_class}">{value}</span>')
@@ -945,7 +1096,9 @@ def index_page():
                         ui.label("Comptes Bourso — statut par compte").classes("text-base font-semibold")
                         ui.label("Le meme signal est replique sur chaque compte gere ; chaque compte "
                                  "est lu, decide et execute independamment (bande de non-action sur "
-                                 "sa propre allocation reelle).").style("font-size: 0.8rem; color: #666")
+                                 "sa propre exposition reelle). Strategie PUST + LQQ, exposition = "
+                                 "min(2 x allocation, 170%) ; un apport de capital detecte est deploye "
+                                 "par tranches hebdomadaires quand le RSI14 < 50.").style("font-size: 0.8rem; color: #666")
                         if not accounts:
                             ui.label("Aucun compte connu (trades.jsonl / logs/accounts.json vides).") \
                                 .classes("text-gray-500")

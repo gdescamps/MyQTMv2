@@ -158,13 +158,20 @@ Formats : `csv`, `json`. Sans `--output`, ecrit sur stdout.
 ## Architecture
 
 ```
-22:30  cron backtest (run.py QQQ)  →  outputs/qqq_strategy/signal.json
-09:05  cron PEA (real_bourso.py)   →  lit signal, execute PUST sur Euronext
+22:30  cron backtest (run.py QQQ)  →  outputs/qqq_strategy/signal.json (allocation, exposure, rsi14)
+09:05  cron PEA (real_bourso.py)   →  lit signal, execute PUST et/ou LQQ sur Euronext
 20:00  cron check (check_cli.py)   →  tests dry-run + maj upstream + email
 ```
 
-- **ETF**: PUST (Amundi PEA Nasdaq-100), symbole Bourso `1rTPUST` — ou LQQ (x2) via `TRADE_INSTRUMENT=LQQ` dans `.env`
+- **ETF**: PUST (Amundi PEA Nasdaq-100 x1, `1rTPUST`) **et** LQQ (Amundi Nasdaq-100 2x, `1rTLQQ`), detenus ensemble. `TRADE_INSTRUMENT` n'est plus lu ; `TRADE_E_MAX` (optionnel) surcharge le plafond d'exposition (`E_MAX`=1.7 dans `strategy.py` ; `1.0` = PUST seul).
 - **Comptes**: jusqu'a 4 logins Bourso (voir ci-dessous), chacun avec son PEA
+
+## Strategie deployee : PUST + LQQ, exposition plafonnee x1.7
+
+- Exposition cible `E = min(2 x allocation, 1.7)`, realisee **drag-minimale** : `E <= 1` → PUST = E, cash = 1−E ; `E > 1` → PUST = 2−E, LQQ = E−1, **cash = 0** (LQQ ne porte que la part > 100%, tout le cash travaille). Exposition reelle = (PUST + 2 x LQQ) / equity geree (PUST + LQQ + cash − reserve DCA ; les autres lignes du PEA sont ignorees).
+- **Migration depuis l'ancien "LQQ + cash"** : automatique et immediate au premier run LIVE — le compte est levier (E > 1) avec du cash oisif (>= 5%) → restructuration **a exposition constante** (plafonnee 1.7) : vente de l'excedent de LQQ (~17% du compte, frais ~0.5% du vendu), achat de PUST avec tout le cash. Ne se redeclenche pas ensuite (plus de cash quand E > 1). Dry-run pour voir le plan : `python -m src.real_bourso --account 1`.
+- **Ventes puis achats** : les achats attendent que le produit des ventes soit credite (`trade summary` est temps reel : des que l'ordre est execute). Backoff ~15 min, puis relance horaire jusqu'a 17h ; si le cash n'est toujours pas la, l'achat est ecrit dans `logs/pending_orders.json` et repris **le lendemain matin sans bande** (mail "ACHAT DIFFERE").
+- **Apport de capital** : detecte le matin par ecart entre le cash lu et le cash attendu (cash de la veille ± flux des ordres ; seuil de bruit max(100 EUR, 0.5% equity, 5% du notionnel traite la veille)). L'apport est **reserve** puis libere par tranches **hebdomadaires quand le RSI14 du QQQ < 50** : tranche = 20% + 2% x (50 − RSI) (RSI 40 → 40%, RSI 30 → 60%), premiere tranche le jour de la detection, tout libere au plus tard apres 26 semaines. Le jour d'une tranche les achats se font sans bande. Etat dans `logs/capital.json` ; mail "APPORT +X EUR" et panneau "Capital a allouer detecte" dans la webapp. Un retrait reduit d'abord la reserve. **Ne pas ajouter de capital le jour de la mise en prod** (la premiere lecture initialise seulement la reference de cash).
 
 ## Multicompte
 
@@ -186,7 +193,7 @@ BOURSO_ID_4=""         ...
 - `trades.jsonl` : champs `account` (slot) et `account_name` ; les anciennes lignes sans `account` = slot 1. `logs/last_price.json` : cles `INSTRUMENT#slot` (l'ancienne cle `INSTRUMENT` = slot 1).
 - `python -m src.real_bourso --account 2` limite un run a un slot ; `python -m src.bourso.execute pea PUST buy 4 --account 2` pour un ordre manuel sur un autre compte ; `python -m src.bourso.list_accounts` liste tous les PEA geres.
 - `check_cli` (cron 20h) teste la connexion de **chaque** compte et alerte `CONNEXION COMPTE KO` si l'un echoue.
-- Webapp : onglet **Comptes** (une carte de statut par compte) ; Gain reel / Trades / Allocations sont affiches par compte.
+- Webapp : onglet **Comptes** (une carte de statut par compte : exposition cible/reelle, repartition PUST / LQQ / cash, capital a allouer detecte, achat differe) ; Gain reel / Trades / Allocations sont affiches par compte.
 
 ## Cron
 
@@ -221,30 +228,36 @@ Le backtest ecrit `outputs/qqq_strategy/signal.json` :
   "date": "2026-06-18",
   "probability": 0.85,
   "allocation": 1.0,
+  "exposure": 1.7,
+  "e_max": 1.7,
+  "rsi14": 64.4,
+  "macro_off": false,
   "timestamp": "2026-06-18T22:35:00"
 }
 ```
 
 - `status`: `"running"` au debut du backtest, `"ok"` a la fin. Si crash, reste `"running"` et le matin refuse d'executer.
-- `allocation`: 0.0 (cash) a 1.0 (full invest), calcule via `(prob - 0.70) / (0.75 - 0.70)`.
+- `allocation`: 0.0 (cash) a 1.0 (full invest) ; `exposure` = min(2 x allocation, `e_max`) ; `rsi14` = RSI de Wilder du QQQ (DCA des apports).
 - Le script du matin verifie la fraicheur du signal : age max `MAX_SIGNAL_AGE_HOURS=90h`. Assez large pour tolerer les week-ends/feries (lundi matin = signal du vendredi soir ~58h ; long week-end jeu. soir → mar. matin ~82h). Au-dela = le backtest du soir s'est arrete → refus.
 
 ## Frais et seuils
 
 - **Achat**: 0% (ETF gratuit sur Bourso PEA)
-- **Bande de non-action asymetrique** (importee de `strategy.py`, meme calibrage que le backtest net) :
-  - **Achat** (gratuit) : seulement si delta allocation >= +25% (`BUY_THR_ALLOC`)
-  - **Vente** (0.5%) : seulement si delta allocation <= −50% (`SELL_THR_ALLOC`) → on ne DE-lève que par grands pas
-  - **Force cash** : un passage a 0% (garde-fous macro / emergency) liquide TOUJOURS, meme sous le seuil de vente ; une premiere entree depuis le cash total s'execute meme sous le seuil d'achat.
-- **Garde-fou split** : si le prix de l'instrument saute d'un facteur >= 1.5 (x ou /) vs la seance precedente (`logs/last_price.json`, maj a chaque run LIVE) = signature d'un split (ex: LQQ /200) ou d'une incoherence d'affichage broker -> **aucune position prise ce jour-la**, email d'alerte "SPLIT detecte", reprise a la seance suivante (reference = prix post-split). Evite d'acheter/vendre sur un prix fausse le jour du split.
-- **Type d'ordre** : LIMITE avec tolerance `LIMIT_TOLERANCE_PCT`=3% (limite = cours ±3%, achat +, vente -). Tampon le gap d'ouverture -> remplissage fiable tout en bornant le prix (un ordre limite pile au cours n'avait pas rempli le 07-07 quand le cours s'est ecarte).
+- **Bande de non-action asymetrique en EXPOSITION** (importee de `strategy.py`, meme calibrage que le backtest net `simulate_net(e_max=1.7)`) :
+  - **Achat** (gratuit) : seulement si exposition cible − reelle >= +0.50 (`BUY_THR_E` = 0.25 x 2)
+  - **Vente** (0.5%) : seulement si reelle − cible >= 1.00 (`SELL_THR_E` = 0.50 x 2) → on ne DE-lève que par grands pas
+  - **Force cash** : un passage a 0% (garde-fous macro / emergency) liquide TOUJOURS (les deux ETF), meme sous le seuil de vente ; une premiere entree depuis le cash total s'execute meme sous le seuil d'achat.
+  - **Restructuration** (hors bande) : compte levier avec cash oisif >= 5% → composition drag-minimale a expo constante (cf. migration ci-dessus).
+- **Garde-fou split** (par instrument, cles `PUST#slot` / `LQQ#slot`) : si le prix saute d'un facteur >= 1.5 (x ou /) vs la seance precedente (`logs/last_price.json`, maj a chaque run LIVE) = signature d'un split (ex: LQQ /200) ou d'une incoherence d'affichage broker -> **aucune position prise ce jour-la**, email d'alerte "SPLIT detecte", reprise a la seance suivante (reference = prix post-split). Evite d'acheter/vendre sur un prix fausse le jour du split.
+- **Type d'ordre** : LIMITE avec tolerance `LIMIT_TOLERANCE_PCT`=3% (limite = cours ±3%, achat +, vente -), ventes d'abord puis achats. Tampon le gap d'ouverture -> remplissage fiable tout en bornant le prix (un ordre limite pile au cours n'avait pas rempli le 07-07 quand le cours s'est ecarte).
 - **Emergency OFF**: creer `logs/emergency_off.json` avec `{"active": true}` pour forcer allocation a 0%
 
 ## Scripts
 
 | Script | Role |
 |---|---|
-| `src/real_bourso.py` | Execution matin: lit signal, puis pour CHAQUE compte gere : etat PEA, achat/vente, mail |
+| `src/real_bourso.py` | Execution matin: lit signal, puis pour CHAQUE compte gere : etat PEA (PUST + LQQ + cash), apport/DCA, ventes puis achats, mail |
+| `src/bourso/capital.py` | Detection d'apport (cash lu vs attendu) + DCA hebdo pilote par le RSI (`logs/capital.json`) |
 | `src/bourso/accounts.py` | Slots multicompte du `.env` + decouverte/cache du PEA de chaque login |
 | `src/bourso/prepare.py` | Lecture etat PEA (cash/positions/cours) via `trade summary` (`creds=` par compte) |
 | `src/bourso/execute.py` | Execution manuelle interactive (PEA ou CTO, `--account N`) |
@@ -258,6 +271,9 @@ Le backtest ecrit `outputs/qqq_strategy/signal.json` :
 - `logs/cron_pea.log` — sortie de l'execution matin
 - `logs/trades.jsonl` — historique des ordres, une ligne par compte et par jour (lu par la webapp)
 - `logs/accounts.json` — cache des PEA decouverts par slot (nom, id, mail)
+- `logs/capital.json` — cash attendu, apports detectes et DCA en cours, par slot
+- `logs/pending_orders.json` — achats reportes (produit des ventes non credite avant 17h)
+- `logs/last_price.json` — prix de reference du garde-fou split (`PUST#slot`, `LQQ#slot`)
 - `logs/cron_bourso_check.log` — sortie du check quotidien bourso-cli (20h)
 
 ## Execution manuelle

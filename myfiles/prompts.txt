@@ -2112,3 +2112,32 @@ Envoyer un mail concernant la connexion au compte et l'allocation à tous les co
 Avec les différents mails. 
 
 est que tu peux mettre a jour la webapp pour afficher les status séparé pour les 4 comptes
+
+-----------------------------------------
+
+j'ai mis a jour la branche dev et créer
+dev_lqq_pust_1_7
+implemente la stratégie
+lqq + pust avec un levier 1.7
+
+avec un passage immediat de l'allocation LQQ en levier x2 
+vers l'equivalent pour
+lqq + pust avec un levier 1.7
+
+Donc potentiellement ça veut dire qu'on allège la position.
+
+Je veux également mettre au point un mécanisme qui détecte le cash ajouté sur le PEA 
+et qui va réaliser une allocation progressive toutes les semaines d'une certaine tranche quand le RSI est inférieur à 50.
+Avec une allocation plus forte si le RSI descend à une valeur très inférieure à 50.
+
+Vérifier que la détection de l'ajout de capital est possible.
+
+Par précaution, je n'ajouterai pas de capital lors de la mise en prod de la stratégie.
+
+LQQ x2 -> lqq + pust x 1.7
+
+Mettre à jour également la webapp pour montrer la répartition LQQ et PUST
+
+Mettre à jour également la webapp pour montrer qu'un capital à allouer a été détecté.
+
+

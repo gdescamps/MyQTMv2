@@ -95,38 +95,31 @@ def send_email(subject, body, to=None, images=None):
 
 def _account_preview(account, alloc, alloc_pct):
     """Apercu de l'action du matin pour UN compte, en REUTILISANT le vrai chemin
-    d'execution (real_bourso) : meme instrument actif (TRADE_INSTRUMENT), meme bande
-    asymetrique et meme force cash. Source unique -> le recap ne peut pas diverger
-    de ce que le cron du matin fera reellement."""
+    d'execution (real_bourso) : meme plafond d'exposition, meme bande asymetrique,
+    meme force cash, meme reserve DCA. Source unique -> le recap ne peut pas diverger
+    de ce que le cron du matin fera reellement (hors apport detecte le matin meme)."""
     from src.real_bourso import (
-        get_pea_state, compute_orders, INSTRUMENT, INSTRUMENTS, LEVERAGE,
+        plan_for_account, exposure_after, describe_order, composition_line,
+        target_exposure, E_MAX, STRATEGY_LABEL,
     )
-    state = get_pea_state(account)
-    price = state["etf_price"]
-    shares = state["etf_shares"]
-    equity = state["equity"]
-    current_alloc = (shares * price) / equity if equity > 0 else 0
-    side, qty, reason = compute_orders(alloc, state)
-
-    label = INSTRUMENTS[INSTRUMENT]["label"]
-    if side == "buy":
-        preview = f"ACHAT {qty} parts {INSTRUMENT} prevu demain matin"
-    elif side == "sell":
-        preview = f"VENTE {qty} parts {INSTRUMENT} prevue demain matin"
+    target_e = target_exposure(alloc, E_MAX)
+    state, plan = plan_for_account(account, target_e)
+    if plan["orders"]:
+        for o in plan["orders"]:
+            o["status"] = "dry-run"
+        preview = "Prevu demain matin : " + " ; ".join(describe_order(o) for o in plan["orders"])
     else:
-        preview = f"Pas de changement prevu demain matin ({reason})"
-
-    # exposition visee vs realisee (utile en LQQ : 1 part = 2x le poids)
-    realized_w = ((shares + (qty if side == "buy" else -qty if side == "sell" else 0))
-                  * price) / equity if equity > 0 else 0
+        preview = f"Pas de changement prevu demain matin ({plan['reason']})"
+    e_after = exposure_after(plan, state)
     preview += (
         f"\n  Compte:     {state['account_name']} (compte {account.slot}) — connexion OK"
-        f"\n  Instrument: {INSTRUMENT} ({label}, levier x{LEVERAGE:.0f})"
-        f"\n  PEA actuel: {shares} parts, {state['cash']:.0f} EUR especes, "
-        f"alloc poids {current_alloc*100:.0f}% -> {alloc_pct}"
-        f"\n  Exposition: {current_alloc*LEVERAGE*100:.0f}% -> {realized_w*LEVERAGE*100:.0f}% "
-        f"(cible {alloc*LEVERAGE*100:.0f}%)"
+        f"\n  Strategie:  {STRATEGY_LABEL} (PUST x1 + LQQ x2), plafond d'expo x{E_MAX}"
+        f"\n  PEA actuel: {composition_line(state, plan['reserved'])}, {state['cash']:.0f} EUR especes"
+        f"\n  Exposition: {plan['e_eff']*100:.0f}% -> {e_after*100:.0f}% "
+        f"(cible {target_e*100:.0f}% = min(2 x {alloc_pct}, {E_MAX*100:.0f}%))"
     )
+    if plan["reserved"] > 0:
+        preview += f"\n  Apport en cours de deploiement : {plan['reserved']:.0f} EUR reserves (DCA/RSI)"
     return preview
 
 

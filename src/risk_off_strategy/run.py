@@ -18,7 +18,8 @@ from src.risk_off_strategy.data import (
     load_ohlc, load_macro, load_cape_ecy, load_ndx_excess_snapshot, load_funding,
 )
 from src.risk_off_strategy.strategy import (
-    compute_allocation, yang_zhang_vol, NFCI_OFF, CPI_OFF, ABOVE_CAP,
+    compute_allocation, yang_zhang_vol, rsi_wilder, target_exposure,
+    NFCI_OFF, CPI_OFF, ABOVE_CAP, E_MAX,
 )
 from src.risk_off_strategy.backtest import plot_backtest
 
@@ -192,12 +193,16 @@ def run_ticker(ticker):
         (nfci is not None and np.nan_to_num(nfci[-1], nan=-9) > NFCI_OFF) or
         (cpi is not None and np.nan_to_num(cpi[-1], nan=-9) > CPI_OFF)
     )
+    rsi14 = float(rsi_wilder(price.values)[-1])   # DCA d'un apport (real_bourso)
     signal = {
         "status": "ok",
         "ticker": ticker,
         "date": str(price.index[-1].date()),
         "probability": last_alloc,      # compat real_bourso/webapp (= allocation)
         "allocation": last_alloc,
+        "exposure": target_exposure(last_alloc),   # expo deployee = min(2.alloc, E_MAX)
+        "e_max": E_MAX,
+        "rsi14": rsi14,
         "macro_off": macro_off,
         "timestamp": pd.Timestamp.now().isoformat(),
     }
@@ -210,7 +215,8 @@ def run_ticker(ticker):
     print(f"Backtest {price.index[0].date()}->{price.index[-1].date()}  "
           f"CAGR {m['cagr']*100:.1f}%  maxDD {m['maxdd']*100:.0f}%  "
           f"Sharpe {m['sharpe']:.2f}  Calmar {m['calmar']:.2f}{net_tag}")
-    print(f"Signal: alloc={last_alloc*100:.0f}%  macro_off={macro_off}  -> {signal_path}")
+    print(f"Signal: alloc={last_alloc*100:.0f}%  expo={signal['exposure']*100:.0f}% (plafond {E_MAX})  "
+          f"RSI14={rsi14:.1f}  macro_off={macro_off}  -> {signal_path}")
     return price, alloc
 
 

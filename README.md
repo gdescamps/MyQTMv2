@@ -7,7 +7,9 @@ x1). The goal is not to beat the market on return alone, but to **keep most of t
 while cutting drawdowns**.
 
 The live system runs nightly, writes a signal, and the next morning executes that
-allocation on a **Boursorama PEA** account (ETF **PUST**, Amundi PEA Nasdaq-100, x1).
+allocation on a **Boursorama PEA** account as a **PUST + LQQ** book (Amundi PEA Nasdaq-100 x1 +
+Amundi Nasdaq-100 2x): target exposure `min(2 × allocation, 1.7)`, LQQ only carrying the part
+above 100% (net backtest 2000-2026: CAGR 17.3%, maxDD −29%, Calmar 0.60).
 See [`BOURSO.md`](BOURSO.md) for the operational runbook and [`CLAUDE.md`](CLAUDE.md) for the
 code map.
 
@@ -135,7 +137,7 @@ Three cron jobs drive production (see [`BOURSO.md`](BOURSO.md)):
 
 ```
 22:30  src.risk_off_strategy.run QQQ     → signal.json  (+ email recap)                 [weekdays]
-09:05  src.real_bourso --execute         → executes PUST allocation on the PEA (live)    [weekdays]
+09:05  src.real_bourso --execute         → executes the PUST + LQQ exposure on the PEA (live) [weekdays]
 20:00  src.bourso.check_cli              → bourso-cli health check + email alert         [daily]
 ```
 
@@ -144,6 +146,13 @@ Three cron jobs drive production (see [`BOURSO.md`](BOURSO.md)):
 refuses to act on a non-`ok` or stale signal (max age 90h — wide enough to tolerate
 weekend/holiday gaps so Monday mornings still execute), and `logs/emergency_off.json`
 forces 0% as a kill switch.
+
+The morning script holds the target exposure in the drag-minimal composition (`E ≤ 1`: PUST +
+cash; `E > 1`: PUST = 2−E, LQQ = E−1, no idle cash), trades inside the same asymmetric no-trade
+band as the net backtest (buy if +0.50 exposure, sell if −1.00), sells before it buys (buys wait
+for the sale proceeds, deferred to the next morning if needed), and deploys a **detected cash
+deposit** progressively: weekly tranches only when the QQQ RSI(14) is below 50, larger the lower
+the RSI (see `BOURSO.md`).
 
 PEA execution talks to Boursorama through **`bourso-cli`** (Rust). Upstream
 [azerpas/bourso-api](https://github.com/azerpas/bourso-api) exposes the account-reading

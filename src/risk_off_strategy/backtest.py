@@ -24,6 +24,7 @@ from src.risk_off_strategy.strategy import (
     realized_vol, simulate_net, SMA_LONG, VOL_TARGET, NFCI_OFF, CPI_OFF, ANN,
     ABOVE_CAP, BELOW_SCALE, GAP_CUTOFF, GAP2_START, GAP2_SPAN, DECAY2_FLOOR,
     SLOPE_K, TER_PUST, TER_LQQ, SWAP_SPREAD, SELL_FEE, BUY_THR_ALLOC, SELL_THR_ALLOC,
+    E_MAX,
 )
 
 
@@ -36,7 +37,8 @@ def _formula_text():
         f"vol = Yang-Zhang(OHLC, 10j) ann.        gap = close / SMA{SMA_LONG} - 1\n"
         f"decay_up = clip(1 - max(0, gap - {GAP2_START:.2f}) / {GAP2_SPAN:.2f}, {DECAY2_FLOOR:.1f}, 1)        "
         f"decay_down = clip(1 + gap / {GAP_CUTOFF:.2f}, 0, 1)\n"
-        f"x2.0 = 2 . alloc x1 (via LQQ)          exec_lag = 1 : close du soir  ->  execution J+1\n"
+        f"deployee x{E_MAX} = min(2 . alloc x1, {E_MAX}) via PUST + LQQ (LQQ = part > 100%)     "
+        f"exec_lag = 1 : close du soir  ->  execution J+1\n"
         f"NET de frais : TER PUST {TER_PUST*100:.2f}% / LQQ {TER_LQQ*100:.2f}% + financement LQQ (taux court +{SWAP_SPREAD*100:.1f}%) ; "
         f"bande asym. .levier : achat si +{BUY_THR_ALLOC:.2f} (libre), vente {SELL_FEE*100:.1f}% si -{SELL_THR_ALLOC:.2f}"
     )
@@ -147,12 +149,18 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, cape=None, ecy=None, ndx_ey
     # LQQ pour la part >100% + financement du levier). funding=None -> pas de net x2.
     net1 = simulate_net(price, alloc, leverage=1, funding=funding)
     net2 = simulate_net(price, alloc, leverage=2, funding=funding)
+    # strategie DEPLOYEE : PUST + LQQ, exposition plafonnee a E_MAX (cf. strategy.py)
+    netd = simulate_net(price, alloc, leverage=2, funding=funding, e_max=E_MAX)
     if net1 is not None:
         eq1n, fees1, rev1 = net1
         e1n, cagr1n, dd1n, sh1n = _metrics_from_equity(eq1n, w0)
     if net2 is not None:
         eq2n, fees2, rev2 = net2
         e2n, cagr2n, dd2n, sh2n = _metrics_from_equity(eq2n, w0)
+    if netd is not None:
+        eqdn, feesd, revd = netd
+        edn, cagrdn, dddn, shdn = _metrics_from_equity(eqdn, w0)
+    expo_d = np.minimum(lev20, E_MAX)          # expo deployee (positions, exec_lag=1)
 
     # SMA250 rebasee sur le PRIX au debut de fenetre (meme base que le B&H rebasee),
     # sinon elle est mal positionnee dans les vues fenetrees (1y/1m).
@@ -167,8 +175,8 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, cape=None, ecy=None, ndx_ey
     fig = plt.figure(figsize=(15, 2.4 * npan + 5.5))
     fig.suptitle(f"{ticker} — resultats des strategies  ({span})",
                  fontsize=15, weight="bold", y=0.985)
-    fig.text(0.5, 0.958, _formula_text(), ha="center", va="top", fontsize=11,
-             family="monospace", linespacing=1.6,
+    fig.text(0.5, 0.962, _formula_text(), ha="center", va="top", fontsize=10.5,
+             family="monospace", linespacing=1.45,
              bbox=dict(boxstyle="round", fc="#f5f5f5", ec="#bbbbbb", alpha=0.95))
     gs = fig.add_gridspec(npan + 1, 1, height_ratios=[1.0] + ratios, hspace=0.18)
     ax_tbl = fig.add_subplot(gs[0])
@@ -198,6 +206,9 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, cape=None, ecy=None, ndx_ey
     else:
         table_rows.append(_row("x1 (brut)", em, cagr_m, dd_m, sh_m))
         row_colors.append("crimson")
+    if netd is not None:
+        table_rows.append(_row(f"x{E_MAX} PUST+LQQ (net)", edn, cagrdn, dddn, shdn, feesd, revd))
+        row_colors.append("darkorange")
     if net2 is not None:
         table_rows.append(_row("x2.0 LQQ (net)", e2n, cagr2n, dd2n, sh2n, fees2, rev2))
         row_colors.append("purple")
@@ -210,6 +221,7 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, cape=None, ecy=None, ndx_ey
                                   "Calmar", "frais/an", "revis/an"],
                        loc="lower center", cellLoc="center")
     tbl.auto_set_font_size(False); tbl.set_fontsize(12); tbl.scale(1, 2.4)
+    tbl.auto_set_column_width([0])
     for (r, c), cell in tbl.get_celld().items():
         cell.set_edgecolor("#cccccc")
         if r == 0:
@@ -227,9 +239,11 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, cape=None, ecy=None, ndx_ey
         a1.semilogy(d, em, color="crimson", lw=1.5, label="strategie x1")
     if net2 is not None:
         a1.semilogy(d, e20, color="purple", lw=0.8, ls=":", alpha=0.5, label="x2.0 brut")
-        a1.semilogy(d, e2n, color="purple", lw=1.3, label="strategie x2.0 LQQ (net)")
+        a1.semilogy(d, e2n, color="purple", lw=1.0, alpha=0.8, label="strategie x2.0 LQQ (net)")
     else:
         a1.semilogy(d, e20, color="purple", lw=1.2, label="strategie x2.0 (LQQ)")
+    if netd is not None:
+        a1.semilogy(d, edn, color="darkorange", lw=1.6, label=f"strategie x{E_MAX} PUST+LQQ (net, deployee)")
     a1.set_ylabel("Equity (log, base 1)")
     a1.legend(loc="upper left", fontsize=8, ncol=2); a1.grid(True, which="both", alpha=0.2)
 
@@ -245,8 +259,10 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, cape=None, ecy=None, ndx_ey
 
     a3 = next(ax)
     a3.fill_between(d, alloc[w0:], color="steelblue", alpha=0.35, step="mid", label="allocation x1")
-    a3.plot(d, lev20[w0:], color="purple", lw=0.7, alpha=0.9, label="expo x2.0 (LQQ)")
+    a3.plot(d, lev20[w0:], color="purple", lw=0.7, alpha=0.6, label="expo x2.0 (LQQ)")
+    a3.plot(d, expo_d[w0:], color="darkorange", lw=0.9, alpha=0.95, label=f"expo deployee (plafond {E_MAX})")
     a3.axhline(1.0, color="grey", ls=":", lw=0.6)
+    a3.axhline(E_MAX, color="darkorange", ls=":", lw=0.6, alpha=0.7)
     a3.axhline(2.0, color="purple", ls=":", lw=0.5, alpha=0.5)
     a3.set_ylabel("allocation / expo", fontsize=9); a3.set_ylim(-0.05, 2.15); a3.grid(True, alpha=0.2)
     a3.legend(loc="upper left", fontsize=7, ncol=2)
@@ -319,7 +335,7 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, cape=None, ecy=None, ndx_ey
     with warnings.catch_warnings():
         # le twinx du panneau CAPE/ECY n'est pas compatible tight_layout (rendu OK)
         warnings.simplefilter("ignore", UserWarning)
-        fig.tight_layout(rect=[0, 0, 1, 0.865])
+        fig.tight_layout(rect=[0, 0, 1, 0.85])
     if save_path:
         fig.savefig(save_path, dpi=110, bbox_inches="tight")
     plt.close(fig)
