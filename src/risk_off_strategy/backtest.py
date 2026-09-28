@@ -24,7 +24,7 @@ import matplotlib.dates as mdates
 from src.risk_off_strategy.strategy import (
     realized_vol, simulate_net, SMA_LONG, VOL_TARGET, NFCI_OFF, CPI_OFF, ANN,
     ABOVE_CAP, BELOW_SCALE, GAP_CUTOFF, GAP2_START, GAP2_SPAN, DECAY2_FLOOR,
-    SLOPE_K, TER_PUST, TER_LQQ, SWAP_SPREAD, SELL_FEE, BUY_THR_ALLOC, SELL_THR_ALLOC,
+    SLOPE_K, TER_PUST, TER_LQQ, SWAP_SPREAD, SELL_FEE, BUY_FEE, BUY_THR_ALLOC, SELL_THR_ALLOC,
     E_MAX,
 )
 
@@ -41,7 +41,7 @@ def _formula_text():
         f"deployee x{E_MAX} = min(2 . alloc x1, {E_MAX}) via PUST + LQQ (LQQ = part > 100%)     "
         f"exec_lag = 1 : close du soir  ->  execution J+1\n"
         f"NET de frais : TER PUST {TER_PUST*100:.2f}% / LQQ {TER_LQQ*100:.2f}% + financement LQQ (taux court +{SWAP_SPREAD*100:.1f}%) ; "
-        f"bande asym. .levier : achat si +{BUY_THR_ALLOC:.2f} (libre), vente {SELL_FEE*100:.1f}% si -{SELL_THR_ALLOC:.2f}"
+        f"bande asym. .levier : achat {BUY_FEE*100:.1f}% si +{BUY_THR_ALLOC:.2f}, vente {SELL_FEE*100:.1f}% si -{SELL_THR_ALLOC:.2f}"
     )
 
 
