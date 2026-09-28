@@ -128,9 +128,10 @@ def compute_allocation(price, nfci=None, cpi=None, high=None, low=None, open_=No
 TER_PUST = 0.0030     # frais courants PUST (Amundi PEA Nasdaq-100, x1)
 TER_LQQ = 0.0060      # frais courants LQQ (Amundi Nasdaq-100 Daily 2x)
 SWAP_SPREAD = 0.0040  # spread de financement du swap LQQ au-dela du taux court
-SELL_FEE = 0.005      # frais de vente Bourso (0.5%) ; achats gratuits
+SELL_FEE = 0.005      # frais de vente Bourso (0.5%)
+BUY_FEE = 0.005       # frais d'achat Bourso (0.5%, constates le 2026-09-28 : 89.35 EUR sur 17 869 EUR de PUST)
 # Bande de non-action ASYMETRIQUE (en expo x1 = alloc, multipliee par le levier) :
-# on ne re-monte l'expo que si la cible s'ecarte de BUY_THR (achats gratuits) et on
+# on ne re-monte l'expo que si la cible s'ecarte de BUY_THR (achats 0.5%) et on
 # ne la baisse que si elle s'ecarte de SELL_THR (vente 0.5% -> on ne DE-lève que par
 # grands pas). Calibre NET DE FRAIS sur le backtest QQQ 2000-2026 (grille complete +
 # validation 2 moities dans myfiles/asym_band_optimize.py) : (0.25 / 0.50) MAXIMISE le
@@ -231,9 +232,10 @@ def simulate_net(price, alloc, leverage=1, funding=None, cash_rate=0.0,
       E > 1 : PUST=2−E, LQQ=E−1, cash=0       (LQQ ne porte que la part >100%)
 
     Execution : bande de non-action ASYMETRIQUE. On rebalance si l'expo cible s'ecarte
-    de l'effective d'au moins buy_thr (montee, achats gratuits -> seuil fin) ou sell_thr
-    (baisse, vente 0.5% -> seuil grossier), ou passage a/depuis le cash total. Frais de
-    0.5% sur le notionnel VENDU seulement. exec_lag=1 (close J -> J+1).
+    de l'effective d'au moins buy_thr (montee -> seuil fin) ou sell_thr (baisse -> seuil
+    grossier), ou passage a/depuis le cash total. Frais Bourso de SELL_FEE (0.5%) sur le
+    notionnel vendu et BUY_FEE (0.5%) sur le notionnel achete (tarif Decouverte constate
+    en live le 2026-09-28 — les achats ne sont pas gratuits). exec_lag=1 (close J -> J+1).
 
     e_max : plafond d'exposition (None = 2.0) ; la strategie deployee = leverage=2,
     e_max=E_MAX (PUST + LQQ plafonne a 1.7).
@@ -274,7 +276,8 @@ def simulate_net(price, alloc, leverage=1, funding=None, cash_rate=0.0,
             wl = max(0.0, et - 1.0)
             wp = et if et <= 1.0 else 2.0 - et
             tp, tl = wp * V, wl * V
-            fee = SELL_FEE * (max(0.0, vp - tp) + max(0.0, vl - tl))   # ventes seulement
+            fee = (SELL_FEE * (max(0.0, vp - tp) + max(0.0, vl - tl))    # ventes
+                   + BUY_FEE * (max(0.0, tp - vp) + max(0.0, tl - vl)))  # achats
             fees_frac += fee / V
             V -= fee
             vp, vl, vc = wp * V, wl * V, max(0.0, 1.0 - et) * V

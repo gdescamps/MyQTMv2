@@ -76,7 +76,8 @@ def test_expected_cash_follows_executed_orders():
               {"side": "buy", "instrument": "PUST", "quantity": 217, "price": 86.0, "status": "executed"},
               {"side": "buy", "instrument": "LQQ", "quantity": 10, "price": 9.821, "status": "error"}]
     record_expected_cash(e, 9367.0, orders, D0)
-    assert e["expected_cash"] == pytest.approx(9367.0 + 953 * 9.821 * 0.995 - 217 * 86.0, abs=0.01)
+    # ventes creditees nettes de 0.5%, achats debites avec 0.5% de frais (BUY_FEE)
+    assert e["expected_cash"] == pytest.approx(9367.0 + 953 * 9.821 * 0.995 - 217 * 86.0 * 1.005, abs=0.01)
     assert e["traded_notional"] == pytest.approx(953 * 9.821 + 217 * 86.0, abs=0.01)
     # ecart de prix de remplissage (< 5% du notionnel) : pas un apport
     thr = deposit_threshold(e, 54000.0)

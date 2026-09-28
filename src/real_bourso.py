@@ -10,14 +10,19 @@ Strategie deployee : PUST (Nasdaq x1) + LQQ (Nasdaq x2), exposition plafonnee.
   "drag-minimale" :  E <= 1 : PUST = E, cash = 1 - E   |   E > 1 : PUST = 2 - E, LQQ = E - 1
   (LQQ ne porte que la part > 100%, tout le cash travaille). Bande de non-action
   asymetrique en ESPACE EXPOSITION, identique au backtest net (simulate_net) : on remonte
-  l'expo si cible - reelle >= 0.50 (achats gratuits), on la baisse si reelle - cible >=
-  1.00 (vente 0.5%), force vers/depuis le cash total. Les VENTES partent en premier, les
-  ACHATS attendent que le produit des ventes soit credite (trade summary temps reel) ;
-  si le cash n'arrive pas avant 17h l'achat est reporte au lendemain (logs/pending_orders.json).
+  l'expo si cible - reelle >= 0.50, on la baisse si reelle - cible >= 1.00, force
+  vers/depuis le cash total. Frais Bourso 0.5% a l'achat comme a la vente (BUY_FEE /
+  SELL_FEE). Les VENTES partent en premier, les ACHATS attendent que le produit des
+  ventes soit credite (trade summary temps reel) et sont dimensionnes sur le cash au
+  prix RESERVE par Bourso (limite +3% + provision BUY_CASH_MARGIN 3%) ; si le cash
+  n'arrive pas avant 17h, ou si Bourso refuse l'achat ("solde especes insuffisant"),
+  l'achat est differe : reprise horaire puis lendemain (logs/pending_orders.json).
 
 Restructuration : si le compte est levier (E > 1) avec du cash oisif (>= 5%, = l'ancienne
-realisation "LQQ + cash", ou un residu), on passe a la composition drag-minimale A
-EXPOSITION CONSTANTE (plafonnee E_MAX) : vente de l'excedent de LQQ, achat de PUST.
+realisation "LQQ + cash", un achat refuse ou un residu), on passe a la composition
+drag-minimale vers clip(cible, E_eff, E_eff + cash) plafonne E_MAX : le cash seul
+remonte l'expo (achat de PUST, sans vente) ; du LQQ n'est vendu que si la cible est
+sous E_eff (expo constante).
 C'est la migration immediate LQQ x2 -> PUST + LQQ x1.7 ; elle ne se redeclenche pas
 ensuite (plus de cash oisif quand E > 1).
 
@@ -70,7 +75,7 @@ STRATEGY_LABEL = "PUST+LQQ"
 
 # Bande + plafond : source unique = la strategie backtestee (strategy.py).
 from src.risk_off_strategy.strategy import (  # noqa: E402,F401  (BUY/SELL_THR_ALLOC re-exportes pour les tests)
-    BUY_THR_ALLOC, SELL_THR_ALLOC, BUY_THR_E, SELL_THR_E, SELL_FEE,
+    BUY_THR_ALLOC, SELL_THR_ALLOC, BUY_THR_E, SELL_THR_E, SELL_FEE, BUY_FEE,
     E_MAX as STRATEGY_E_MAX, target_exposure, composition,
 )
 
@@ -86,8 +91,9 @@ if _env_emax:
 if os.environ.get("TRADE_INSTRUMENT", "").strip():
     print(f"[INFO] TRADE_INSTRUMENT ignore : realisation {STRATEGY_LABEL}, plafond d'expo x{E_MAX}")
 
-# Cash oisif tolere quand le compte est levier (E > 1) : au-dela, restructuration a
-# exposition constante (composition drag-minimale). Sous ce seuil = residu d'arrondi.
+# Cash oisif tolere quand le compte est levier (E > 1) : au-dela, restructuration vers
+# la composition drag-minimale (cf. compute_orders). Sous ce seuil = residu d'arrondi
+# (marge de cash des achats, frais).
 IDLE_CASH_TOL = 0.05
 
 # Signal must be fresh enough, but tolerate weekend/holiday gaps so Monday (and
@@ -121,6 +127,26 @@ LIMIT_TOLERANCE_PCT = 3.0
 # quand le cash a augmente d'au moins cette fraction du produit attendu (le reste =
 # ecart de prix de remplissage, jusqu'a -3% de limite et -0.5% de frais).
 SELL_CREDIT_MIN_FRAC = 0.90
+
+# Dimensionnement des ACHATS : Bourso reserve quantite x LIMITE (cours +3%) plus une
+# provision (~1.5% constatee : frais 0.5% + marge) et refuse l'ordre au-dela du cash
+# ("solde especes insuffisant", code 5010 — incident du 2026-09-28 : 173 PUST dimensionnes
+# au dernier cours = 19 162 EUR reserves pour 18 676 EUR de cash ; 167 parts a 1.5% de
+# marge encore refusees par l'API). On plafonne donc la quantite par
+# cash / (cours x (1 + tolerance) x (1 + BUY_CASH_MARGIN)) : au pire ~6% du cash reste
+# non deploye sur un achat plein-cash, soit ~1 point d'expo, negligeable devant la bande.
+BUY_CASH_MARGIN = 0.03
+
+
+def buy_reserve_price(price, tolerance=LIMIT_TOLERANCE_PCT, margin=BUY_CASH_MARGIN):
+    """Cash a prevoir par part achetee : limite (+tolerance%) + provision Bourso (marge)."""
+    return float(price) * (1 + tolerance / 100.0) * (1 + margin)
+
+
+def is_cash_refusal(msg):
+    """Refus Bourso 'solde especes insuffisant' (code 5010) sur un ordre d'achat."""
+    m = (msg or "").lower()
+    return "5010" in m or "insuffisant" in m
 
 
 def retry(fn, label="", hourly_until=None):
@@ -330,7 +356,9 @@ def compute_orders(target_e, state, reserved=0.0, force_buy=False, buys_only=Fal
     elif force_buy and delta > 1e-9:
         mode = "force_buy"                  # tranche DCA / achat reporte : sans bande
     # Cash oisif alors que le compte est levier (E > 1) : pas la realisation drag-
-    # minimale (ex. ancienne "LQQ + cash") -> restructuration a expo constante.
+    # minimale (ex. ancienne "LQQ + cash", ou achat refuse/partiel) -> restructuration
+    # vers la cible bornee par [E_eff, E_eff + cash] : le cash seul remonte l'expo
+    # (achats, pas de vente) ; on ne revend du LQQ que si la cible est sous E_eff.
     elif e_eff > 1.0 and w["cash"] >= IDLE_CASH_TOL and not buys_only:
         mode = "restructure"
     else:
@@ -343,7 +371,12 @@ def compute_orders(target_e, state, reserved=0.0, force_buy=False, buys_only=Fal
         plan["e_new"] = e_eff
         return plan
 
-    e_new = min(e_eff, e_max) if mode == "restructure" else target_e
+    if mode == "restructure":
+        # clip(cible, E_eff, E_eff + cash) : E_eff + w_cash = tout le cash en PUST (sans
+        # vente) ; en dessous de E_eff il faudrait vendre du LQQ -> on garde E_eff.
+        e_new = min(max(target_e, e_eff), e_eff + w["cash"], e_max)
+    else:
+        e_new = target_e
     wp, wl, wc = composition(e_new)
     tgt = {"PUST": wp * V, "LQQ": wl * V}
     plan.update(mode=mode, e_new=e_new, target_weights={"PUST": wp, "LQQ": wl, "cash": wc})
@@ -368,11 +401,12 @@ def compute_orders(target_e, state, reserved=0.0, force_buy=False, buys_only=Fal
         for ins in ("PUST", "LQQ"):                       # achats : base PUST, puis LQQ
             d = tgt[ins] - val[ins]
             if d > px[ins]:
-                q = min(int(d / px[ins] + 1e-9), int(avail / px[ins] + 1e-9))
+                # plafond de cash au prix RESERVE par Bourso (limite + provision), pas au cours
+                q = min(int(d / px[ins] + 1e-9), int(avail / buy_reserve_price(px[ins]) + 1e-9))
                 if q > 0:
                     orders.append({"instrument": ins, "side": "buy", "quantity": q, "price": px[ins],
-                                   "value": q * px[ins], "fee": 0.0})
-                    avail -= q * px[ins]
+                                   "value": q * px[ins], "fee": q * px[ins] * BUY_FEE})
+                    avail -= q * px[ins] * (1 + BUY_FEE)
     plan["orders"] = orders
     plan["cash_avail"] = cash + proceeds
 
@@ -380,7 +414,8 @@ def compute_orders(target_e, state, reserved=0.0, force_buy=False, buys_only=Fal
               "buy_band": f"achat (delta +{delta*100:.1f}% >= {BUY_THR_E*100:.0f}%)",
               "sell_band": f"vente (delta {delta*100:.1f}% <= -{SELL_THR_E*100:.0f}%)",
               "force_buy": f"achat sans bande (delta +{delta*100:.1f}%)",
-              "restructure": f"restructuration a expo constante {e_new*100:.0f}% (cash oisif {w['cash']*100:.0f}%)"}
+              "restructure": f"restructuration vers expo {e_new*100:.0f}% (cash oisif {w['cash']*100:.0f}%, "
+                             f"cible {target_e*100:.0f}%)"}
     if not orders:
         plan["reason"] = f"{labels[mode]} : rien a faire (marge d'1 part / cash insuffisant)"
         plan["mode"] = None
@@ -391,7 +426,7 @@ def compute_orders(target_e, state, reserved=0.0, force_buy=False, buys_only=Fal
 
 def describe_order(o):
     s = f"{'VENTE' if o['side'] == 'sell' else 'ACHAT'} {o['quantity']} {o['instrument']} ({o['value']:.0f} EUR"
-    if o["side"] == "sell":
+    if o.get("fee"):
         s += f", frais ~{o['fee']:.0f} EUR"
     return s + ")"
 
@@ -411,7 +446,7 @@ def exposure_after(plan, state):
             cash += amt * (1 - SELL_FEE)
         else:
             val[o["instrument"]] += amt
-            cash -= amt
+            cash -= amt * (1 + BUY_FEE)
     V = val["PUST"] + val["LQQ"] + cash
     return (val["PUST"] + 2 * val["LQQ"]) / V if V > 0 else 0.0
 
@@ -477,8 +512,10 @@ def _run_order(o, account, execute):
 
 def execute_plan(plan, state, account, execute):
     """Execute le plan : VENTES d'abord, puis attente du credit des ventes (cash temps
-    reel), puis ACHATS plafonnes par le cash disponible. Renvoie True si des achats
-    restent en attente de cash (a reprendre plus tard / le lendemain)."""
+    reel), puis ACHATS plafonnes par le cash disponible au prix reserve par Bourso
+    (limite + provision). Renvoie True si des achats restent en attente de cash
+    (produit des ventes non credite, ou refus 'solde especes insuffisant') — ils sont
+    repris toutes les heures puis reportes au lendemain."""
     sells = [o for o in plan["orders"] if o["side"] == "sell"]
     buys = [o for o in plan["orders"] if o["side"] == "buy"]
     for o in sells:
@@ -512,8 +549,10 @@ def execute_plan(plan, state, account, execute):
                 o["status"] = "pending_cash"
             return True
 
+    pending = False
     for o in buys:
-        q = min(o["quantity"], int(cash_avail / o["price"] + 1e-9))
+        # plafond au prix RESERVE par Bourso (limite +3% + provision), cf. BUY_CASH_MARGIN
+        q = min(o["quantity"], int(cash_avail / buy_reserve_price(o["price"]) + 1e-9))
         if q <= 0:
             o["status"] = "skipped"
             o["error"] = "cash insuffisant"
@@ -524,10 +563,18 @@ def execute_plan(plan, state, account, execute):
             o["executed_quantity"] = q
             o["quantity"] = q
             o["value"] = q * o["price"]
+            o["fee"] = o["value"] * BUY_FEE
         _run_order(o, account, execute)
         if o["status"] in ("executed", "dry-run"):
-            cash_avail -= o["value"]
-    return False
+            cash_avail -= o["value"] * (1 + BUY_FEE)
+        elif o["status"] == "error" and is_cash_refusal(o.get("error")):
+            # Refus 'solde especes insuffisant' : pas une erreur definitive -> achat
+            # differe, re-planifie sur l'etat frais (reprise horaire, puis lendemain).
+            o["status"] = "pending_cash"
+            pending = True
+            print(f"  [ATTENTE] {describe_order(o)} : refus Bourso 'solde especes insuffisant' "
+                  f"-> achat differe (re-dimensionne a la prochaine tentative)")
+    return pending
 
 
 # ── Achats reportes (cash non credite avant la deadline) ──
@@ -750,7 +797,7 @@ def process_account(account, signal, target_e, execute, force_buy=False, buys_on
             set_pending(account.slot, {"date": str(today), "target_exposure": target_e,
                                        "buys": [{"instrument": o["instrument"], "quantity": o["quantity"]}
                                                 for o in plan["orders"] if o["side"] == "buy"],
-                                       "reason": "produit des ventes non credite"})
+                                       "reason": "cash non credite ou refus Bourso (solde especes insuffisant)"})
         else:
             set_pending(account.slot, None)
         # cash attendu a la prochaine lecture (detection d'apport) ; en cas d'achats

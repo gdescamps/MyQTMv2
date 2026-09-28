@@ -9,7 +9,8 @@ while cutting drawdowns**.
 The live system runs nightly, writes a signal, and the next morning executes that
 allocation on a **Boursorama PEA** account as a **PUST + LQQ** book (Amundi PEA Nasdaq-100 x1 +
 Amundi Nasdaq-100 2x): target exposure `min(2 × allocation, 1.7)`, LQQ only carrying the part
-above 100% (net backtest 2000-2026: CAGR 17.3%, maxDD −29%, Calmar 0.60).
+above 100% (net backtest 2000-2026: CAGR 16.8%, maxDD −30%, Calmar 0.57 — 0.5% Bourso fee on
+every buy and sell).
 See [`BOURSO.md`](BOURSO.md) for the operational runbook and [`CLAUDE.md`](CLAUDE.md) for the
 code map.
 
@@ -28,7 +29,7 @@ position only earns the **next** return (close[i]→close[i+1]) — **no 1-day l
 | Buy & Hold | 8.7% | −83% | 0.45 | 0.10 |
 | trend150 + VM (baseline) | 10.2% | −65% | 0.65 | 0.16 |
 | **deployed rule** | **11.9%** | **−36%** | **0.81** | **0.33** |
-| **deployed x1.7 PUST+LQQ, net of fees** | **17.3%** | **−29%** | **0.82** | **0.60** |
+| **deployed x1.7 PUST+LQQ, net of fees** | **16.8%** | **−30%** | **0.80** | **0.57** |
 
 > Regenerate with `python -m src.risk_off_strategy.run` — the chart
 > (`outputs/qqq_strategy/backtest.png`, shown in the webapp and attached to the evening
@@ -153,7 +154,8 @@ forces 0% as a kill switch.
 The morning script holds the target exposure in the drag-minimal composition (`E ≤ 1`: PUST +
 cash; `E > 1`: PUST = 2−E, LQQ = E−1, no idle cash), trades inside the same asymmetric no-trade
 band as the net backtest (buy if +0.50 exposure, sell if −1.00), sells before it buys (buys wait
-for the sale proceeds, deferred to the next morning if needed), and deploys a **detected cash
+for the sale proceeds and are sized on the cash Bourso actually reserves — limit price +3% plus a
+3% provision — a refused buy is deferred and re-sized rather than dropped), and deploys a **detected cash
 deposit** progressively: weekly tranches only when the QQQ RSI(14) is below 50, larger the lower
 the RSI (see `BOURSO.md`).
 

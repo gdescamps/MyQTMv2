@@ -25,7 +25,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from src.risk_off_strategy.strategy import (
-    SELL_FEE, DCA_MAX_WEEKS, DCA_WEEK_DAYS, dca_tranche,
+    SELL_FEE, BUY_FEE, DCA_MAX_WEEKS, DCA_WEEK_DAYS, dca_tranche,
 )
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -100,7 +100,7 @@ def record_expected_cash(entry, cash_now, orders, today=None):
             continue
         amt = float(o["quantity"]) * float(o["price"])
         notional += amt
-        flow += amt * (1 - SELL_FEE) if o["side"] == "sell" else -amt
+        flow += amt * (1 - SELL_FEE) if o["side"] == "sell" else -amt * (1 + BUY_FEE)
     entry["expected_cash"] = round(float(cash_now) + flow, 2)
     entry["as_of"] = str(today)
     entry["traded_notional"] = round(notional, 2)

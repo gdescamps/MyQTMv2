@@ -12,9 +12,12 @@ mais n'est pas cablee au CLI. Or `src/bourso/prepare.py` (recap du soir + execut
 du matin) en a besoin. On maintient donc un **fork** avec un patch minimal.
 
 Le submodule `external/bourso-api` pointe sur le fork, branche **`myqtm`** =
-tag upstream (actuellement **v0.5.4**) + 4 commits maison : `trade summary` CLI,
+tag upstream (actuellement **v0.5.4**) + 5 commits maison : `trade summary` CLI,
 `realGL` en f64, les options d'ordre (`--order-type ATP|LIM`, `--tolerance`,
-`--limit`, `--validity`) et le rejet d'une tolerance LIM negative.
+`--limit`, `--validity`), le rejet d'une tolerance LIM negative, et
+`lastMovementDate` optionnel dans `PositionSummary` (Bourso omet ce champ sur une
+ligne le jour ou elle bouge, avant reglement — le 2026-09-28 `trade summary` plantait
+sur les deux comptes apres la vente de LQQ du matin : `missing field lastMovementDate`).
 Deux remotes dans le submodule :
 
 | Remote | URL | Usage |
@@ -242,12 +245,24 @@ Le backtest ecrit `outputs/qqq_strategy/signal.json` :
 
 ## Frais et seuils
 
-- **Achat**: 0% (ETF gratuit sur Bourso PEA)
+- **Achat**: 0.5% (`BUY_FEE`) — les achats ne sont PAS gratuits (tarif Decouverte, constate le 2026-09-28 :
+  89.35 EUR preleves sur 17 869 EUR de PUST) ; **Vente**: 0.5% (`SELL_FEE`).
+- **Dimensionnement des achats** (`BUY_CASH_MARGIN`=3%) : Bourso reserve quantite x LIMITE (cours +3%) plus une
+  provision (~1.5% constatee, frais inclus) et refuse l'ordre au-dela du cash (`"solde especes insuffisant"`, code 5010).
+  Les achats sont donc plafonnes par `cash / (cours x 1.03 x 1.03)` — au pire ~6% du cash reste non deploye sur un
+  achat plein-cash (~1 point d'expo, negligeable devant la bande). Incident du 2026-09-28 : 173 PUST dimensionnes au
+  dernier cours (19 162 EUR reserves pour 18 676 EUR de cash) refuses, l'achat etait perdu (statut `error`, pas de
+  reprise) ; un refus 5010 est maintenant un achat **differe** (`pending_cash` : reprise horaire re-dimensionnee
+  sur l'etat frais, puis lendemain via `logs/pending_orders.json`).
 - **Bande de non-action asymetrique en EXPOSITION** (importee de `strategy.py`, meme calibrage que le backtest net `simulate_net(e_max=1.7)`) :
-  - **Achat** (gratuit) : seulement si exposition cible − reelle >= +0.50 (`BUY_THR_E` = 0.25 x 2)
+  - **Achat** (0.5%) : seulement si exposition cible − reelle >= +0.50 (`BUY_THR_E` = 0.25 x 2)
   - **Vente** (0.5%) : seulement si reelle − cible >= 1.00 (`SELL_THR_E` = 0.50 x 2) → on ne DE-lève que par grands pas
   - **Force cash** : un passage a 0% (garde-fous macro / emergency) liquide TOUJOURS (les deux ETF), meme sous le seuil de vente ; une premiere entree depuis le cash total s'execute meme sous le seuil d'achat.
-  - **Restructuration** (hors bande) : compte levier avec cash oisif >= 5% → composition drag-minimale a expo constante (cf. migration ci-dessus).
+  - **Restructuration** (hors bande) : compte levier avec cash oisif >= 5% → composition drag-minimale vers
+    `clip(cible, E_eff, E_eff + cash)` (plafond `E_MAX`) : si la cible est au-dessus, le cash seul remonte l'expo
+    (achat de PUST, aucune vente) ; du LQQ n'est vendu que si la cible est sous l'expo reelle (expo constante).
+    Couvre la migration "LQQ + cash" (cf. ci-dessus) et la reprise apres un achat refuse/partiel — l'ancienne
+    regle "expo constante" aurait revendu du LQQ le lendemain de l'incident du 2026-09-28 pour figer 133%.
 - **Garde-fou split** (par instrument, cles `PUST#slot` / `LQQ#slot`) : si le prix saute d'un facteur >= 1.5 (x ou /) vs la seance precedente (`logs/last_price.json`, maj a chaque run LIVE) = signature d'un split (ex: LQQ /200) ou d'une incoherence d'affichage broker -> **aucune position prise ce jour-la**, email d'alerte "SPLIT detecte", reprise a la seance suivante (reference = prix post-split). Evite d'acheter/vendre sur un prix fausse le jour du split.
 - **Type d'ordre** : LIMITE avec tolerance `LIMIT_TOLERANCE_PCT`=3% (limite = cours ±3%, achat +, vente -), ventes d'abord puis achats. Tampon le gap d'ouverture -> remplissage fiable tout en bornant le prix (un ordre limite pile au cours n'avait pas rempli le 07-07 quand le cours s'est ecarte).
 - **Emergency OFF**: creer `logs/emergency_off.json` avec `{"active": true}` pour forcer allocation a 0%

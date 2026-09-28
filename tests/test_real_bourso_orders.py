@@ -5,23 +5,27 @@ LIVE (real_bourso.compute_orders), qui doit rester alignee sur le backtest net d
 frais (strategy.simulate_net avec e_max=E_MAX) :
   - exposition cible E = min(2 . alloc, E_MAX), composition drag-minimale
     (E <= 1 : PUST + cash ; E > 1 : PUST = 2-E, LQQ = E-1, cash = 0)
-  - achat (gratuit) seulement si delta expo >= BUY_THR_E (0.50)
+  - achat (0.5%) seulement si delta expo >= BUY_THR_E (0.50)
   - vente (0.5%) seulement si delta expo <= -SELL_THR_E (1.00)
   - FORCE vers le cash (garde-fous macro / emergency, target=0) meme sous le seuil
   - FORCE depuis le cash total (premiere entree) meme sous le seuil d'achat
-  - restructuration a expo constante quand le compte est levier avec du cash oisif
-    (= migration immediate de l'ancienne realisation "LQQ + cash")
-  - ventes avant achats ; achats plafonnes par le cash (+ produit des ventes)
+  - restructuration vers clip(cible, E_eff, E_eff + cash) quand le compte est levier
+    avec du cash oisif (= migration immediate de l'ancienne realisation "LQQ + cash",
+    ou reprise apres un achat refuse : le cash seul remonte l'expo, sans vente)
+  - ventes avant achats ; achats plafonnes par le cash (+ produit des ventes) au prix
+    RESERVE par Bourso (limite +3% + provision BUY_CASH_MARGIN 3%, incident 2026-09-28)
 """
 
 import pytest
 
 from src.real_bourso import (
     compute_orders, exposure_after, detect_split, execute_order, target_exposure,
+    execute_plan, buy_reserve_price, is_cash_refusal,
     BUY_THR_ALLOC, SELL_THR_ALLOC, BUY_THR_E, SELL_THR_E, SPLIT_DETECT_FACTOR,
-    LIMIT_TOLERANCE_PCT, IDLE_CASH_TOL,
+    LIMIT_TOLERANCE_PCT, IDLE_CASH_TOL, BUY_CASH_MARGIN,
 )
-from src.risk_off_strategy.strategy import E_MAX, composition, simulate_net
+from src.risk_off_strategy.strategy import E_MAX, BUY_FEE, composition, simulate_net
+import src.real_bourso as rb
 
 PP, PL = 100.0, 10.0      # prix PUST / LQQ
 
@@ -75,12 +79,14 @@ def test_buy_below_band_ignored():
 
 
 def test_buy_above_band_executes_into_composition():
-    # E=0.6, cible 1.2 -> +0.60 >= 0.50 : composition PUST 80% + LQQ 20%, cash 0
+    # E=0.6, cible 1.2 -> +0.60 >= 0.50 : composition PUST 80% + LQQ 20%, cash ~0.
+    # Le dernier bras (LQQ) est plafonne par le cash au prix reserve (limite + marge) :
+    # (40000 - 20000 x 1.005) / (10 x 1.0609) = 1875 parts, pas 2000.
     st = _state(pust=600, cash=40000)
     plan = compute_orders(1.2, st)
     assert plan["mode"] == "buy_band"
-    assert _orders(plan) == [("PUST", "buy", 200), ("LQQ", "buy", 2000)]
-    assert _apply(plan, st) == pytest.approx(1.2, abs=0.01)
+    assert _orders(plan) == [("PUST", "buy", 200), ("LQQ", "buy", 1875)]
+    assert 1.2 - 0.03 <= _apply(plan, st) <= 1.2
 
 
 def test_sell_below_band_ignored():
@@ -136,8 +142,10 @@ def test_legacy_lqq_cash_is_restructured_at_constant_exposure():
     sells = [o for o in plan["orders"] if o["side"] == "sell"]
     buys = [o for o in plan["orders"] if o["side"] == "buy"]
     assert sells[0]["instrument"] == "LQQ" and buys[0]["instrument"] == "PUST"
-    # expo inchangee (1.66 <= E_MAX), plus de cash oisif
-    assert _apply(plan, st) == pytest.approx(1.66, abs=0.01)
+    # cible (1.57) sous E_eff (1.66) -> expo constante 1.66, plus de cash oisif
+    # (a la marge de cash / aux frais pres : ~2 points sous la cible)
+    assert plan["e_new"] == pytest.approx(1.66, abs=0.01)
+    assert 1.66 - 0.03 <= _apply(plan, st) <= 1.66
     assert plan["target_weights"]["cash"] == 0.0
 
 
@@ -146,7 +154,72 @@ def test_restructure_capped_at_e_max():
     st = _state(lqq=9000, cash=10000)
     plan = compute_orders(1.7, st)
     assert plan["mode"] == "restructure"
-    assert _apply(plan, st) == pytest.approx(E_MAX, abs=0.01)
+    assert plan["e_new"] == pytest.approx(E_MAX)
+    assert E_MAX - 0.03 <= _apply(plan, st) <= E_MAX
+
+
+def test_restructure_deploys_idle_cash_without_selling_when_target_above():
+    """Incident 2026-09-28 : vente LQQ passee, achat PUST refuse -> LQQ 67% + cash 33%
+    (E=1.33), cible 1.68 dans la bande (+0.34 < 0.50). L'ancienne regle 'expo constante'
+    aurait REVENDU du LQQ pour figer 1.33 ; on doit au contraire remonter avec le cash
+    seul : clip(1.68, 1.33, 1.33 + 0.33) = 1.66, achat de PUST, aucune vente."""
+    st = _state(lqq=6700, cash=33000)
+    plan = compute_orders(1.68, st)
+    assert plan["mode"] == "restructure"
+    assert all(o["side"] == "buy" and o["instrument"] == "PUST" for o in plan["orders"])
+    assert plan["e_new"] == pytest.approx(1.34 + 0.33, abs=0.01)
+    assert 1.67 - 0.03 <= _apply(plan, st) <= 1.67
+
+
+def test_restructure_keeps_exposure_when_target_below():
+    # LQQ 67% + cash 33% (E=1.34), cible 1.2 (delta -0.14, pas de vente de bande)
+    # -> composition a expo constante 1.34 : vente de LQQ, achat de PUST
+    st = _state(lqq=6700, cash=33000)
+    plan = compute_orders(1.2, st)
+    assert plan["mode"] == "restructure"
+    assert plan["e_new"] == pytest.approx(1.34, abs=0.01)
+    assert [o["instrument"] for o in plan["orders"] if o["side"] == "sell"] == ["LQQ"]
+
+
+# ── marge de cash des achats + frais (incident 2026-09-28) ─────────
+def test_buy_reserve_price_is_limit_plus_margin():
+    assert BUY_CASH_MARGIN == 0.03
+    assert buy_reserve_price(100.0) == pytest.approx(100 * 1.03 * 1.03)
+
+
+def test_full_cash_buy_is_capped_at_reserve_price():
+    # entree depuis le cash total a 100% : 100000 / (100 x 1.0609) = 942 parts, pas 1000
+    plan = compute_orders(1.0, _state(cash=100000))
+    assert _orders(plan) == [("PUST", "buy", 942)]
+    o = plan["orders"][0]
+    assert o["fee"] == pytest.approx(o["value"] * BUY_FEE)     # achats a 0.5%, pas gratuits
+
+
+def test_is_cash_refusal():
+    assert is_cash_refusal('{"error":{"code":5010,"message":"Le solde esp\\u00e8ces est insuffisant"}}')
+    assert is_cash_refusal("Solde especes insuffisant")
+    assert not is_cash_refusal("Failed to login")
+    assert not is_cash_refusal(None)
+
+
+def test_execute_plan_cash_refusal_becomes_pending(monkeypatch):
+    """Un refus Bourso 'solde especes insuffisant' n'est pas une erreur definitive :
+    l'achat passe en pending_cash (reprise horaire / lendemain, re-dimensionne)."""
+    from types import SimpleNamespace
+    calls = []
+
+    def fake_order(instrument, side, quantity, dry_run=True, account=None, **kw):
+        calls.append((instrument, side, quantity))
+        return {"status": "error", "error": 'Error: {"error":{"code":5010,"message":"insuffisant"}}'}
+
+    monkeypatch.setattr(rb, "execute_order", fake_order)
+    monkeypatch.setattr(rb, "INITIAL_WAIT", 0)
+    st = _state(cash=100000)
+    plan = compute_orders(1.0, st)
+    pending = execute_plan(plan, st, SimpleNamespace(label="compte test", slot=9), execute=True)
+    assert pending is True
+    assert plan["orders"][0]["status"] == "pending_cash"
+    assert calls == [("PUST", "buy", 942)]
 
 
 def test_no_restructure_when_cash_is_residual():
