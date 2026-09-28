@@ -1741,3 +1741,95 @@ Email envoye a nathdescamps59@gmail.com: [MyQTM] LIVE PEA DESCAMPS — alloc 82%
   Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
 
 Termine.
+[INFO] TRADE_INSTRUMENT ignore : realisation PUST+LQQ, plafond d'expo x1.7
+============================================================
+PEA PUST+LQQ (PUST x1 + LQQ x2, plafond d'expo x1.7) — 2026-09-28
+Mode: LIVE
+Comptes geres: slot 1, slot 2
+============================================================
+Signal du 2026-09-25 (status=ok, age: 37.0h)
+  Probabilite: 0.8384
+  Allocation:  84%  ->  exposition cible 168% (plafond x1.7)
+  RSI14 QQQ:   64.7
+
+------------------------------------------------------------
+  COMPTE 1 (PEA DESCAMPS)
+------------------------------------------------------------
+
+PEA DESCAMPS (compte 1):
+  Especes:     9364.36 EUR
+  Titres:     46794.51 EUR
+  Total:      56158.87 EUR
+  PUST       0 parts @ 107.540 EUR =         0 EUR (Nasdaq x1)
+  LQQ     4585 parts @ 10.206 EUR =     46795 EUR (Nasdaq x2 (leverage))
+  Exposition reelle: 167%
+
+Exposition (equity geree 56159 EUR):
+  Reelle:  166.7%  (PUST 0% | LQQ 83% | cash 17%)
+  Cible:   167.7%
+  Delta:   +1.0%
+
+Decision: restructuration a expo constante 167% (cash oisif 17%) : VENTE 917 LQQ (9359 EUR, frais ~47 EUR) ; ACHAT 173 PUST (18604 EUR)
+  [EXECUTE] VENTE 917x LQQ (limite ±3.0%) — compte 1 (PEA DESCAMPS)
+  [OK] INFO bourso_cli: Welcome to BoursoBank CLI 👋
+ INFO bourso_cli: ℹ️ - Version 0.5.4. Make sure you're running the latest version: https://github.com/azerpas/bourso-api
+ INFO bourso_cli: We'll try to log you in with your customer id: 70967054
+ INFO bourso_cli: If you want to change it, run `bourso config --username <customer_id>`
+ INFO bourso_cli: We'll need your password to log you in. It will not be stored anywhere and will be asked everytime you run a command. The password will be hidden while typing.
+ INFO bourso_api::client: 🔓 You are now logged in with user: 2fd785cade53ab8
+ INFO bourso_cli: Login successful ✅
+ INFO bourso_api::client::trade::order: Order for 917 1rTLQQ (Limit) successfully passed with ID F26I28003554 at price Some(9.9018) ✅
+[RETRY] Attente credit ventes compte 1 (PEA DESCAMPS): tentative 1/5 echouee: ventes non encore creditees (cash 9364 EUR, +0 / attendu +9312 EUR)
+  Prochaine tentative dans 60s...
+  [EXECUTE] ACHAT 173x PUST (limite ±3.0%) — compte 1 (PEA DESCAMPS)
+  [ERREUR] bourso-cli code 1: INFO bourso_cli: Welcome to BoursoBank CLI 👋
+ INFO bourso_cli: ℹ️ - Version 0.5.4. Make sure you're running the latest version: https://github.com/azerpas/bourso-api
+ INFO bourso_cli: We'll try to log you in with your customer id: 70967054
+ INFO bourso_cli: If you want to change it, run `bourso config --username <customer_id>`
+ INFO bourso_cli: We'll need your password to log you in. It will not be stored anywhere and will be asked everytime you run a command. The password will be hidden while typing.
+ INFO bourso_api::client: 🔓 You are now logged in with user: 2fd785cade53ab8
+ INFO bourso_cli: Login successful ✅
+Error: Failed to get order check response: {"error":{"code":5010,"message":"Le solde esp\u00e8ces est insuffisant sur ce compte pour que votre ordre soit accept\u00e9. Nous vous invitons \u00e0 alimenter votre compte ou \u00e0 s\u00e9lectionner un compte suffisamment aliment\u00e9.","params":{"balance_type":"esp\u00e8ces","order_type":"ordre"},"type":"Wbs_Api_Error"},"data":{"actionMessage":{"id":"00197eacb98b4d88acfafedc905f54f487ccd8f37c64722792a818ebd8f53943","type":"ERROR","detail":null,"title":"Solde esp\u00e8ces insuffisant","body":"Le solde esp\u00e8ces est insuffisant sur ce compte pour que votre ordre soit accept\u00e9. Nous vous invitons \u00e0 alimenter votre compte.","params":null,"category":"custom","actions":[],"flags":[],"targets":[],"visualId":null,"visualTheme":"primary","medias":[]}}}
+Email envoye a descamps.gregory@gmail.com: [MyQTM] LIVE PEA DESCAMPS — expo 168% — ORDRE EN ERREUR VENTE 917x LQQ + ACHAT 173x PUST
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+------------------------------------------------------------
+  COMPTE 2 (PEA DESCAMPS)
+------------------------------------------------------------
+
+PEA DESCAMPS (compte 2):
+  Especes:      633.71 EUR
+  Titres:      2359.43 EUR
+  Total:       2993.14 EUR
+  PUST       0 parts @ 107.040 EUR =         0 EUR (Nasdaq x1)
+  LQQ      231 parts @ 10.214 EUR =      2359 EUR (Nasdaq x2 (leverage))
+  Exposition reelle: 158%
+
+Exposition (equity geree 2993 EUR):
+  Reelle:  157.7%  (PUST 0% | LQQ 79% | cash 21%)
+  Cible:   167.7%
+  Delta:   +10.0%
+
+Decision: restructuration a expo constante 158% (cash oisif 21%) : VENTE 62 LQQ (633 EUR, frais ~3 EUR) ; ACHAT 11 PUST (1177 EUR)
+  [EXECUTE] VENTE 62x LQQ (limite ±3.0%) — compte 2 (PEA DESCAMPS)
+  [OK] INFO bourso_cli: Welcome to BoursoBank CLI 👋
+ INFO bourso_cli: ℹ️ - Version 0.5.4. Make sure you're running the latest version: https://github.com/azerpas/bourso-api
+ INFO bourso_cli: We'll try to log you in with your customer id: 70974800
+ INFO bourso_cli: If you want to change it, run `bourso config --username <customer_id>`
+ INFO bourso_cli: We'll need your password to log you in. It will not be stored anywhere and will be asked everytime you run a command. The password will be hidden while typing.
+ INFO bourso_api::client: 🔓 You are now logged in with user: 8c8193cd184aed1
+ INFO bourso_cli: Login successful ✅
+ INFO bourso_api::client::trade::order: Order for 62 1rTLQQ (Limit) successfully passed with ID F26I28003794 at price Some(9.9076) ✅
+  [EXECUTE] ACHAT 11x PUST (limite ±3.0%) — compte 2 (PEA DESCAMPS)
+  [OK] INFO bourso_cli: Welcome to BoursoBank CLI 👋
+ INFO bourso_cli: ℹ️ - Version 0.5.4. Make sure you're running the latest version: https://github.com/azerpas/bourso-api
+ INFO bourso_cli: We'll try to log you in with your customer id: 70974800
+ INFO bourso_cli: If you want to change it, run `bourso config --username <customer_id>`
+ INFO bourso_cli: We'll need your password to log you in. It will not be stored anywhere and will be asked everytime you run a command. The password will be hidden while typing.
+ INFO bourso_api::client: 🔓 You are now logged in with user: 8c8193cd184aed1
+ INFO bourso_cli: Login successful ✅
+ INFO bourso_api::client::trade::order: Order for 11 1rTPUST (Limit) successfully passed with ID F26I28003825 at price Some(110.2306) ✅
+Email envoye a nathdescamps59@gmail.com: [MyQTM] LIVE PEA DESCAMPS — expo 168% — VENTE 62x LQQ + ACHAT 11x PUST
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.

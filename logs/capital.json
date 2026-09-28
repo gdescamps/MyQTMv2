@@ -1,0 +1,16 @@
+{
+  "1": {
+    "expected_cash": 807.47,
+    "as_of": "2026-09-28",
+    "traded_notional": 17869.0,
+    "deposits": [],
+    "dca": null
+  },
+  "2": {
+    "expected_cash": 86.37,
+    "as_of": "2026-09-28",
+    "traded_notional": 1810.71,
+    "deposits": [],
+    "dca": null
+  }
+}
