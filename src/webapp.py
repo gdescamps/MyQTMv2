@@ -273,6 +273,16 @@ def row_view(t):
             "reserved": float(t.get("reserved") or 0)}
 
 
+def order_cash_flow(o):
+    """Flux de cash d'un ordre abouti : vente creditee nette de 0.5%, achat debite + 0.5%."""
+    amt = o["quantity"] * o["price"]
+    if o["side"] == "sell":
+        return amt * (1 - SELL_FEE)
+    if o["side"] == "buy":
+        return -amt * (1 + BUY_FEE)
+    return 0.0
+
+
 def positions_after(view):
     """Positions apres les ordres du jour qui ont abouti (LIVE seulement)."""
     pos = {k: dict(v) for k, v in view["positions"].items()}
@@ -282,9 +292,10 @@ def positions_after(view):
             continue
         p = pos.setdefault(o["instrument"], {"shares": 0, "price": o["price"]})
         if o["side"] == "buy":
-            p["shares"] += o["quantity"]; cash -= o["quantity"] * o["price"]
+            p["shares"] += o["quantity"]
         elif o["side"] == "sell":
-            p["shares"] -= o["quantity"]; cash += o["quantity"] * o["price"] * (1 - SELL_FEE)
+            p["shares"] -= o["quantity"]
+        cash += order_cash_flow(o)
     return pos, cash
 
 
@@ -329,7 +340,8 @@ def compute_portfolio_history(trades):
     return history
 
 
-SELL_FEE = 0.005  # 0.5% sur les ventes (achats gratuits) — cf. real_bourso.py
+SELL_FEE = 0.005  # 0.5% sur les ventes — cf. strategy.py / real_bourso.py
+BUY_FEE = 0.005   # 0.5% sur les achats aussi (tarif Decouverte, constate le 2026-09-28)
 
 
 def compute_real_performance(trades):
@@ -346,10 +358,18 @@ def compute_real_performance(trades):
     raw = [t for t in trades
            if t.get("equity", 0) > 0 and t.get("date") and not _is_connection_error(t)
            and (t.get("executed") or t.get("side") is None)]
-    # Un seul point faisant foi par date (la dernière lecture l'emporte)
-    by_date = {}
+    # Un seul point faisant foi par date (la dernière lecture l'emporte). Quand la journée
+    # compte plusieurs lectures (reprise horaire, rattrapage manuel, relance), le cash de
+    # la dernière est DÉJÀ net des ordres exécutés par les lectures précédentes : on les
+    # garde à part (`earlier`) pour les ajouter au cash attendu du jour, sinon ils sont lus
+    # comme un retrait externe puis comme un gain (2026-09-28 : -8646 EUR de « retrait »
+    # et +13.6% de « gain » sur le compte 1 après la migration PUST+LQQ en 3 lectures).
+    by_date, earlier = {}, {}
     for t in raw:
-        by_date[t["date"]] = row_view(t)
+        d = t["date"]
+        if d in by_date:
+            earlier[d] = earlier.get(d, []) + [o for o in by_date[d]["orders"] if o["done"]]
+        by_date[d] = row_view(t)
     points = [by_date[d] for d in sorted(by_date)]
     if len(points) < 2:
         return [], {}
@@ -362,11 +382,14 @@ def compute_real_performance(trades):
     prev = points[0]
     for t in points[1:]:
         equity = t["equity"]
-        # Cash attendu = cash de la veille apres les flux de ses ordres executes
+        # Cash attendu = cash de la veille apres les flux de ses ordres executes, plus les
+        # ordres executes plus tot dans la journee par des lectures precedentes
         _, expected_cash = positions_after(prev)
+        same_day = earlier.get(t["date"], [])
+        expected_cash += sum(order_cash_flow(o) for o in same_day)
         # Écart cash inexpliqué = apport/retrait externe. Bruit = prix de remplissage
         # des ordres limites (±3%) : seuil 5% du notionnel traite, plancher 5 EUR.
-        traded = sum(o["quantity"] * o["price"] for o in prev["orders"] if o["done"])
+        traded = sum(o["quantity"] * o["price"] for o in prev["orders"] + same_day if o["done"])
         deposit = t["cash"] - expected_cash
         if abs(deposit) < max(5.0, 0.05 * traded):
             deposit = 0.0
