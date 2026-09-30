@@ -137,6 +137,14 @@ SELL_CREDIT_MIN_FRAC = 0.90
 # non deploye sur un achat plein-cash, soit ~1 point d'expo, negligeable devant la bande.
 BUY_CASH_MARGIN = 0.03
 
+# Montant MINIMUM d'un achat chez Bourso : 200 EUR (code 5110, "Le montant minimum pour
+# un achat est de 200.0 euros", constate le 2026-09-28 sur 1 PUST a 110 EUR). Une jambe
+# d'achat dont la valeur (quantite x cours) est sous ce plancher n'est PAS envoyee : le
+# cash reste sur le compte (il sera deploye avec le prochain achat, quand l'ecart a la
+# cible / la tranche DCA cumulee depassera 200 EUR). Aucun plancher n'est applique aux
+# ventes (non constate).
+MIN_BUY_EUR = 200.0
+
 
 def buy_reserve_price(price, tolerance=LIMIT_TOLERANCE_PCT, margin=BUY_CASH_MARGIN):
     """Cash a prevoir par part achetee : limite (+tolerance%) + provision Bourso (marge)."""
@@ -147,6 +155,12 @@ def is_cash_refusal(msg):
     """Refus Bourso 'solde especes insuffisant' (code 5010) sur un ordre d'achat."""
     m = (msg or "").lower()
     return "5010" in m or "insuffisant" in m
+
+
+def is_min_amount_refusal(msg):
+    """Refus Bourso 'montant minimum pour un achat' (code 5110, 200 EUR)."""
+    m = (msg or "").lower()
+    return "5110" in m or "montant minimum" in m
 
 
 def retry(fn, label="", hourly_until=None):
@@ -397,18 +411,26 @@ def compute_orders(target_e, state, reserved=0.0, force_buy=False, buys_only=Fal
                                "value": q * px[ins], "fee": q * px[ins] * SELL_FEE})
     proceeds = sum(o["value"] * (1 - SELL_FEE) for o in orders)
     avail = cash + proceeds
+    below_min = []
     if mode != "to_cash":
         for ins in ("PUST", "LQQ"):                       # achats : base PUST, puis LQQ
             d = tgt[ins] - val[ins]
             if d > px[ins]:
                 # plafond de cash au prix RESERVE par Bourso (limite + provision), pas au cours
                 q = min(int(d / px[ins] + 1e-9), int(avail / buy_reserve_price(px[ins]) + 1e-9))
+                if q > 0 and q * px[ins] < MIN_BUY_EUR:
+                    # sous le minimum Bourso (200 EUR) : pas d'ordre, le cash reste en attente
+                    below_min.append(f"{q} {ins} ({q * px[ins]:.0f} EUR)")
+                    print(f"  [INFO] achat {q} {ins} = {q * px[ins]:.0f} EUR < minimum "
+                          f"{MIN_BUY_EUR:.0f} EUR : conserve en cash")
+                    q = 0
                 if q > 0:
                     orders.append({"instrument": ins, "side": "buy", "quantity": q, "price": px[ins],
                                    "value": q * px[ins], "fee": q * px[ins] * BUY_FEE})
                     avail -= q * px[ins] * (1 + BUY_FEE)
     plan["orders"] = orders
     plan["cash_avail"] = cash + proceeds
+    plan["below_min"] = below_min
 
     labels = {"to_cash": "passage en cash (force)", "from_cash": "entree depuis le cash (force)",
               "buy_band": f"achat (delta +{delta*100:.1f}% >= {BUY_THR_E*100:.0f}%)",
@@ -416,11 +438,13 @@ def compute_orders(target_e, state, reserved=0.0, force_buy=False, buys_only=Fal
               "force_buy": f"achat sans bande (delta +{delta*100:.1f}%)",
               "restructure": f"restructuration vers expo {e_new*100:.0f}% (cash oisif {w['cash']*100:.0f}%, "
                              f"cible {target_e*100:.0f}%)"}
+    min_txt = (f" ; achat sous le minimum {MIN_BUY_EUR:.0f} EUR conserve en cash : "
+               + ", ".join(below_min)) if below_min else ""
     if not orders:
-        plan["reason"] = f"{labels[mode]} : rien a faire (marge d'1 part / cash insuffisant)"
+        plan["reason"] = f"{labels[mode]} : rien a faire (marge d'1 part / cash insuffisant){min_txt}"
         plan["mode"] = None
         return plan
-    plan["reason"] = labels[mode] + " : " + " ; ".join(describe_order(o) for o in orders)
+    plan["reason"] = labels[mode] + " : " + " ; ".join(describe_order(o) for o in orders) + min_txt
     return plan
 
 
@@ -558,6 +582,12 @@ def execute_plan(plan, state, account, execute):
             o["error"] = "cash insuffisant"
             print(f"  [SKIP] {describe_order(o)} : cash insuffisant ({cash_avail:.0f} EUR)")
             continue
+        if q * o["price"] < MIN_BUY_EUR:
+            # reduit par le cash sous le minimum Bourso (200 EUR) : on n'envoie pas, cash conserve
+            o["status"] = "skipped"
+            o["error"] = f"montant {q * o['price']:.0f} EUR < minimum {MIN_BUY_EUR:.0f} EUR (conserve en cash)"
+            print(f"  [SKIP] {describe_order(o)} : {o['error']}")
+            continue
         if q < o["quantity"]:
             print(f"  [INFO] achat {o['instrument']} reduit {o['quantity']} -> {q} parts (cash {cash_avail:.0f} EUR)")
             o["executed_quantity"] = q
@@ -574,6 +604,12 @@ def execute_plan(plan, state, account, execute):
             pending = True
             print(f"  [ATTENTE] {describe_order(o)} : refus Bourso 'solde especes insuffisant' "
                   f"-> achat differe (re-dimensionne a la prochaine tentative)")
+        elif o["status"] == "error" and is_min_amount_refusal(o.get("error")):
+            # Refus 5110 'montant minimum 200 EUR' (cours bouge sous le plancher entre le
+            # dimensionnement et l'envoi) : pas une erreur, le cash reste sur le compte.
+            o["status"] = "skipped"
+            print(f"  [SKIP] {describe_order(o)} : refus Bourso 'montant minimum {MIN_BUY_EUR:.0f} EUR' "
+                  f"-> conserve en cash")
     return pending
 
 

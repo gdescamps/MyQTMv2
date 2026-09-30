@@ -254,6 +254,12 @@ Le backtest ecrit `outputs/qqq_strategy/signal.json` :
   dernier cours (19 162 EUR reserves pour 18 676 EUR de cash) refuses, l'achat etait perdu (statut `error`, pas de
   reprise) ; un refus 5010 est maintenant un achat **differe** (`pending_cash` : reprise horaire re-dimensionnee
   sur l'etat frais, puis lendemain via `logs/pending_orders.json`).
+- **Montant minimum d'achat** (`MIN_BUY_EUR`=200 EUR) : Bourso refuse tout achat sous 200 EUR (code 5110,
+  `"Le montant minimum pour un achat est de 200.0 euros"`, constate le 2026-09-28 sur 1 PUST a 110 EUR). Une jambe
+  d'achat sous ce plancher (au dimensionnement dans `compute_orders`, ou apres plafonnement par le cash reel dans
+  `execute_plan`) n'est **pas envoyee** : statut `skipped`, le cash **reste sur le compte** et sera deploye avec le
+  prochain achat (ecart a la cible ou tranches DCA cumulees >= 200 EUR). Un refus 5110 recu malgre tout (cours bouge)
+  est aussi `skipped`, pas `error`. Aucun plancher n'est applique aux ventes (non constate).
 - **Bande de non-action asymetrique en EXPOSITION** (importee de `strategy.py`, meme calibrage que le backtest net `simulate_net(e_max=1.7)`) :
   - **Achat** (0.5%) : seulement si exposition cible − reelle >= +0.50 (`BUY_THR_E` = 0.25 x 2)
   - **Vente** (0.5%) : seulement si reelle − cible >= 1.00 (`SELL_THR_E` = 0.50 x 2) → on ne DE-lève que par grands pas

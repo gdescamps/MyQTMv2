@@ -20,9 +20,9 @@ import pytest
 
 from src.real_bourso import (
     compute_orders, exposure_after, detect_split, execute_order, target_exposure,
-    execute_plan, buy_reserve_price, is_cash_refusal,
+    execute_plan, buy_reserve_price, is_cash_refusal, is_min_amount_refusal,
     BUY_THR_ALLOC, SELL_THR_ALLOC, BUY_THR_E, SELL_THR_E, SPLIT_DETECT_FACTOR,
-    LIMIT_TOLERANCE_PCT, IDLE_CASH_TOL, BUY_CASH_MARGIN,
+    LIMIT_TOLERANCE_PCT, IDLE_CASH_TOL, BUY_CASH_MARGIN, MIN_BUY_EUR,
 )
 from src.risk_off_strategy.strategy import E_MAX, BUY_FEE, composition, simulate_net
 import src.real_bourso as rb
@@ -220,6 +220,82 @@ def test_execute_plan_cash_refusal_becomes_pending(monkeypatch):
     assert pending is True
     assert plan["orders"][0]["status"] == "pending_cash"
     assert calls == [("PUST", "buy", 942)]
+
+
+# ── montant minimum d'achat Bourso (200 EUR, code 5110) ────────────
+def test_min_buy_amount_is_200():
+    assert MIN_BUY_EUR == 200.0
+
+
+def test_buy_below_min_amount_is_left_in_cash():
+    """Tranche DCA de 150 EUR liberee : l'achat LQQ vaudrait 100 EUR < 200 -> aucun
+    ordre, le cash reste sur le compte (il sera deploye avec la tranche suivante)."""
+    st = _state(pust=300, lqq=7000, cash=20000)
+    plan = compute_orders(1.7, st, reserved=19850, force_buy=True)
+    assert plan["orders"] == [] and plan["mode"] is None
+    assert plan["below_min"] == ["10 LQQ (100 EUR)"]
+    assert "minimum 200 EUR" in plan["reason"]
+
+
+def test_buy_at_or_above_min_amount_is_sent():
+    # tranche de 300 EUR : 21 LQQ = 210 EUR >= 200 -> ordre envoye
+    st = _state(pust=300, lqq=7000, cash=20000)
+    plan = compute_orders(1.7, st, reserved=19700, force_buy=True)
+    assert _orders(plan) == [("LQQ", "buy", 21)]
+    assert plan["below_min"] == []
+
+
+def test_only_the_small_leg_is_dropped():
+    """Composition a deux jambes : la jambe PUST (>= 200 EUR) part, la jambe LQQ
+    residuelle (< 200 EUR) est conservee en cash — pas d'annulation en cascade."""
+    # V = 100100, cible 1.7 : PUST 30030 (d=+1030 -> 10 parts = 1000 EUR, cash restant
+    # 95 EUR), LQQ 70070 (d=+70 -> 7 parts = 70 EUR < 200 : conserve en cash).
+    st = _state(pust=290, lqq=7000, cash=1100)
+    plan = compute_orders(1.7, st, force_buy=True)
+    assert _orders(plan) == [("PUST", "buy", 10)]
+    assert plan["below_min"] == ["7 LQQ (70 EUR)"]
+
+
+def test_execute_plan_buy_reduced_below_min_is_skipped(monkeypatch):
+    """Achat plafonne par le cash reel a 1 PUST (100 EUR) : pas envoye (statut skipped,
+    cash conserve), aucun appel a bourso-cli, rien en attente."""
+    from types import SimpleNamespace
+    calls = []
+
+    def fake_order(instrument, side, quantity, dry_run=True, account=None, **kw):
+        calls.append((instrument, side, quantity))
+        return {"status": "executed"}
+
+    monkeypatch.setattr(rb, "execute_order", fake_order)
+    plan = compute_orders(1.0, _state(cash=100000))          # 942 PUST planifies
+    st = _state(cash=150)                                     # mais 150 EUR reellement dispo
+    pending = execute_plan(plan, st, SimpleNamespace(label="compte test", slot=9), execute=True)
+    assert pending is False and calls == []
+    o = plan["orders"][0]
+    assert o["status"] == "skipped" and "minimum 200 EUR" in o["error"]
+
+
+def test_is_min_amount_refusal():
+    assert is_min_amount_refusal('{"error":{"code":5110,"message":"Le montant minimum pour un achat est de 200.0 euros."}}')
+    assert not is_min_amount_refusal('{"error":{"code":5010,"message":"insuffisant"}}')
+    assert not is_min_amount_refusal(None)
+
+
+def test_execute_plan_min_amount_refusal_is_skipped_not_error(monkeypatch):
+    """Refus 5110 renvoye par Bourso malgre le dimensionnement (cours bouge) : la jambe
+    passe en skipped (pas error, pas pending_cash) — le cash reste sur le compte."""
+    from types import SimpleNamespace
+
+    def fake_order(instrument, side, quantity, dry_run=True, account=None, **kw):
+        return {"status": "error", "error": 'Error: {"error":{"code":5110,"message":"Le montant minimum pour un achat est de 200.0 euros."}}'}
+
+    monkeypatch.setattr(rb, "execute_order", fake_order)
+    monkeypatch.setattr(rb, "INITIAL_WAIT", 0)
+    st = _state(cash=100000)
+    plan = compute_orders(1.0, st)
+    pending = execute_plan(plan, st, SimpleNamespace(label="compte test", slot=9), execute=True)
+    assert pending is False
+    assert plan["orders"][0]["status"] == "skipped"
 
 
 def test_no_restructure_when_cash_is_residual():
