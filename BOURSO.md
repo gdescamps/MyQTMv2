@@ -12,12 +12,15 @@ mais n'est pas cablee au CLI. Or `src/bourso/prepare.py` (recap du soir + execut
 du matin) en a besoin. On maintient donc un **fork** avec un patch minimal.
 
 Le submodule `external/bourso-api` pointe sur le fork, branche **`myqtm`** =
-tag upstream (actuellement **v0.5.4**) + 5 commits maison : `trade summary` CLI,
+tag upstream (actuellement **v0.5.4**) + 6 commits maison : `trade summary` CLI,
 `realGL` en f64, les options d'ordre (`--order-type ATP|LIM`, `--tolerance`,
-`--limit`, `--validity`), le rejet d'une tolerance LIM negative, et
+`--limit`, `--validity`), le rejet d'une tolerance LIM negative,
 `lastMovementDate` optionnel dans `PositionSummary` (Bourso omet ce champ sur une
 ligne le jour ou elle bouge, avant reglement — le 2026-09-28 `trade summary` plantait
-sur les deux comptes apres la vente de LQQ du matin : `missing field lastMovementDate`).
+sur les deux comptes apres la vente de LQQ du matin : `missing field lastMovementDate`),
+et les champs `account.details` de la reponse `order/prepare` en `Option` (un PEA neuf
+jamais alimente/traite, `extendedType: YOUNG_PEA`, les renvoie tous `null` — le 2026-09-30
+`trade order new` plantait sur le compte 3 : `invalid type: null, expected a string`).
 Deux remotes dans le submodule :
 
 | Remote | URL | Usage |
@@ -259,7 +262,10 @@ Le backtest ecrit `outputs/qqq_strategy/signal.json` :
   d'achat sous ce plancher (au dimensionnement dans `compute_orders`, ou apres plafonnement par le cash reel dans
   `execute_plan`) n'est **pas envoyee** : statut `skipped`, le cash **reste sur le compte** et sera deploye avec le
   prochain achat (ecart a la cible ou tranches DCA cumulees >= 200 EUR). Un refus 5110 recu malgre tout (cours bouge)
-  est aussi `skipped`, pas `error`. Aucun plancher n'est applique aux ventes (non constate).
+  est aussi `skipped`, pas `error`. Aucun plancher n'est applique aux ventes (non constate). Corollaire pour les
+  **petits comptes** : une `restructure` dont aucun achat n'est possible (jambe PUST < 1 part ou < 200 EUR) n'envoie
+  pas non plus ses ventes — vendre du LQQ sans racheter du PUST baisserait l'exposition hors bande (ex. 300 EUR en
+  24 LQQ + 54 EUR de cash : la composition est conservee).
 - **Bande de non-action asymetrique en EXPOSITION** (importee de `strategy.py`, meme calibrage que le backtest net `simulate_net(e_max=1.7)`) :
   - **Achat** (0.5%) : seulement si exposition cible − reelle >= +0.50 (`BUY_THR_E` = 0.25 x 2)
   - **Vente** (0.5%) : seulement si reelle − cible >= 1.00 (`SELL_THR_E` = 0.50 x 2) → on ne DE-lève que par grands pas
