@@ -1,15 +1,15 @@
 {
   "1": {
-    "expected_cash": 807.47,
-    "as_of": "2026-09-28",
-    "traded_notional": 17869.0,
+    "expected_cash": 715.86,
+    "as_of": "2026-09-30",
+    "traded_notional": 0.0,
     "deposits": [],
     "dca": null
   },
   "2": {
-    "expected_cash": 86.37,
-    "as_of": "2026-09-28",
-    "traded_notional": 1810.71,
+    "expected_cash": 79.43,
+    "as_of": "2026-09-30",
+    "traded_notional": 0.0,
     "deposits": [],
     "dca": null
   }

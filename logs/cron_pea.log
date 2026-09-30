@@ -1833,3 +1833,111 @@ Email envoye a nathdescamps59@gmail.com: [MyQTM] LIVE PEA DESCAMPS — expo 168%
   Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
 
 Termine.
+[INFO] TRADE_INSTRUMENT ignore : realisation PUST+LQQ, plafond d'expo x1.7
+============================================================
+PEA PUST+LQQ (PUST x1 + LQQ x2, plafond d'expo x1.7) — 2026-09-29
+Mode: LIVE
+Comptes geres: slot 1, slot 2
+============================================================
+Signal du 2026-09-28 (status=ok, age: 10.6h)
+  Probabilite: 0.9515
+  Allocation:  95%  ->  exposition cible 170% (plafond x1.7)
+  RSI14 QQQ:   58.5
+
+------------------------------------------------------------
+  COMPTE 1 (PEA DESCAMPS)
+------------------------------------------------------------
+
+PEA DESCAMPS (compte 1):
+  Especes:      715.86 EUR
+  Titres:     55184.55 EUR
+  Total:      55900.41 EUR
+  PUST     167 parts @ 106.940 EUR =     17859 EUR (Nasdaq x1)
+  LQQ     3668 parts @ 10.176 EUR =     37326 EUR (Nasdaq x2 (leverage))
+  Exposition reelle: 165%
+
+Exposition (equity geree 55900 EUR):
+  Reelle:  165.5%  (PUST 32% | LQQ 67% | cash 1%)
+  Cible:   170.0%
+  Delta:   +4.5%
+
+Decision: Achat ignore: delta +4.5% < seuil 50%
+Email envoye a descamps.gregory@gmail.com: [MyQTM] LIVE PEA DESCAMPS — expo 170% — aucun changement
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+------------------------------------------------------------
+  COMPTE 2 (PEA DESCAMPS)
+------------------------------------------------------------
+
+PEA DESCAMPS (compte 2):
+  Especes:       79.43 EUR
+  Titres:      2896.08 EUR
+  Total:       2975.51 EUR
+  PUST      11 parts @ 106.940 EUR =      1176 EUR (Nasdaq x1)
+  LQQ      169 parts @ 10.176 EUR =      1720 EUR (Nasdaq x2 (leverage))
+  Exposition reelle: 155%
+
+Exposition (equity geree 2976 EUR):
+  Reelle:  155.1%  (PUST 40% | LQQ 58% | cash 3%)
+  Cible:   170.0%
+  Delta:   +14.9%
+
+Decision: Achat ignore: delta +14.9% < seuil 50%
+Email envoye a nathdescamps59@gmail.com: [MyQTM] LIVE PEA DESCAMPS — expo 170% — aucun changement
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
+[INFO] TRADE_INSTRUMENT ignore : realisation PUST+LQQ, plafond d'expo x1.7
+============================================================
+PEA PUST+LQQ (PUST x1 + LQQ x2, plafond d'expo x1.7) — 2026-09-30
+Mode: LIVE
+Comptes geres: slot 1, slot 2
+============================================================
+Signal du 2026-09-29 (status=ok, age: 10.6h)
+  Probabilite: 0.9513
+  Allocation:  95%  ->  exposition cible 170% (plafond x1.7)
+  RSI14 QQQ:   59.2
+
+------------------------------------------------------------
+  COMPTE 1 (PEA DESCAMPS)
+------------------------------------------------------------
+
+PEA DESCAMPS (compte 1):
+  Especes:      715.86 EUR
+  Titres:     55442.74 EUR
+  Total:      56158.60 EUR
+  PUST     167 parts @ 107.300 EUR =     17919 EUR (Nasdaq x1)
+  LQQ     3668 parts @ 10.230 EUR =     37524 EUR (Nasdaq x2 (leverage))
+  Exposition reelle: 166%
+
+Exposition (equity geree 56159 EUR):
+  Reelle:  165.5%  (PUST 32% | LQQ 67% | cash 1%)
+  Cible:   170.0%
+  Delta:   +4.5%
+
+Decision: Achat ignore: delta +4.5% < seuil 50%
+Email envoye a descamps.gregory@gmail.com: [MyQTM] LIVE PEA DESCAMPS — expo 170% — aucun changement
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+------------------------------------------------------------
+  COMPTE 2 (PEA DESCAMPS)
+------------------------------------------------------------
+
+PEA DESCAMPS (compte 2):
+  Especes:       79.43 EUR
+  Titres:      2909.39 EUR
+  Total:       2988.82 EUR
+  PUST      11 parts @ 107.320 EUR =      1181 EUR (Nasdaq x1)
+  LQQ      169 parts @ 10.230 EUR =      1729 EUR (Nasdaq x2 (leverage))
+  Exposition reelle: 155%
+
+Exposition (equity geree 2989 EUR):
+  Reelle:  155.2%  (PUST 39% | LQQ 58% | cash 3%)
+  Cible:   170.0%
+  Delta:   +14.8%
+
+Decision: Achat ignore: delta +14.8% < seuil 50%
+Email envoye a nathdescamps59@gmail.com: [MyQTM] LIVE PEA DESCAMPS — expo 170% — aucun changement
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+Termine.
