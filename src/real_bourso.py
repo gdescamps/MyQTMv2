@@ -428,6 +428,13 @@ def compute_orders(target_e, state, reserved=0.0, force_buy=False, buys_only=Fal
                     orders.append({"instrument": ins, "side": "buy", "quantity": q, "price": px[ins],
                                    "value": q * px[ins], "fee": q * px[ins] * BUY_FEE})
                     avail -= q * px[ins] * (1 + BUY_FEE)
+    if mode == "restructure" and not any(o["side"] == "buy" for o in orders):
+        # La restructuration ne fait que changer la composition (vente LQQ -> achat PUST) ;
+        # si aucun achat n'est possible (jambe < 1 part ou sous le minimum 200 EUR, petit
+        # compte), vendre reviendrait a baisser l'exposition hors bande -> on ne fait rien.
+        if orders:
+            print("  [INFO] restructuration sans achat possible : ventes annulees, composition conservee")
+        orders = []
     plan["orders"] = orders
     plan["cash_avail"] = cash + proceeds
     plan["below_min"] = below_min

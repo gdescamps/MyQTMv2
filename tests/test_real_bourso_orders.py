@@ -256,6 +256,26 @@ def test_only_the_small_leg_is_dropped():
     assert plan["below_min"] == ["7 LQQ (70 EUR)"]
 
 
+def test_restructure_without_possible_buy_does_not_sell():
+    """Petit compte (300 EUR) : 24 LQQ + 54 EUR de cash (E=1.64, cash oisif 18%), cible
+    1.68. La restructuration voudrait vendre 4 LQQ pour acheter du PUST, mais la jambe
+    PUST (< 1 part, < 200 EUR) est impossible : vendre baisserait l'exposition hors
+    bande -> aucun ordre, composition conservee."""
+    pos = {"PUST": {"shares": 0, "price": 110.0, "value": 0.0},
+           "LQQ": {"shares": 24, "price": 10.21, "value": 245.04}}
+    st = dict(cash=53.7, stocks=245.04, equity=298.74, positions=pos, other_stocks=0.0)
+    plan = compute_orders(1.68, st)
+    assert plan["orders"] == [] and plan["mode"] is None
+
+
+def test_restructure_still_sells_when_buy_is_possible():
+    # gros compte "LQQ + cash" : la migration (vente LQQ + achat PUST) reste intacte
+    st = _state(lqq=6700, cash=33000)
+    plan = compute_orders(1.2, st)
+    assert plan["mode"] == "restructure"
+    assert {o["side"] for o in plan["orders"]} == {"sell", "buy"}
+
+
 def test_execute_plan_buy_reduced_below_min_is_skipped(monkeypatch):
     """Achat plafonne par le cash reel a 1 PUST (100 EUR) : pas envoye (statut skipped,
     cash conserve), aucun appel a bourso-cli, rien en attente."""
