@@ -1,14 +1,68 @@
 {
   "1": {
-    "expected_cash": 715.86,
-    "as_of": "2026-09-30",
+    "expected_cash": 378.75,
+    "as_of": "2026-10-30",
     "traded_notional": 0.0,
     "deposits": [],
     "dca": null
   },
   "2": {
-    "expected_cash": 79.43,
-    "as_of": "2026-09-30",
+    "expected_cash": 4435.14,
+    "as_of": "2026-10-30",
+    "traded_notional": 6731.77,
+    "deposits": [
+      {
+        "date": "2026-10-02",
+        "amount": 20000.0,
+        "expected_cash": 79.43,
+        "cash": 20079.43
+      },
+      {
+        "date": "2026-10-06",
+        "amount": -19491.4,
+        "expected_cash": 20079.43,
+        "cash": 588.03
+      },
+      {
+        "date": "2026-10-23",
+        "amount": 20000.0,
+        "expected_cash": 32.07,
+        "cash": 20032.07
+      }
+    ],
+    "dca": {
+      "deposit": 20000.0,
+      "released": 0.781134,
+      "detected": "2026-10-23",
+      "last_tranche": "2026-10-30",
+      "weeks": 2,
+      "done": false,
+      "events": [
+        {
+          "date": "2026-10-23",
+          "type": "deposit",
+          "amount": 20000.0
+        },
+        {
+          "date": "2026-10-23",
+          "type": "tranche",
+          "rsi": 36.5,
+          "tranche": 0.4692,
+          "released": 0.469185
+        },
+        {
+          "date": "2026-10-30",
+          "type": "tranche",
+          "rsi": 44.4,
+          "tranche": 0.3119,
+          "released": 0.781134
+        }
+      ]
+    }
+  },
+  "3": {
+    "expected_cash": 86.2,
+    "as_of": "2026-10-30",
     "traded_notional": 0.0,
     "deposits": [],
     "dca": null

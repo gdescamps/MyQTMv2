@@ -2141,3 +2141,12 @@ Mettre à jour également la webapp pour montrer la répartition LQQ et PUST
 Mettre à jour également la webapp pour montrer qu'un capital à allouer a été détecté.
 
 
+
+Est-ce que tu peux vérifier que le code qui alloue les titres LQQ et PUST
+prend  en compte le montant minimum de 200€ d'achat ou de revente imposé par boursorama 
+
+
+dans la webapp pour l'onglet gain est ce que tu peux 
+te baser sur les données du compte
+faire en sorte que mes prises de position manuelles soit 
+interprétée sans bug  
