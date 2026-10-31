@@ -342,6 +342,7 @@ def compute_portfolio_history(trades):
 
 SELL_FEE = 0.005  # 0.5% sur les ventes — cf. strategy.py / real_bourso.py
 BUY_FEE = 0.005   # 0.5% sur les achats aussi (tarif Decouverte, constate le 2026-09-28)
+SPLIT_RATIO = 1.5  # saut de cours d'une seance au-dela duquel on suppose un split (cf. detect_split)
 
 
 def compute_real_performance(trades):
@@ -384,13 +385,28 @@ def compute_real_performance(trades):
         equity = t["equity"]
         # Cash attendu = cash de la veille apres les flux de ses ordres executes, plus les
         # ordres executes plus tot dans la journee par des lectures precedentes
-        _, expected_cash = positions_after(prev)
+        expected_pos, expected_cash = positions_after(prev)
         same_day = earlier.get(t["date"], [])
         expected_cash += sum(order_cash_flow(o) for o in same_day)
-        # Écart cash inexpliqué = apport/retrait externe. Bruit = prix de remplissage
-        # des ordres limites (±3%) : seuil 5% du notionnel traite, plancher 5 EUR.
+        expected_shares = {k: p["shares"] for k, p in expected_pos.items()}
+        for o in same_day:
+            sign = 1 if o["side"] == "buy" else -1 if o["side"] == "sell" else 0
+            expected_shares[o["instrument"]] = expected_shares.get(o["instrument"], 0) + sign * o["quantity"]
+        price_today = {k: t["positions"].get(k, {}).get("price") or expected_pos.get(k, {}).get("price", 0.0)
+                       for k in expected_shares}
+        for k in expected_shares:   # split/regroupement : parts attendues ajustees du ratio de cours
+            p0, p1 = expected_pos.get(k, {}).get("price", 0.0), price_today[k]
+            if p0 > 0 and p1 > 0 and max(p1 / p0, p0 / p1) >= SPLIT_RATIO:
+                expected_shares[k] *= p0 / p1
+        # Écart inexpliqué entre l'equity lue et l'equity attendue (cash attendu + parts
+        # attendues au cours du jour) = apport/retrait externe. Couvre aussi un apport
+        # investi à la main entre deux lectures (2026-10-06 : titres apparus sans ordre du
+        # robot, lus comme +173% de « gain » sur le compte 2) ; un achat/vente manuel payé
+        # avec le cash du compte reste neutre. Bruit = prix de remplissage des ordres
+        # limites (±3%) : seuil 5% du notionnel traite, plancher 5 EUR.
         traded = sum(o["quantity"] * o["price"] for o in prev["orders"] + same_day if o["done"])
-        deposit = t["cash"] - expected_cash
+        expected_equity = expected_cash + sum(n * price_today[k] for k, n in expected_shares.items())
+        deposit = equity - expected_equity
         if abs(deposit) < max(5.0, 0.05 * traded):
             deposit = 0.0
 
