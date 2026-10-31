@@ -9248,3 +9248,114 @@ Exposition (equity geree 937 EUR):
   [INFO] achat 1 PUST = 106 EUR < minimum 200 EUR : conserve en cash
   [INFO] restructuration sans achat possible : ventes annulees, composition conservee
 Email envoye a mathysdescamps59@gmail.com: [MyQTM] QQQ 2026-10-29 — alloc 75% (prob 0.752) — PEA DESCAMPS
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6748 rows (+1 new)  [2000-01-03 → 2026-10-30]
+  ..    SPY                  fetching... 6748 rows (+1 new)  [2000-01-03 → 2026-10-30]
+  ..    ACWI                 fetching... 4679 rows (+1 new)  [2008-03-28 → 2026-10-30]
+  ..    TLT                  fetching... 6104 rows (+1 new)  [2002-07-30 → 2026-10-30]
+  ..    vix_ohlc             fetching... 6752 rows (+1 new)  [2000-01-03 → 2026-10-30]
+
+  ..    fred_baa_spread      fetching... 6709 rows (+1 new)  [2000-01-03 → 2026-10-29]
+  ..    fred_nfci            fetching... 1399 rows (up to date)
+  ..    fred_cpi             fetching... 332 rows (up to date)
+  ..    fred_cpi_core        fetching... 332 rows (up to date)
+  ..    fred_dff             fetching... 9799 rows (+1 new)  [2000-01-01 → 2026-10-29]
+Downloading risk-off strategy data
+
+  ..    QQQ                  fetching... 6748 rows (up to date)
+  ..    SPY                  fetching... 6748 rows (up to date)
+  ..    ACWI                 fetching... 4679 rows (up to date)
+  ..    TLT                  fetching... 6104 rows (up to date)
+  ..    vix_ohlc             fetching... 6752 rows (up to date)
+
+Toutes les donnees du 2026-10-30 disponibles
+Data up to: 2026-10-30
+
+=== S&P CAPE / ECY (multpl + Shiller + FRED) ===
+  Shiller xls : 1623552 octets <- img1.wsimg.com
+  CAPE source = multpl : 1869 mois, 1871-02 -> 2026-10
+  cross-check CAPE (1725 mois communs) : ecart median 0.02%, max 1.34%
+  ECY : historique Shiller -> 2024-09 ; tail DFII10 recale (offset +0.21 pt) -> 2026-10 (25 mois ajoutes)
+  CAPE 2026-10-01 = 40.1 (mediane 16.1, percentile 99)
+  ECY  2026-10 = -0.09%
+  graphe -> /home/greg/data_local/code/MyQTMv2/outputs/shiller/cape_ecy.png
+  parquet -> /home/greg/data_local/code/MyQTMv2/data/shiller/cape_ecy.parquet  (1869 mois)
+=== Excess earnings yield NDX top-5 / top-10 (yfinance + FRED) ===
+  NVDA   cap=  4941B  EY_trail= 3.87%  EY_fwd= 7.78%
+  AAPL   cap=  5030B  EY_trail= 2.53%  EY_fwd= 2.78%
+  GOOGL  cap=  3440B  EY_trail= 6.84%  EY_fwd= 5.41%
+  MSFT   cap=  3876B  EY_trail= 3.67%  EY_fwd= 4.62%
+  AMZN   cap=  2598B  EY_trail= 5.17%  EY_fwd= 4.39%
+  AVGO   cap=  1557B  EY_trail= 2.40%  EY_fwd= 5.97%
+  META   cap=  1572B  EY_trail= 4.77%  EY_fwd= 5.79%
+  TSLA   cap=  1580B  EY_trail= 0.23%  EY_fwd= 0.54%
+  MU     cap=  1001B  EY_trail= 8.40%  EY_fwd=23.49%
+  WMT    cap=   980B  EY_trail= 2.23%  EY_fwd= 2.61%
+  AMD    cap=   824B  EY_trail= 0.78%  EY_fwd= 3.15%
+  ASML   cap=   604B  EY_trail= 2.60%  EY_fwd= 4.01%
+  INTC   cap=   349B  EY_trail=  nan%  EY_fwd= 3.19%
+  CSCO   cap=   412B  EY_trail= 3.19%  EY_fwd= 5.38%
+  COST   cap=   449B  EY_trail= 2.05%  EY_fwd= 2.47%
+  LRCX   cap=   299B  EY_trail= 2.81%  EY_fwd= 5.08%
+  ARM    cap=   220B  EY_trail= 0.47%  EY_fwd= 1.49%
+  AMAT   cap=   310B  EY_trail= 2.97%  EY_fwd= 4.76%
+  NFLX   cap=   258B  EY_trail= 5.57%  EY_fwd= 6.07%
+  PLTR   cap=   442B  EY_trail= 0.63%  EY_fwd= 1.27%
+
+  taux reel 10a = 2.63%   (2026-10-30)
+  top5  : EY trailing +4.18% -> excess +1.55%  |  EY forward +5.05% -> excess +2.42%   (couv. 5/5 sur 5)
+  top10 : EY trailing +3.96% -> excess +1.33%  |  EY forward +5.48% -> excess +2.85%   (couv. 10/10 sur 10)
+  -> /home/greg/data_local/code/MyQTMv2/data/pe/ndx_excess_yield.json
+
+======================================================================
+=== QQQ — strategie deployee (trend250 + VM + garde-fous) ===
+======================================================================
+
+Backtest 2000-01-03->2026-10-30  CAGR 16.3%  maxDD -30%  Sharpe 0.78  Calmar 0.55  [NET x1.7 PUST+LQQ : frais 0.86%/an, 4 revis/an]
+Signal: alloc=63%  expo=126% (plafond 1.7)  RSI14=34.9  macro_off=False  -> /home/greg/data_local/code/MyQTMv2/outputs/qqq_strategy/signal.json
+[INFO] TRADE_INSTRUMENT ignore : realisation PUST+LQQ, plafond d'expo x1.7
+
+PEA DESCAMPS (compte 1):
+  Especes:      378.75 EUR
+  Titres:     59409.88 EUR
+  Total:      59788.63 EUR
+  PUST     197 parts @ 102.320 EUR =     20157 EUR (Nasdaq x1)
+  LQQ     4323 parts @ 9.080 EUR =     39253 EUR (Nasdaq x2 (leverage))
+  Exposition reelle: 165%
+
+Exposition (equity geree 59789 EUR):
+  Reelle:  165.0%  (PUST 34% | LQQ 66% | cash 1%)
+  Cible:   125.8%
+  Delta:   -39.3%
+Email envoye a descamps.gregory@gmail.com: [MyQTM] QQQ 2026-10-30 — alloc 63% (prob 0.629) — PEA DESCAMPS
+
+PEA DESCAMPS (compte 2):
+  Especes:     4464.03 EUR
+  Titres:     52782.60 EUR
+  Total:      57246.63 EUR
+  PUST     257 parts @ 102.320 EUR =     26296 EUR (Nasdaq x1)
+  LQQ     2917 parts @ 9.080 EUR =     26486 EUR (Nasdaq x2 (leverage))
+  Exposition reelle: 138%
+
+Exposition (equity geree 52869 EUR, reserve DCA 4377 EUR):
+  Reelle:  149.9%  (PUST 50% | LQQ 50% | cash 0%)
+  Cible:   125.8%
+  Delta:   -24.2%
+Email envoye a nathdescamps59@gmail.com: [MyQTM] QQQ 2026-10-30 — alloc 63% (prob 0.629) — PEA DESCAMPS
+
+PEA DESCAMPS (compte 3):
+  Especes:       86.20 EUR
+  Titres:       803.92 EUR
+  Total:        890.12 EUR
+  PUST       2 parts @ 102.320 EUR =       205 EUR (Nasdaq x1)
+  LQQ       66 parts @ 9.080 EUR =       599 EUR (Nasdaq x2 (leverage))
+  Exposition reelle: 158%
+
+Exposition (equity geree 890 EUR):
+  Reelle:  157.6%  (PUST 23% | LQQ 67% | cash 10%)
+  Cible:   125.8%
+  Delta:   -31.9%
+  [INFO] achat 1 PUST = 102 EUR < minimum 200 EUR : conserve en cash
+  [INFO] restructuration sans achat possible : ventes annulees, composition conservee
+Email envoye a mathysdescamps59@gmail.com: [MyQTM] QQQ 2026-10-30 — alloc 63% (prob 0.629) — PEA DESCAMPS
