@@ -93,30 +93,36 @@ def send_email(subject, body, to=None, images=None):
     print(f"Email envoye a {', '.join(to)}: {subject}")
 
 
-def _account_preview(account, alloc, alloc_pct):
+EMERGENCY_LINE = "  ARRET D'URGENCE ACTIF — aucun achat tant qu'il n'est pas desactive"
+
+
+def _account_preview(account, alloc, alloc_pct, emergency=False):
     """Apercu de l'action du matin pour UN compte, en REUTILISANT le vrai chemin
     d'execution (real_bourso) : meme plafond d'exposition, meme bande asymetrique,
-    meme force cash, meme reserve DCA. Source unique -> le recap ne peut pas diverger
-    de ce que le cron du matin fera reellement (hors apport detecte le matin meme)."""
+    meme force cash, meme reserve DCA, meme emergency-off (cible forcee a 0).
+    Source unique -> le recap ne peut pas diverger de ce que le cron du matin fera
+    reellement (hors apport detecte le matin meme)."""
     from src.real_bourso import (
         plan_for_account, exposure_after, describe_order, composition_line,
         target_exposure, E_MAX, STRATEGY_LABEL,
     )
-    target_e = target_exposure(alloc, E_MAX)
+    target_e = 0.0 if emergency else target_exposure(alloc, E_MAX)
     state, plan = plan_for_account(account, target_e)
     if plan["orders"]:
         for o in plan["orders"]:
             o["status"] = "dry-run"
         preview = "Prevu demain matin : " + " ; ".join(describe_order(o) for o in plan["orders"])
     else:
-        preview = f"Pas de changement prevu demain matin ({plan['reason']})"
+        reason = "arret d'urgence actif, exposition maintenue a 0%" if emergency else plan["reason"]
+        preview = f"Pas de changement prevu demain matin ({reason})"
     e_after = exposure_after(plan, state)
     preview += (
         f"\n  Compte:     {state['account_name']} (compte {account.slot}) — connexion OK"
         f"\n  Strategie:  {STRATEGY_LABEL} (PUST x1 + LQQ x2), plafond d'expo x{E_MAX}"
         f"\n  PEA actuel: {composition_line(state, plan['reserved'])}, {state['cash']:.0f} EUR especes"
         f"\n  Exposition: {plan['e_eff']*100:.0f}% -> {e_after*100:.0f}% "
-        f"(cible {target_e*100:.0f}% = min(2 x {alloc_pct}, {E_MAX*100:.0f}%))"
+        + ("(cible forcee a 0% : arret d'urgence)" if emergency else
+           f"(cible {target_e*100:.0f}% = min(2 x {alloc_pct}, {E_MAX*100:.0f}%))")
     )
     if plan["reserved"] > 0:
         preview += f"\n  Apport en cours de deploiement : {plan['reserved']:.0f} EUR reserves (DCA/RSI)"
@@ -148,8 +154,12 @@ def send_recap():
 
     alloc_pct = f"{alloc*100:.0f}%"
     from src.risk_off_strategy.strategy import E_MAX, target_exposure
+    from src.real_bourso import is_emergency_off
+    emergency = is_emergency_off()
     expo = signal.get("exposure", target_exposure(alloc, E_MAX))
     header = (
+        (f"{EMERGENCY_LINE}\n  (supprimer logs/emergency_off.json pour reprendre la strategie)\n\n"
+         if emergency else "") +
         f"Backtest {ticker} termine avec succes.\n\n"
         f"  Date:        {date}\n"
         f"  Probabilite: {prob:.4f}\n"
@@ -169,12 +179,13 @@ def send_recap():
     ok = True
     for account in accounts:
         try:
-            preview = _account_preview(account, alloc, alloc_pct)
+            preview = _account_preview(account, alloc, alloc_pct, emergency)
         except Exception as e:  # noqa: BLE001
             preview = (f"  Compte:     {account.label} — CONNEXION KO ({str(e)[:200]})"
                        f"\n  Impossible de verifier le PEA ; l'execution du matin reessaiera.")
             ok = False
-        subject = f"[MyQTM] {ticker} {date} — alloc {alloc_pct} (prob {prob:.3f}) — {account.name or account.label}"
+        subject = (f"[MyQTM] {'ARRET D URGENCE — ' if emergency else ''}{ticker} {date} — alloc {alloc_pct} "
+                   f"(prob {prob:.3f}) — {account.name or account.label}")
         try:
             send_email(subject, header + preview + "\n", to=account.recipients, images=images)
         except Exception as e:  # noqa: BLE001
