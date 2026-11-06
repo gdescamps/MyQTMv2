@@ -10,5 +10,6 @@ xlrd>=2.0.1
 lxml>=5.0.0
 yfinance>=0.2.50
 python-dotenv>=1.0.0
+anthropic[bedrock]>=2.6.0
 dvc-gs==3.0.2
 dvc-ssh==4.2.2
