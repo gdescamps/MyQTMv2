@@ -2162,3 +2162,39 @@ BEDROCK_REGION
 ecrire des tests unitaire pour faire fonctionner les llm anthropics 
 via les api bedrock 
 
+
+documenter la nouvelle methode intraday bear event detection 
+
+Suivre l'actualité à travers les tweets, les articles, chaque jour, faire un résumé sémantique des enjeux politique d'investissement et de résultats. 
+S'articulant autour du Nasdaq.
+
+À partir de ce résumé sémantique, demandez à un LLM de générer des phrases qui pourraient effrayer le marché.
+
+Par exemple, les démocrates viennent de passer au pouvoir, il y a une crainte au niveau des investissements trop élevés sur l'IA dans les data centers et peur d'inquiétude d'une bulle sans revenus significatifs pour l'IA.
+Une guerre en Iran bloque le détroit d'Hormuz, Fait monter le pétrole et l'inflation à un niveau mondial.
+La Fed risque d'augmenter ses taux pour endiguer l'inflation.
+Ceci est une mauvaise situation pour les investisseurs qui s'endettent dans des investissements lourds pour les data centers.
+
+Exemple de phrases negative à détecter: 
+- Banques cherchant à se débarrasser de leur dette sur data center.
+- Élu démocrate opposant un projet de loi pour freiner les investissements sur l'IA.
+
+
+Dans les phrases négatives à tester.
+Il y a des phrases par défaut qui restent, Quel que soit le contexte.
+
+Les tweets sont filtrés, pour en amont éviter les offres commerciales, ou les résultats déjà connus.
+
+Chaque jour, le jeu de phrases généré est comparé au tweet via des embeddings en intraday 
+
+la coupure pourrais avoir lieu en intraday.
+
+
+via l'apify 
+dis moi combien le coute la recuperation des tweets depuis le 1 janvier 2023
+pour les comptes
+@DeItaone
+@Reuters
+@markets
+@unusual_whales
+
