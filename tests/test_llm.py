@@ -372,3 +372,126 @@ def test_live_image_input(live_client, base):
     print(f"\n[{base}] image -> {out!r}")
     assert "73" in out
     assert "red" in out
+
+
+# --------------------------------------------------------------------------
+# Embeddings : Amazon Titan Text Embeddings V2 (pas d'embeddings chez Anthropic)
+# Appel via boto3 bedrock-runtime.invoke_model, mêmes credentials BEDROCK_*.
+# --------------------------------------------------------------------------
+
+EMBED_MODEL = "amazon.titan-embed-text-v2:0"
+
+
+def make_runtime_client():
+    import boto3
+    return boto3.client(
+        "bedrock-runtime",
+        region_name=os.environ.get("BEDROCK_REGION"),
+        aws_access_key_id=os.environ.get("BEDROCK_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.environ.get("BEDROCK_SECRET_ACCESS_KEY"),
+    )
+
+
+def embed(runtime, text, dimensions=512):
+    """Embedding Titan V2 normalisé (norme L2 = 1) d'un texte."""
+    body = {"inputText": text, "dimensions": dimensions, "normalize": True}
+    resp = runtime.invoke_model(
+        modelId=EMBED_MODEL, body=json.dumps(body),
+        contentType="application/json", accept="application/json",
+    )
+    return json.loads(resp["body"].read())["embedding"]
+
+
+def cosine(a, b):
+    dot = sum(x * y for x, y in zip(a, b))
+    na = sum(x * x for x in a) ** 0.5
+    nb = sum(y * y for y in b) ** 0.5
+    return dot / (na * nb)
+
+
+def test_cosine_basics():
+    assert cosine([1, 0], [1, 0]) == pytest.approx(1.0)
+    assert cosine([1, 0], [0, 1]) == pytest.approx(0.0)
+    assert cosine([1, 2], [-1, -2]) == pytest.approx(-1.0)
+
+
+def test_embed_request_body():
+    """Hors ligne : corps envoyé à invoke_model + lecture de la réponse."""
+    calls = []
+
+    class FakeRuntime:
+        def invoke_model(self, **kw):
+            calls.append(kw)
+            return {"body": io.BytesIO(json.dumps({"embedding": [0.6, 0.8]}).encode())}
+
+    vec = embed(FakeRuntime(), "bonjour", dimensions=256)
+    assert vec == [0.6, 0.8]
+    assert calls[0]["modelId"] == EMBED_MODEL
+    assert json.loads(calls[0]["body"]) == {"inputText": "bonjour", "dimensions": 256, "normalize": True}
+
+
+@pytest.fixture(scope="module")
+def runtime():
+    return make_runtime_client()
+
+
+@pytest.mark.llm
+@live
+@pytest.mark.parametrize("dimensions", [256, 512, 1024])
+def test_live_embedding_shape(runtime, dimensions):
+    vec = embed(runtime, "Le Nasdaq-100 a fortement progressé.", dimensions)
+    assert len(vec) == dimensions
+    assert sum(x * x for x in vec) ** 0.5 == pytest.approx(1.0, abs=1e-3)
+
+
+# (texte A, texte B similaire, texte C différent)
+SIMILARITY_CASES = [
+    ("Le marché actions américain a chuté fortement aujourd'hui.",
+     "Wall Street a enregistré une forte baisse en séance.",
+     "La recette de la tarte aux pommes demande du beurre et de la cannelle."),
+    ("La Réserve fédérale a relevé ses taux directeurs pour lutter contre l'inflation.",
+     "The Federal Reserve raised interest rates to fight inflation.",  # même sens, autre langue
+     "Le chat dort au soleil sur le rebord de la fenêtre."),
+    ("Vendre les ETF à effet de levier quand la volatilité explose.",
+     "Réduire l'exposition aux fonds levier lors des pics de volatilité.",
+     "Le match de football s'est terminé sur un score nul."),
+]
+
+
+@pytest.mark.llm
+@live
+@pytest.mark.parametrize("a,similar,different", SIMILARITY_CASES)
+def test_live_embedding_similar_vs_different(runtime, a, similar, different):
+    ea, es, ed = (embed(runtime, t) for t in (a, similar, different))
+    sim_close = cosine(ea, es)
+    sim_far = cosine(ea, ed)
+    print(f"\n  similaire={sim_close:.3f}  different={sim_far:.3f}  | {a[:50]}")
+    # Titan V2 (512 d) : paraphrases ~0.50-0.57, sujets sans rapport ~0.04-0.09
+    # (mesuré le 2026-11-06) -> marges larges pour rester stable.
+    assert sim_close > sim_far + 0.25
+    assert sim_close > 0.4
+    assert sim_far < 0.25
+
+
+@pytest.mark.llm
+@live
+def test_live_embedding_identical_text(runtime):
+    t = "Allocation cible 85 % sur QQQ."
+    assert cosine(embed(runtime, t), embed(runtime, t)) == pytest.approx(1.0, abs=1e-3)
+
+
+@pytest.mark.llm
+@live
+def test_live_embedding_ranking(runtime):
+    """Recherche sémantique : la requête doit retrouver le bon document en tête."""
+    docs = [
+        "Le stop suiveur coupe l'exposition sous la moyenne mobile 250 jours.",
+        "Les dividendes sont réinvestis automatiquement dans le PEA.",
+        "Le chauffage au bois est économique en hiver.",
+        "L'indice NFCI mesure les conditions financières aux États-Unis.",
+    ]
+    query = "Quel indicateur suit le stress financier américain ?"
+    eq = embed(runtime, query)
+    scores = [cosine(eq, embed(runtime, d)) for d in docs]
+    print("\n  " + "\n  ".join(f"{s:.3f}  {d}" for s, d in sorted(zip(scores, docs), reverse=True)))
+    assert max(range(len(docs)), key=scores.__getitem__) == 3
