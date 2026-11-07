@@ -2150,3 +2150,15 @@ dans la webapp pour l'onglet gain est ce que tu peux
 te baser sur les données du compte
 faire en sorte que mes prises de position manuelles soit 
 interprétée sans bug  
+
+
+est ce que tu peux trouver les 5 pires seances de baisse du nasdaq et telecharger les tweet de ces 5 journées avec les images (pas les videos)
+
+
+avec les variables dans .env
+BEDROCK_ACCESS_KEY_ID
+BEDROCK_SECRET_ACCESS_KEY
+BEDROCK_REGION
+ecrire des tests unitaire pour faire fonctionner les llm anthropics 
+via les api bedrock 
+
