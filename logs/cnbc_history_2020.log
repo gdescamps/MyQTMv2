@@ -1,0 +1,11 @@
+[cnbc] 1722 seances a traiter (2020-01-01 -> 2026-11-07), 4217 deja presentes
+[cnbc] 200/1722  ok=186 manquants=14  2.6 min, reste ~20 min
+[cnbc] 400/1722  ok=374 manquants=26  5.0 min, reste ~17 min
+[cnbc] 600/1722  ok=556 manquants=44  7.8 min, reste ~15 min
+[cnbc] 800/1722  ok=611 manquants=189  14.4 min, reste ~17 min
+[cnbc] 1000/1722  ok=640 manquants=360  22.2 min, reste ~16 min
+[cnbc] 1200/1722  ok=643 manquants=557  30.4 min, reste ~13 min
+[cnbc] 1400/1722  ok=713 manquants=687  36.7 min, reste ~8 min
+[cnbc] 1600/1722  ok=782 manquants=818  42.6 min, reste ~3 min
+[cnbc] 1722/1722  ok=879 manquants=843  44.8 min, reste ~0 min
+[cnbc] termine : 4253 seances dans data/text/cnbc/cnbc_close.parquet, 1337 manquantes dans data/text/cnbc/missing.json

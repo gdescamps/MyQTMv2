@@ -1,0 +1,27 @@
+[cnbc] 4994 seances a traiter (2007-01-01 -> 2026-11-07), 0 deja presentes
+[cnbc] 200/4994  ok=157 manquants=43  1.7 min, reste ~41 min
+[cnbc] 400/4994  ok=344 manquants=56  3.7 min, reste ~42 min
+[cnbc] 600/4994  ok=529 manquants=71  5.6 min, reste ~41 min
+[cnbc] 800/4994  ok=718 manquants=82  7.4 min, reste ~39 min
+[cnbc] 1000/4994  ok=915 manquants=85  9.3 min, reste ~37 min
+[cnbc] 1200/4994  ok=1102 manquants=98  11.3 min, reste ~36 min
+[cnbc] 1400/4994  ok=1292 manquants=108  13.1 min, reste ~34 min
+[cnbc] 1600/4994  ok=1483 manquants=117  15.1 min, reste ~32 min
+[cnbc] 1800/4994  ok=1648 manquants=152  18.1 min, reste ~32 min
+[cnbc] 2000/4994  ok=1833 manquants=167  20.2 min, reste ~30 min
+[cnbc] 2200/4994  ok=1994 manquants=206  23.2 min, reste ~29 min
+[cnbc] 2400/4994  ok=2177 manquants=223  25.4 min, reste ~27 min
+[cnbc] 2600/4994  ok=2370 manquants=230  28.0 min, reste ~26 min
+[cnbc] 2800/4994  ok=2549 manquants=251  30.4 min, reste ~24 min
+[cnbc] 3000/4994  ok=2642 manquants=358  36.0 min, reste ~24 min
+[cnbc] 3200/4994  ok=2753 manquants=447  40.9 min, reste ~23 min
+[cnbc] 3400/4994  ok=2890 manquants=510  44.6 min, reste ~21 min
+[cnbc] 3600/4994  ok=3082 manquants=518  46.9 min, reste ~18 min
+[cnbc] 3800/4994  ok=3258 manquants=542  49.5 min, reste ~16 min
+[cnbc] 4000/4994  ok=3372 manquants=628  53.8 min, reste ~13 min
+[cnbc] 4200/4994  ok=3500 manquants=700  57.1 min, reste ~11 min
+[cnbc] 4400/4994  ok=3679 manquants=721  58.9 min, reste ~8 min
+[cnbc] 4600/4994  ok=3852 manquants=748  60.8 min, reste ~5 min
+[cnbc] 4800/4994  ok=4037 manquants=763  62.3 min, reste ~3 min
+[cnbc] 4994/4994  ok=4217 manquants=777  64.8 min, reste ~0 min
+[cnbc] termine : 4217 seances dans data/text/cnbc/cnbc_close.parquet, 777 manquantes dans data/text/cnbc/missing.json
