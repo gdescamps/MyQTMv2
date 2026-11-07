@@ -1,0 +1,8 @@
+# Dépendances optionnelles des tests du LLM point-in-time (tests/test_pit_llm.py, RESEARCH.md §8).
+# Hors chaîne live : ne pas ajouter à requirements.txt (cron) ni à requirements_webapp.txt.
+# aarch64 + CUDA 13 (GB10) : installer torch depuis l'index PyTorch, par exemple
+#   pip install torch --index-url https://download.pytorch.org/whl/cu130
+torch>=2.4
+transformers>=4.56   # argument dtype= (torch_dtype= déprécié)
+safetensors
+accelerate
