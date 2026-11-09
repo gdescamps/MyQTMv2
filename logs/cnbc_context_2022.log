@@ -1,0 +1,17 @@
+  2022-01-14  10 fiches  in=91873 out=17094  ≈ 0.018 $  10.0 s/fiche
+  2022-01-31  20 fiches  in=186565 out=33273  ≈ 0.035 $  9.6 s/fiche
+  2022-02-14  30 fiches  in=280659 out=49327  ≈ 0.053 $  9.6 s/fiche
+  2022-03-02  40 fiches  in=372814 out=64763  ≈ 0.070 $  9.5 s/fiche
+  2022-03-18  50 fiches  in=468312 out=80987  ≈ 0.087 $  9.5 s/fiche
+  2022-04-04  60 fiches  in=558602 out=95342  ≈ 0.104 $  9.3 s/fiche
+  2022-04-22  70 fiches  in=653475 out=110263  ≈ 0.120 $  9.2 s/fiche
+  2022-05-11  80 fiches  in=744818 out=124576  ≈ 0.137 $  9.2 s/fiche
+  2022-05-25  90 fiches  in=837414 out=140014  ≈ 0.154 $  9.2 s/fiche
+  2022-06-09  100 fiches  in=927646 out=154700  ≈ 0.170 $  9.2 s/fiche
+  2022-06-27  110 fiches  in=1019320 out=170074  ≈ 0.187 $  9.1 s/fiche
+  2022-07-12  120 fiches  in=1113041 out=185314  ≈ 0.204 $  9.1 s/fiche
+  2022-07-29  130 fiches  in=1205721 out=199854  ≈ 0.220 $  9.1 s/fiche
+  2022-08-22  140 fiches  in=1289863 out=214049  ≈ 0.236 $  9.0 s/fiche
+  2022-11-09  148 fiches  in=1355509 out=225853  ≈ 0.248 $  9.0 s/fiche
+Run : 148 fiches, in=1355509 out=225853 ≈ 0.248 $ (tarif API)
+1001 fiches → data/text/cnbc/context/days/ + data/text/cnbc/context/context.parquet

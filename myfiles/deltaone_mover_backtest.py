@@ -3,8 +3,8 @@
 Règles (NDX CFD 1h, data/stocks/USATECHIDXUSD_1h.parquet) :
 - signal  : tweet mover=True, sens=+1 (long) [ou -1 pour la variante short, hors PEA],
             confiance >= seuil ;
-- confirmation (1 bougie) : la première bougie horaire COMPLÈTE après le tweet doit clôturer
-            dans le sens du signal (close > open pour un long) ; sinon pas de trade ;
+- confirmation (CONF_N bougies, env. CONF_N, défaut 1) : les CONF_N premières bougies horaires
+            COMPLÈTES après le tweet doivent toutes clôturer dans le sens du signal ; sinon pas de trade ;
 - entrée  : ouverture de la bougie suivante (pas de look-ahead) ;
 - sortie  : clôture après HOLD bougies ; un seul trade à la fois (signaux ignorés en position) ;
 - frais   : 1 % par aller-retour (0,5 % à l'entrée + 0,5 % à la sortie, courtage Bourso PEA).
@@ -18,9 +18,10 @@ FEE_SIDE = 0.005
 TH = [0, 40, 50, 60, 70]
 CUTOFF = pd.Timestamp("2026-07-01", tz="UTC")  # coupure des connaissances Haiku 5.5 = juin 2026
 HOLDS = [4, 23, 46]  # bougies : ~4 h, ~1 séance, ~2 séances
+CONF_N = int(__import__('os').environ.get('CONF_N', 1))  # nb de bougies de confirmation consécutives
 
 
-def run(px, sig, th, hold, sides):
+def run(px, sig, th, hold, sides, conf_n=CONF_N):
     ret = px.close.pct_change().fillna(0.0)
     idx = px.index
     pos = pd.Series(0.0, index=idx)
@@ -28,10 +29,10 @@ def run(px, sig, th, hold, sides):
     trades, grosses, busy_until = [], [], -1
     for _, m in sig[(sig.confiance >= th) & sig.sens.isin(sides)].sort_values("created_at").iterrows():
         c = idx.searchsorted(m.created_at.ceil("h"))  # 1re bougie complète après le tweet
-        e = c + 1                                     # entrée à l'ouverture de la suivante
+        e = c + conf_n                                # entrée à l'ouverture après les bougies de confirmation
         if e + hold > len(idx) or c <= busy_until:
             continue
-        conf_ok = np.sign(px.close.iloc[c] - px.open.iloc[c]) == m.sens
+        conf_ok = all(np.sign(px.close.iloc[j] - px.open.iloc[j]) == m.sens for j in range(c, c + conf_n))
         if not conf_ok:
             continue
         x = e + hold - 1                              # sortie à la clôture de la bougie x
@@ -82,7 +83,7 @@ def main():
                                  "net/trade %": round(100 * avg, 2) if n else None,
                                  "gagnants %": round(100 * win) if n else None,
                                  "%/an": round(100 * cagr, 1), "Sharpe": round(sh, 2) if n else None})
-            print(f"=== {label} — confirmation 1 bougie, frais 1 % A/R ===")
+            print(f"=== {label} — confirmation {CONF_N} bougie(s), frais 1 % A/R ===")
             print(pd.DataFrame(rows).to_string(index=False), "\n")
 
 

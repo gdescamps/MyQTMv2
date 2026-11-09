@@ -1,0 +1,9 @@
+126 jours à classer (5143 tweets)
+  25/126  in=120581 out=23212  ≈ 0.473 $  erreurs=0
+  50/126  in=287012 out=60073  ≈ 1.175 $  erreurs=0
+  75/126  in=446589 out=96014  ≈ 1.853 $  erreurs=0
+  100/126  in=616696 out=137545  ≈ 2.609 $  erreurs=0
+  125/126  in=808449 out=186100  ≈ 3.478 $  erreurs=0
+  126/126  in=817589 out=188628  ≈ 3.521 $  erreurs=0
+Run : in=817589 out=188628 ≈ 3.521 $ (tarif API), erreurs=0
+5299 tweets classés → data/text/x/deltaone/classified_sonnet/ + data/text/x/deltaone/classified_sonnet.parquet ; movers 0.8 %

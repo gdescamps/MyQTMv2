@@ -2198,3 +2198,27 @@ pour les comptes
 @markets
 @unusual_whales
 
+
+Sur la période 2023 a la fin des données
+Rechercher avec data/stocks/USATECHIDXUSD_1h.parquet Les épisodes de volatilité les plus brutaux intraday et représentant jusqu'à 5 jours.
+Garder les 500 de volatilité baissier
+etr les 500 de volatilité haussier
+Déterminer l'heure de début et l'heure de fin de l'épisode de volatilité.
+Déterminer la durée moyenne, min, max, std, l'amplitude moyenne min, max, std.
+
+
+avec haiku 5.5 
+par lot journalier classer les news etant les plus susceptible de faire bouger le marché a la hausse ou a la baisse 
+donner un ordre de grandeur de leur frequence d'apparition de l'ordre de 3%
+expliquer les 5 derniers episode declenché par des tweets
+ leur sens, context est le temps depuis leur apparitions.
+garder les classements de chaque tweet 
+demender un score de confiance de si le tweet est classé positif.
+
+
+realiser le sharpe ratio en comptant les frais de 1% par aller retour 
+utiliser le score de confiance pour seuiler les signaux
+attendre un biais de confirmation d'1 bougie 
+donc attendre un bougie de confirmation haussiere pour valide le trade 
+
+

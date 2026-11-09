@@ -1,0 +1,42 @@
+Loading weights:   0%|          | 0/122 [00:00<?, ?it/s]Loading weights:   1%|          | 1/122 [00:00<00:24,  5.02it/s]Loading weights:  15%|█▍        | 18/122 [00:00<00:01, 65.75it/s]Loading weights:  21%|██▏       | 26/122 [00:00<00:01, 69.78it/s]Loading weights:  28%|██▊       | 34/122 [00:00<00:01, 72.34it/s]Loading weights:  34%|███▍      | 42/122 [00:00<00:01, 67.47it/s]Loading weights:  44%|████▍     | 54/122 [00:00<00:00, 70.99it/s]Loading weights:  54%|█████▍    | 66/122 [00:00<00:00, 72.20it/s]Loading weights:  61%|██████    | 74/122 [00:01<00:00, 70.10it/s]Loading weights:  69%|██████▉   | 84/122 [00:01<00:00, 74.35it/s]Loading weights:  79%|███████▊  | 96/122 [00:01<00:00, 73.25it/s]Loading weights:  88%|████████▊ | 107/122 [00:01<00:00, 81.71it/s]Loading weights:  95%|█████████▌| 116/122 [00:01<00:00, 75.60it/s]Loading weights: 100%|██████████| 122/122 [00:01<00:00, 68.38it/s]
+  2022-01-20  10 fiches  32.6 s/fiche  reste 988 ≈ 8.9 h
+  2022-02-03  20 fiches  31.7 s/fiche  reste 978 ≈ 8.6 h
+  2022-02-17  30 fiches  31.8 s/fiche  reste 968 ≈ 8.6 h
+  2022-03-07  40 fiches  32.8 s/fiche  reste 958 ≈ 8.7 h
+  2022-03-23  50 fiches  33.0 s/fiche  reste 948 ≈ 8.7 h
+  2022-04-08  60 fiches  33.4 s/fiche  reste 938 ≈ 8.7 h
+  2022-04-28  70 fiches  33.2 s/fiche  reste 928 ≈ 8.6 h
+  2022-05-16  80 fiches  33.2 s/fiche  reste 918 ≈ 8.5 h
+  2022-05-31  90 fiches  33.4 s/fiche  reste 908 ≈ 8.4 h
+  2022-06-14  100 fiches  33.1 s/fiche  reste 898 ≈ 8.3 h
+  2022-06-30  110 fiches  33.3 s/fiche  reste 888 ≈ 8.2 h
+  2022-07-18  120 fiches  33.2 s/fiche  reste 878 ≈ 8.1 h
+  2022-08-08  130 fiches  33.0 s/fiche  reste 868 ≈ 8.0 h
+  2022-09-15  140 fiches  32.3 s/fiche  reste 858 ≈ 7.7 h
+  2023-02-10  150 fiches  31.7 s/fiche  reste 848 ≈ 7.5 h
+  2023-03-02  160 fiches  31.1 s/fiche  reste 838 ≈ 7.2 h
+  2023-03-17  170 fiches  30.8 s/fiche  reste 828 ≈ 7.1 h
+  2023-04-06  180 fiches  30.8 s/fiche  reste 818 ≈ 7.0 h
+  2023-04-25  190 fiches  31.0 s/fiche  reste 808 ≈ 7.0 h
+  2023-05-12  200 fiches  31.3 s/fiche  reste 798 ≈ 6.9 h
+  2023-05-26  210 fiches  31.1 s/fiche  reste 788 ≈ 6.8 h
+  2023-06-12  220 fiches  30.7 s/fiche  reste 778 ≈ 6.6 h
+  2023-06-27  230 fiches  30.4 s/fiche  reste 768 ≈ 6.5 h
+  2023-07-14  240 fiches  30.1 s/fiche  reste 758 ≈ 6.3 h
+  2023-07-31  250 fiches  29.9 s/fiche  reste 748 ≈ 6.2 h
+  2023-08-16  260 fiches  29.6 s/fiche  reste 738 ≈ 6.1 h
+  2023-09-05  270 fiches  29.4 s/fiche  reste 728 ≈ 6.0 h
+  2023-09-22  280 fiches  29.4 s/fiche  reste 718 ≈ 5.9 h
+  2023-10-06  290 fiches  29.2 s/fiche  reste 708 ≈ 5.7 h
+  2023-10-26  300 fiches  29.2 s/fiche  reste 698 ≈ 5.7 h
+  2023-11-09  310 fiches  29.4 s/fiche  reste 688 ≈ 5.6 h
+  2023-11-27  320 fiches  29.5 s/fiche  reste 678 ≈ 5.5 h
+  2023-12-11  330 fiches  29.5 s/fiche  reste 668 ≈ 5.5 h
+  2023-12-29  340 fiches  29.6 s/fiche  reste 658 ≈ 5.4 h
+  2024-01-17  350 fiches  29.6 s/fiche  reste 648 ≈ 5.3 h
+  2024-02-01  360 fiches  29.6 s/fiche  reste 638 ≈ 5.2 h
+  2024-02-16  370 fiches  29.6 s/fiche  reste 628 ≈ 5.2 h
+  2024-03-04  380 fiches  29.7 s/fiche  reste 618 ≈ 5.1 h
+  2024-03-19  390 fiches  29.8 s/fiche  reste 608 ≈ 5.0 h
+  2024-04-04  400 fiches  29.9 s/fiche  reste 598 ≈ 5.0 h
+  2024-04-18  410 fiches  30.0 s/fiche  reste 588 ≈ 4.9 h

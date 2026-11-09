@@ -16,6 +16,7 @@ BIAIS : coupure des connaissances de Haiku 5.5 = juin 2026 → avant juillet 202
 
     python myfiles/deltaone_classify.py --start 2026-10-20 --end 2026-11-07   # test
     python myfiles/deltaone_classify.py                                      # tout (reprise)
+    python myfiles/deltaone_classify.py --model claude-sonnet-5-5 --start 2026-07-01   # → classified_sonnet/
 """
 import argparse
 import glob
@@ -35,7 +36,8 @@ TWEETS = "data/text/x/deltaone/tweets.parquet"
 CTX_DIR = "data/text/cnbc/context/days"
 OUT_DIR = "data/text/x/deltaone/classified"
 OUT_PQ = "data/text/x/deltaone/classified.parquet"
-PRICE_IN, PRICE_OUT = 0.10, 0.50  # $/M tokens, Haiku 5.5 (API Anthropic)
+PRICES = {"claude-haiku-5-5": (0.10, 0.50), "claude-sonnet-5-5": (2.0, 10.0)}  # $/M tokens (API Anthropic)
+PRICE_IN, PRICE_OUT = PRICES["claude-haiku-5-5"]
 
 CATS = ["fed_taux", "inflation", "emploi", "croissance_macro", "tarifs_commerce", "geopolitique",
         "resultats_entreprises", "ia_semis", "energie_petrole", "politique_us", "credit_banques",
@@ -160,6 +162,8 @@ def classify_day(client, model, day, tw, c):
 
 def aggregate():
     rows = []
+    if not glob.glob(os.path.join(OUT_DIR, "*.json")):
+        return pd.DataFrame(columns=["mover"])
     for f in sorted(glob.glob(os.path.join(OUT_DIR, "*.json"))):
         d = json.load(open(f))
         for r in d["tweets"]:
@@ -175,7 +179,13 @@ def main():
     ap.add_argument("--start", default="2023-01-01")
     ap.add_argument("--end", default=None)
     ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--model", default="claude-haiku-5-5", choices=sorted(PRICES))
     a = ap.parse_args()
+    global OUT_DIR, OUT_PQ, PRICE_IN, PRICE_OUT
+    PRICE_IN, PRICE_OUT = PRICES[a.model]
+    if a.model != "claude-haiku-5-5":  # sorties séparées, le classement Haiku n'est jamais écrasé
+        tag = a.model.split("-")[1]
+        OUT_DIR, OUT_PQ = f"{OUT_DIR}_{tag}", f"{OUT_DIR}_{tag}.parquet"
     os.makedirs(OUT_DIR, exist_ok=True)
     t = pd.read_parquet(TWEETS)
     t = t[~t["is_retweet"]].sort_values("created_at")
@@ -186,7 +196,7 @@ def main():
     ctx = load_ctx()
     days = [d for d in t.day.unique() if not os.path.exists(os.path.join(OUT_DIR, f"{d:%Y-%m-%d}.json"))]
     print(f"{len(days)} jours à classer ({t[t.day.isin(days)].shape[0]} tweets)")
-    client, model = make_client(timeout=600.0, max_retries=5), model_id("claude-haiku-5-5")
+    client, model = make_client(timeout=600.0, max_retries=5), model_id(a.model)
     lock, tin, tout, err = threading.Lock(), 0, 0, 0
     groups = {d: g for d, g in t.groupby("day")}
     with ThreadPoolExecutor(a.workers) as ex:
