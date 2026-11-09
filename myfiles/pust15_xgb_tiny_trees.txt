@@ -1,0 +1,306 @@
+### XGB h=5j γ=2 1×prof1
+0:[cpi<3.43104935] yes=1,no=2,missing=1
+	1:leaf=3.58303452
+	2:leaf=-10.0697451
+
+### XGB h=5j γ=2 2×prof1
+0:[cpi<3.43104935] yes=1,no=2,missing=1
+	1:leaf=3.58303452
+	2:leaf=-10.0697451
+
+0:leaf=0
+
+### XGB h=5j γ=2 3×prof1
+0:[cpi<3.43104935] yes=1,no=2,missing=1
+	1:leaf=3.58303452
+	2:leaf=-10.0697451
+
+0:leaf=0
+
+0:leaf=0
+
+### XGB h=5j γ=2 1×prof2
+0:[cpi<3.43104935] yes=1,no=2,missing=1
+	1:[sl<-0.0567380637] yes=3,no=4,missing=3
+		3:leaf=-13.6338425
+		4:leaf=6.86550617
+	2:[g<-0.0128257964] yes=5,no=6,missing=5
+		5:leaf=-6.79284573
+		6:leaf=-19.7504959
+
+### XGB h=5j γ=5 1×prof1
+0:[cpi<3.43104935] yes=1,no=2,missing=1
+	1:leaf=0.24309884
+	2:leaf=-5.23548841
+
+### XGB h=5j γ=5 2×prof1
+0:[cpi<3.43104935] yes=1,no=2,missing=1
+	1:leaf=0.24309884
+	2:leaf=-5.23548841
+
+0:[sl<-0.0567380637] yes=1,no=2,missing=1
+	1:leaf=-7.01682901
+	2:leaf=1.28692877
+
+### XGB h=5j γ=5 3×prof1
+0:[cpi<3.43104935] yes=1,no=2,missing=1
+	1:leaf=0.24309884
+	2:leaf=-5.23548841
+
+0:[sl<-0.0567380637] yes=1,no=2,missing=1
+	1:leaf=-7.01682901
+	2:leaf=1.28692877
+
+0:[cpi<1.61111832] yes=1,no=2,missing=1
+	1:leaf=5.51047087
+	2:leaf=-2.30140758
+
+### XGB h=5j γ=5 1×prof2
+0:[cpi<3.43104935] yes=1,no=2,missing=1
+	1:[sl<-0.0567380637] yes=3,no=4,missing=3
+		3:leaf=-6.66299057
+		4:leaf=1.56352317
+	2:[g<-0.0128257964] yes=5,no=6,missing=5
+		5:leaf=-3.92099667
+		6:leaf=-9.12401009
+
+### XGB h=5j γ=10 1×prof1
+0:[cpi<3.43104935] yes=1,no=2,missing=1
+	1:leaf=-0.876793325
+	2:leaf=-3.61901307
+
+### XGB h=5j γ=10 2×prof1
+0:[cpi<3.43104935] yes=1,no=2,missing=1
+	1:leaf=-0.876793325
+	2:leaf=-3.61901307
+
+0:[sl<-0.0554275252] yes=1,no=2,missing=1
+	1:leaf=-4.19329786
+	2:leaf=0.547281802
+
+### XGB h=5j γ=10 3×prof1
+0:[cpi<3.43104935] yes=1,no=2,missing=1
+	1:leaf=-0.876793325
+	2:leaf=-3.61901307
+
+0:[sl<-0.0554275252] yes=1,no=2,missing=1
+	1:leaf=-4.19329786
+	2:leaf=0.547281802
+
+0:[cpi<1.18582249] yes=1,no=2,missing=1
+	1:leaf=4.4761281
+	2:leaf=-0.624388754
+
+### XGB h=5j γ=10 1×prof2
+0:[cpi<3.43104935] yes=1,no=2,missing=1
+	1:[sl<-0.0567380637] yes=3,no=4,missing=3
+		3:leaf=-4.33307505
+		4:leaf=-0.215332806
+	2:[g<-0.315425336] yes=5,no=6,missing=5
+		5:leaf=0.870792687
+		6:leaf=-3.9084425
+
+### XGB h=21j γ=2 1×prof1
+0:[cpi<3.32722998] yes=1,no=2,missing=1
+	1:leaf=3.51139331
+	2:leaf=-9.091012
+
+### XGB h=21j γ=2 2×prof1
+0:[cpi<3.32722998] yes=1,no=2,missing=1
+	1:leaf=3.51139331
+	2:leaf=-9.091012
+
+0:leaf=0
+
+### XGB h=21j γ=2 3×prof1
+0:[cpi<3.32722998] yes=1,no=2,missing=1
+	1:leaf=3.51139331
+	2:leaf=-9.091012
+
+0:leaf=0
+
+0:leaf=0
+
+### XGB h=21j γ=2 1×prof2
+0:[cpi<3.32722998] yes=1,no=2,missing=1
+	1:[nfci<-0.368499994] yes=3,no=4,missing=3
+		3:leaf=-2.29036522
+		4:leaf=11.6640148
+	2:[nfci<-0.401499987] yes=5,no=6,missing=5
+		5:leaf=0.279560983
+		6:leaf=-10.8239927
+
+### XGB h=21j γ=5 1×prof1
+0:[cpi<3.32722998] yes=1,no=2,missing=1
+	1:leaf=0.206963852
+	2:leaf=-4.83838129
+
+### XGB h=21j γ=5 2×prof1
+0:[cpi<3.32722998] yes=1,no=2,missing=1
+	1:leaf=0.206963852
+	2:leaf=-4.83838129
+
+0:[nfci<-0.368499994] yes=1,no=2,missing=1
+	1:leaf=-2.35400581
+	2:leaf=3.16444039
+
+### XGB h=21j γ=5 3×prof1
+0:[cpi<3.32722998] yes=1,no=2,missing=1
+	1:leaf=0.206963852
+	2:leaf=-4.83838129
+
+0:[nfci<-0.368499994] yes=1,no=2,missing=1
+	1:leaf=-2.35400581
+	2:leaf=3.16444039
+
+0:[sl<-0.00118728657] yes=1,no=2,missing=1
+	1:leaf=-8.75974274
+	2:leaf=1.43498731
+
+### XGB h=21j γ=5 1×prof2
+0:[cpi<3.32722998] yes=1,no=2,missing=1
+	1:[nfci<-0.368499994] yes=3,no=4,missing=3
+		3:leaf=-2.11630034
+		4:leaf=3.46975255
+	2:[cpi<8.77578354] yes=5,no=6,missing=5
+		5:leaf=-5.21863174
+		6:leaf=5.00898314
+
+### XGB h=21j γ=10 1×prof1
+0:[cpi<3.32722998] yes=1,no=2,missing=1
+	1:leaf=-0.896116436
+	2:leaf=-3.41952038
+
+### XGB h=21j γ=10 2×prof1
+0:[cpi<3.32722998] yes=1,no=2,missing=1
+	1:leaf=-0.896116436
+	2:leaf=-3.41952038
+
+0:[sl<-0.00679566571] yes=1,no=2,missing=1
+	1:leaf=-2.59509397
+	2:leaf=0.792949796
+
+### XGB h=21j γ=10 3×prof1
+0:[cpi<3.32722998] yes=1,no=2,missing=1
+	1:leaf=-0.896116436
+	2:leaf=-3.41952038
+
+0:[sl<-0.00679566571] yes=1,no=2,missing=1
+	1:leaf=-2.59509397
+	2:leaf=0.792949796
+
+0:[cpi<1.68593001] yes=1,no=2,missing=1
+	1:leaf=2.03995275
+	2:leaf=-1.16088593
+
+### XGB h=21j γ=10 1×prof2
+0:[cpi<3.32722998] yes=1,no=2,missing=1
+	1:[nfci<-0.368499994] yes=3,no=4,missing=3
+		3:leaf=-2.05817604
+		4:leaf=0.735568047
+	2:[cpi<8.77578354] yes=5,no=6,missing=5
+		5:leaf=-3.6096952
+		6:leaf=1.50499201
+
+### XGB h=63j γ=2 1×prof1
+0:[sl<-0.00108388893] yes=1,no=2,missing=1
+	1:leaf=-7.44301605
+	2:leaf=3.8867197
+
+### XGB h=63j γ=2 2×prof1
+0:[sl<-0.00108388893] yes=1,no=2,missing=1
+	1:leaf=-7.44301605
+	2:leaf=3.8867197
+
+0:leaf=0
+
+### XGB h=63j γ=2 3×prof1
+0:[sl<-0.00108388893] yes=1,no=2,missing=1
+	1:leaf=-7.44301605
+	2:leaf=3.8867197
+
+0:leaf=0
+
+0:leaf=0
+
+### XGB h=63j γ=2 1×prof2
+0:[sl<-0.00108388893] yes=1,no=2,missing=1
+	1:[g<-0.300195307] yes=3,no=4,missing=3
+		3:leaf=6.9851532
+		4:leaf=-8.07794285
+	2:[cpi<4.6153307] yes=5,no=6,missing=5
+		5:leaf=5.81909275
+		6:leaf=-12.6391563
+
+### XGB h=63j γ=5 1×prof1
+0:[sl<-0.00108388893] yes=1,no=2,missing=1
+	1:leaf=-4.17749023
+	2:leaf=0.355755985
+
+### XGB h=63j γ=5 2×prof1
+0:[sl<-0.00108388893] yes=1,no=2,missing=1
+	1:leaf=-4.17749023
+	2:leaf=0.355755985
+
+0:[cpi<4.6153307] yes=1,no=2,missing=1
+	1:leaf=0.726881266
+	2:leaf=-7.24908543
+
+### XGB h=63j γ=5 3×prof1
+0:[sl<-0.00108388893] yes=1,no=2,missing=1
+	1:leaf=-4.17749023
+	2:leaf=0.355755985
+
+0:[cpi<4.6153307] yes=1,no=2,missing=1
+	1:leaf=0.726881266
+	2:leaf=-7.24908543
+
+0:[sl<-0.00108388893] yes=1,no=2,missing=1
+	1:leaf=-16.4981461
+	2:leaf=0.18356739
+
+### XGB h=63j γ=5 1×prof2
+0:[sl<-0.00108388893] yes=1,no=2,missing=1
+	1:[g<-0.300195307] yes=3,no=4,missing=3
+		3:leaf=1.59492242
+		4:leaf=-4.43148184
+	2:[cpi<4.6153307] yes=5,no=6,missing=5
+		5:leaf=1.12913609
+		6:leaf=-6.25666094
+
+### XGB h=63j γ=10 1×prof1
+0:[sl<-0.00108388893] yes=1,no=2,missing=1
+	1:leaf=-3.08879232
+	2:leaf=-0.821943879
+
+### XGB h=63j γ=10 2×prof1
+0:[sl<-0.00108388893] yes=1,no=2,missing=1
+	1:leaf=-3.08879232
+	2:leaf=-0.821943879
+
+0:[cpi<4.6153307] yes=1,no=2,missing=1
+	1:leaf=0.244553968
+	2:leaf=-4.47837591
+
+### XGB h=63j γ=10 3×prof1
+0:[sl<-0.00108388893] yes=1,no=2,missing=1
+	1:leaf=-3.08879232
+	2:leaf=-0.821943879
+
+0:[cpi<4.6153307] yes=1,no=2,missing=1
+	1:leaf=0.244553968
+	2:leaf=-4.47837591
+
+0:[sl<-0.00108388893] yes=1,no=2,missing=1
+	1:leaf=-5.56544828
+	2:leaf=0.131575763
+
+### XGB h=63j γ=10 1×prof2
+0:[sl<-0.00108388893] yes=1,no=2,missing=1
+	1:[g<-0.300195307] yes=3,no=4,missing=3
+		3:leaf=-0.202395201
+		4:leaf=-3.2157917
+	2:[cpi<4.6153307] yes=5,no=6,missing=5
+		5:leaf=-0.435182005
+		6:leaf=-4.12849665
+
