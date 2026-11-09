@@ -76,7 +76,7 @@ STRATEGY_LABEL = "PUST+LQQ"
 # Bande + plafond : source unique = la strategie backtestee (strategy.py).
 from src.risk_off_strategy.strategy import (  # noqa: E402,F401  (BUY/SELL_THR_ALLOC re-exportes pour les tests)
     BUY_THR_ALLOC, SELL_THR_ALLOC, BUY_THR_E, SELL_THR_E, SELL_FEE, BUY_FEE,
-    E_MAX as STRATEGY_E_MAX, target_exposure, composition,
+    E_MAX as STRATEGY_E_MAX, SAT_GAP_E, target_exposure, composition,
 )
 
 # Plafond d'exposition live : E_MAX de strategy.py, surchargeable par TRADE_E_MAX
@@ -317,13 +317,16 @@ def is_emergency_off():
 
 # ── Decision ──────────────────────────────────────────────
 
-def compute_orders(target_e, state, reserved=0.0, force_buy=False, buys_only=False, e_max=None):
+def compute_orders(target_e, state, reserved=0.0, force_buy=False, buys_only=False, e_max=None,
+                   saturate=False):
     """Ordres (ventes puis achats) pour amener l'exposition reelle vers `target_e`,
     dans la composition drag-minimale, sur l'equity GEREE (PUST + LQQ + cash - reserve).
 
     reserved  : cash reserve (apport en cours de DCA), exclu de l'equity et des achats.
     force_buy : achats sans bande (tranche DCA liberee, achat reporte de la veille).
     buys_only : jamais de vente (reprise d'un achat reporte le jour meme).
+    saturate  : la cible vient de passer au plafond (signal `saturate_cap`) -> achat jusqu'a
+                e_max des que l'ecart >= SAT_GAP_E, meme sous BUY_THR_E (cf. simulate_net).
     Renvoie un plan {orders: [{instrument, side, quantity, price, value, fee}], mode,
     reason, e_eff, e_new, target_e, equity, cash_avail, weights, target_weights}."""
     e_max = E_MAX if e_max is None else e_max
@@ -367,6 +370,8 @@ def compute_orders(target_e, state, reserved=0.0, force_buy=False, buys_only=Fal
         mode = "buy_band"
     elif -delta >= SELL_THR_E:
         mode = "sell_band"
+    elif saturate and target_e >= e_max - 1e-9 and delta >= SAT_GAP_E:
+        mode = "saturate_cap"               # cible passee au plafond : remonte a E_MAX
     elif force_buy and delta > 1e-9:
         mode = "force_buy"                  # tranche DCA / achat reporte : sans bande
     # Cash oisif alors que le compte est levier (E > 1) : pas la realisation drag-
@@ -443,6 +448,8 @@ def compute_orders(target_e, state, reserved=0.0, force_buy=False, buys_only=Fal
               "buy_band": f"achat (delta +{delta*100:.1f}% >= {BUY_THR_E*100:.0f}%)",
               "sell_band": f"vente (delta {delta*100:.1f}% <= -{SELL_THR_E*100:.0f}%)",
               "force_buy": f"achat sans bande (delta +{delta*100:.1f}%)",
+              "saturate_cap": f"saturation au plafond (cible passee a {target_e*100:.0f}%, "
+                              f"delta +{delta*100:.1f}% >= {SAT_GAP_E*100:.0f}%)",
               "restructure": f"restructuration vers expo {e_new*100:.0f}% (cash oisif {w['cash']*100:.0f}%, "
                              f"cible {target_e*100:.0f}%)"}
     min_txt = (f" ; achat sous le minimum {MIN_BUY_EUR:.0f} EUR conserve en cash : "
@@ -731,7 +738,7 @@ def composition_line(state, reserved=0.0):
     return " | ".join(parts) + f" | especes {cash/V*100:.0f}%"
 
 
-def plan_for_account(account, target_e, state=None):
+def plan_for_account(account, target_e, state=None, saturate=False):
     """Lecture + plan SANS effet de bord (apercu du soir) : la reserve DCA courante est
     prise en compte, sans detection d'apport ni tranche. Renvoie (state, plan)."""
     from src.bourso.capital import load_capital_state, get_entry, reserved_cash
@@ -739,7 +746,8 @@ def plan_for_account(account, target_e, state=None):
     entry = get_entry(load_capital_state(), account.slot)
     reserved = reserved_cash(entry, state["cash"])
     pending = load_pending().get(str(account.slot))
-    plan = compute_orders(target_e, state, reserved=reserved, force_buy=pending is not None)
+    plan = compute_orders(target_e, state, reserved=reserved, force_buy=pending is not None,
+                          saturate=saturate)
     return state, plan
 
 
@@ -828,7 +836,8 @@ def process_account(account, signal, target_e, execute, force_buy=False, buys_on
         return {"plan": None, "state": state, "pending": False}
 
     # 5. Decision (bande asymetrique sur l'exposition reelle de CE compte)
-    plan = compute_orders(target_e, state, reserved=reserved, force_buy=force_buy, buys_only=buys_only)
+    plan = compute_orders(target_e, state, reserved=reserved, force_buy=force_buy, buys_only=buys_only,
+                          saturate=bool(signal.get("saturate_cap")))
     print(f"\nDecision: {plan['reason']}")
 
     # 6. Execution — ventes, attente du cash, achats (backoff court par ordre)

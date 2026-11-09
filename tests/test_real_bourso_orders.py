@@ -384,6 +384,39 @@ def test_live_decision_matches_simulate_net_band():
     assert live_revis == round(revis * 12 / 252)
 
 
+def test_saturate_cap_buys_below_band():
+    """Cible passee au plafond (signal saturate_cap) : achat jusqu'a E_MAX des que
+    l'ecart >= SAT_GAP_E, meme sous BUY_THR_E ; sans le flag, la bande bloque."""
+    from src.real_bourso import SAT_GAP_E
+    st = _state(pust=600, lqq=4000, cash=0)           # PUST 60% + LQQ 40% -> expo 1.40
+    assert abs(compute_orders(E_MAX, st)["e_eff"] - 1.40) < 1e-9
+    assert SAT_GAP_E <= E_MAX - 1.40 < BUY_THR_E
+    assert not compute_orders(E_MAX, st)["orders"]
+    plan = compute_orders(E_MAX, st, saturate=True)
+    assert plan["mode"] == "saturate_cap"
+    assert ("LQQ", "buy") in [(o["instrument"], o["side"]) for o in plan["orders"]]
+    assert not compute_orders(1.5, st, saturate=True)["orders"]   # cible sous le plafond
+
+
+def test_live_saturation_matches_simulate_net():
+    """Meme regle de saturation que simulate_net : prix constants, cible 1.4 puis 1.7."""
+    import numpy as np
+    from src.risk_off_strategy.strategy import saturates_cap
+    alloc = np.array([0.7, 0.7, 0.85, 0.85, 0.85])
+    from src.risk_off_strategy import strategy as st
+    _, _, revis = simulate_net(np.full(5, 100.0), alloc, leverage=2, funding=np.zeros(5), e_max=E_MAX,
+                               sat_gap=st.SAT_GAP_E)
+    assert round(revis * 5 / 252) == 2              # entree 1.4 + saturation 1.7
+    _, _, revis0 = simulate_net(np.full(5, 100.0), alloc, leverage=2, funding=np.zeros(5), e_max=E_MAX)
+    assert round(revis0 * 5 / 252) == 1             # defaut (strategie selectionnee) : bloque a 1.4
+    assert not st.SATURATE_CAP and not saturates_cap(0.7, 0.85)   # desactivee
+    st.SATURATE_CAP = True
+    try:
+        assert saturates_cap(0.7, 0.85) and not saturates_cap(0.85, 0.85)
+    finally:
+        st.SATURATE_CAP = False
+
+
 # ── detection de split ────────────────────────────────────
 def test_split_factor_is_1_5():
     assert SPLIT_DETECT_FACTOR == 1.5

@@ -33,6 +33,8 @@ FRED_SERIES = {
     "CPIAUCSL": ("cpi", "pc1"),          # IPC global, YoY % (garde-fou inflation)
     "CPILFESL": ("cpi_core", "pc1"),     # IPC sous-jacent (core), YoY %
     "DFF":      ("dff", "lin"),          # Fed funds effectif (%) — cout de financement du levier LQQ (backtest net)
+    "BAA10Y":   ("baa10y_spread", "lin"),  # ecart credit BAA - Treasury 10 ans (%) — contexte chart (hors strategie)
+    "DGS2":     ("y2", "lin"),           # Treasury 2 ans (%) — choc de taux, contexte chart (hors strategie)
 }
 
 

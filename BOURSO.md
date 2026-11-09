@@ -269,6 +269,7 @@ Le backtest ecrit `outputs/qqq_strategy/signal.json` :
 - **Bande de non-action asymetrique en EXPOSITION** (importee de `strategy.py`, meme calibrage que le backtest net `simulate_net(e_max=1.7)`) :
   - **Achat** (0.5%) : seulement si exposition cible − reelle >= +0.50 (`BUY_THR_E` = 0.25 x 2)
   - **Vente** (0.5%) : seulement si reelle − cible >= 1.00 (`SELL_THR_E` = 0.50 x 2) → on ne DE-lève que par grands pas
+  - **Saturation au plafond** (mode `saturate_cap`) : **desactivee** (`SATURATE_CAP=False` dans `strategy.py`, `saturate_cap` toujours `false` dans `signal.json`). Si on la reactive : le jour ou la cible PASSE au plafond, achat jusqu'au plafond des que l'ecart >= 0.10 (`SAT_GAP_E`), meme sous le seuil 0.50. Ecartee en 2026-11 car elle degrade le x1.7.
   - **Force cash** : un passage a 0% (garde-fous macro / emergency) liquide TOUJOURS (les deux ETF), meme sous le seuil de vente ; une premiere entree depuis le cash total s'execute meme sous le seuil d'achat.
   - **Restructuration** (hors bande) : compte levier avec cash oisif >= 5% → composition drag-minimale vers
     `clip(cible, E_eff, E_eff + cash)` (plafond `E_MAX`) : si la cible est au-dessus, le cash seul remonte l'expo

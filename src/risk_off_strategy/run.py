@@ -18,7 +18,7 @@ from src.risk_off_strategy.data import (
     load_ohlc, load_macro, load_cape_ecy, load_ndx_excess_snapshot, load_funding,
 )
 from src.risk_off_strategy.strategy import (
-    compute_allocation, yang_zhang_vol, rsi_wilder, target_exposure,
+    compute_allocation, yang_zhang_vol, rsi_wilder, target_exposure, saturates_cap,
     NFCI_OFF, CPI_OFF, ABOVE_CAP, E_MAX,
 )
 from src.risk_off_strategy.backtest import plot_backtest
@@ -202,6 +202,8 @@ def run_ticker(ticker):
         "allocation": last_alloc,
         "exposure": target_exposure(last_alloc),   # expo deployee = min(2.alloc, E_MAX)
         "e_max": E_MAX,
+        "prev_allocation": float(alloc[-2]),
+        "saturate_cap": saturates_cap(float(alloc[-2]), last_alloc),   # cible passe a E_MAX
         "rsi14": rsi14,
         "macro_off": macro_off,
         "timestamp": pd.Timestamp.now().isoformat(),

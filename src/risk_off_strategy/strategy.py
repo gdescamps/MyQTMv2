@@ -7,10 +7,8 @@ Cœur (x1, close-to-close), gap = prix/s - 1 :
                  precoce que le close-to-close ; fallback rvol20 close si pas d'OHLC)
     decay_down = clip(1 + gap / GAP_CUTOFF, 0, 1)          # SOUS la MA : coupe l'expo
                                                             # en s'enfoncant sous la MA
-    decay_up   = clip(1 - max(0, gap - GAP2_START)/GAP2_SPAN, DECAY2_FLOOR, 1)  # AU-DESSUS :
-                                            # trim la sur-extension (reversion des extremes)
-    above      = clip(ABOVE_CAP / vol, 0, 1) * decay_up    # RISK-OFF PRECOCE : coupe deja
-                                            # au-dessus de la MA (vol + sur-extension ; =1 si OHLC absent)
+    above      = clip(ABOVE_CAP / vol, 0, 1)               # RISK-OFF PRECOCE : coupe deja
+                                            # au-dessus de la MA quand la vol monte (=1 si OHLC absent)
     slope_up   = s > s(il y a SLOPE_K jours)               # FILTRE DE PENTE : le bras "above"
                                             # exige une MA montante (coupe le chop sur MA plate)
     alloc      = where(prix > s ET slope_up, above, BELOW_SCALE * clip(VOL_TARGET/vol, 0, 1) * decay_down)
@@ -42,13 +40,13 @@ VOL_WINDOW = 10      # fenetre Yang-Zhang (10j ~= 20j close-to-close en bruit, 2
 ABOVE_CAP = 0.15     # risk-off precoce : vol annualisee au-dela de laquelle on coupe deja
                      #  au-dessus de la MA. Genou de la courbe etendue : sous 0.15 le Calmar
                      #  plafonne (0.62) et le maxDD ne s'ameliore plus (-17% -> -16%), on ne
-                     #  fait plus que de-lever. Protection quasi-maximale. Avec decay_up :
-                     #  CAGR 10.6% / Sharpe 0.95 / Calmar 0.62 / maxDD -17% vs -36% baseline.
-GAP2_START = 0.15    # decay_up : gap (prix/s-1) au-dela duquel on trim l'expo AU-DESSUS de la MA
-                     #  (sur-extension = 75e percentile du gap). Symetrique du decay_down.
-GAP2_SPAN = 0.20     # decay_up : plage de rampe du trim (de 1 au plancher)
-DECAY2_FLOOR = 0.4   # decay_up : plancher (on ne descend pas sous 40% de l'expo cappee)
-                     #  Gain robuste 2 moities : Sharpe 0.88->0.94, Calmar x2 0.61->0.64, maxDD ~stable.
+                     #  fait plus que de-lever. Protection quasi-maximale.
+# decay_up (trim de la sur-extension au-dessus de la MA : gap > +15% -> expo x0.4 a +27%) a ete
+# RETIRE en 2026-11 : dans la strategie deployee x1.7 nette (bande 0.50/1.00 en expo, frais 0.5%),
+# il est redondant avec le cap de vol et masque par la bande -- le retirer fait egal ou mieux sur
+# les deux moities (Calmar H1/H2 0.23/0.85 -> 0.23/0.88, CAGR 15.9 -> 16.3%, maxDD -29.5% inchange ;
+# idem a 0.1%/cote : 0.27/0.90 -> 0.27/0.94) et le laisser declencher des ordres sous la bande
+# degrade (myfiles/pust17_simplify.py, pust17_selective_band.py). 3 parametres en moins.
 SLOPE_K = 40         # filtre de pente : le bras "above" exige SMA250 > sa valeur d'il y a
                      #  SLOPE_K jours (sinon bras below). Coupe les regimes de chop -- prix
                      #  oscillant au-dessus d'une MA plate (2015-16, sommet dot-com) -- la ou
@@ -88,6 +86,35 @@ def yang_zhang_vol(open_, high, low, close, w=VOL_WINDOW):
     return np.maximum(pd.Series(vol).bfill().values, 1e-6)
 
 
+def allocation_components(price, rv, above_cap=ABOVE_CAP, vol_cap=True):
+    """Variables intermediaires de la formule (avant garde-fous macro), source unique
+    pour compute_allocation ET le chart du backtest.
+
+    rv : vol annualisee alignee (Yang-Zhang si OHLC, sinon close-to-close).
+    vol_cap=False : pas d'OHLC -> comportement historique (bras haut = 1, sans cap de vol).
+    Renvoie un dict d'arrays : s (SMA), gap, slope_up, arm_above (bras « au-dessus »
+    actif), cap_vol = min(above_cap/vol, 1), above (= cap_vol, bras haut),
+    vt = min(VOL_TARGET/vol, 1), decay_down, below (= BELOW_SCALE . vt . decay_down)."""
+    p = np.asarray(price, dtype=float)
+    rv = np.asarray(rv, dtype=float)
+    s = pd.Series(p).rolling(SMA_LONG, min_periods=1).mean().values
+    slope_up = np.ones(len(p), dtype=bool)                       # filtre de pente : MA montante
+    if len(p) > SLOPE_K:
+        slope_up[SLOPE_K:] = s[SLOPE_K:] > s[:-SLOPE_K]
+    gap = p / s - 1.0
+    decay_down = np.clip(1.0 + gap / GAP_CUTOFF, 0, 1)          # sous la MA : coupe en s'enfoncant
+    if vol_cap:
+        cap_vol = np.clip(above_cap / rv, 0, 1)
+        above = cap_vol                                          # cap de vol (risk-off precoce)
+    else:
+        cap_vol = np.ones_like(p)
+        above = np.ones_like(p)                                  # comportement historique
+    vt = np.clip(VOL_TARGET / rv, 0, 1)
+    below = BELOW_SCALE * vt * decay_down
+    return dict(s=s, gap=gap, slope_up=slope_up, arm_above=(p > s) & slope_up, cap_vol=cap_vol,
+                above=above, vt=vt, decay_down=decay_down, below=below)
+
+
 def compute_allocation(price, nfci=None, cpi=None, high=None, low=None, open_=None,
                        above_cap=ABOVE_CAP):
     """Allocation continue dans [0, 1].
@@ -100,23 +127,13 @@ def compute_allocation(price, nfci=None, cpi=None, high=None, low=None, open_=No
     cpi   : idem pour l'IPC YoY (%).
     """
     p = np.asarray(price, dtype=float)
-    s = pd.Series(p).rolling(SMA_LONG, min_periods=1).mean().values
-    slope_up = np.ones(len(p), dtype=bool)                       # filtre de pente : MA montante
-    if len(p) > SLOPE_K:
-        slope_up[SLOPE_K:] = s[SLOPE_K:] > s[:-SLOPE_K]
-    gap = p / s - 1.0
-    decay_down = np.clip(1.0 + gap / GAP_CUTOFF, 0, 1)          # sous la MA : coupe en s'enfoncant
-    decay_up = np.clip(1.0 - np.maximum(0.0, gap - GAP2_START) / GAP2_SPAN,
-                       DECAY2_FLOOR, 1.0)                        # au-dessus : trim la sur-extension
-    if high is not None and low is not None and open_ is not None:
+    ohlc = high is not None and low is not None and open_ is not None
+    if ohlc:
         rv = yang_zhang_vol(open_, high, low, p)                # vol precoce (gaps overnight)
-        above = np.clip(above_cap / rv, 0, 1) * decay_up        # cap-vol + trim sur-extension
     else:
-        ret = pd.Series(p).pct_change().fillna(0).values
-        rv = realized_vol(ret)                                  # fallback close-to-close
-        above = np.ones_like(p)                                 # comportement historique
-    below = BELOW_SCALE * np.clip(VOL_TARGET / rv, 0, 1) * decay_down
-    alloc = np.clip(np.where((p > s) & slope_up, above, below), 0, 1)
+        rv = realized_vol(pd.Series(p).pct_change().fillna(0).values)   # fallback close-to-close
+    c = allocation_components(p, rv, above_cap=above_cap, vol_cap=ohlc)
+    alloc = np.clip(np.where(c["arm_above"], c["above"], c["below"]), 0, 1)
     if nfci is not None:
         alloc = np.where(np.nan_to_num(np.asarray(nfci, float), nan=-9) > NFCI_OFF, 0.0, alloc)
     if cpi is not None:
@@ -165,6 +182,26 @@ E_MAX = 1.7            # plafond d'exposition deployee (PUST + LQQ)
 # Seuils de bande en ESPACE EXPOSITION (= seuils alloc . levier, comme simulate_net)
 BUY_THR_E = BUY_THR_ALLOC * LEVERAGE_MAX     # 0.50 : on remonte l'expo (achats gratuits)
 SELL_THR_E = SELL_THR_ALLOC * LEVERAGE_MAX   # 1.00 : on la baisse (vente 0.5%)
+# Saturation au plafond : le jour ou la cible PASSE a E_MAX (veille < E_MAX), on remonte a
+# E_MAX des que l'ecart reel >= SAT_GAP_E, meme sous BUY_THR_E (bande normale ensuite).
+# Backtest 2000-2026 x1.7 frais 0.5% (myfiles/pust17_saturate_cap.py) : 15.9%/an, maxDD
+# -32.1%, Calmar 0.50, H1/H2 0.22/0.79 vs sans 16.3% / -29.5% / 0.55 / 0.23/0.88 —
+# Testee puis ECARTEE (2026-11) : la strategie selectionnee reste x1.7 SANS saturation
+# (la zone 1.2-1.7 sans achat amortit les chocs). Mecanisme conserve, desactive :
+# SATURATE_CAP=False -> simulate_net(sat_gap=None) par defaut, signal saturate_cap=false.
+# Variante etudiee : E_MAX 1.5 + saturation (myfiles/pust15_*.py) = 15.6% / -29.8% / 0.52.
+SATURATE_CAP = False
+SAT_GAP_E = 0.10       # seuil de la variante (utilise seulement si SATURATE_CAP / sat_gap passe)
+
+
+def saturates_cap(prev_alloc, alloc, e_max=E_MAX, leverage=LEVERAGE_MAX):
+    """True le jour ou la cible PASSE au plafond (veille sous e_max, jour = e_max) : le
+    matin suivant, l'execution remonte a e_max si l'ecart >= SAT_GAP_E (cf. simulate_net)."""
+    if not SATURATE_CAP:
+        return False
+    cap = min(e_max, 2.0) - 1e-9
+    return bool(target_exposure(alloc, e_max, leverage) >= cap
+                and target_exposure(prev_alloc, e_max, leverage) < cap)
 
 
 def target_exposure(alloc, e_max=E_MAX, leverage=LEVERAGE_MAX):
@@ -219,7 +256,8 @@ def dca_tranche(rsi, gate=DCA_RSI_GATE, base=DCA_BASE, slope=DCA_SLOPE):
 
 
 def simulate_net(price, alloc, leverage=1, funding=None, cash_rate=0.0,
-                 sell_thr=None, buy_thr=None, exec_lag=1, e_max=None):
+                 sell_thr=None, buy_thr=None, exec_lag=1, e_max=None,
+                 return_expo=False, sat_gap=None):
     """Backtest NET DE FRAIS, execution discretisee a la Bourso.
 
     Modele des instruments (espace index QQQ, cf. convention du repo) :
@@ -239,9 +277,14 @@ def simulate_net(price, alloc, leverage=1, funding=None, cash_rate=0.0,
 
     e_max : plafond d'exposition (None = 2.0) ; la strategie deployee = leverage=2,
     e_max=E_MAX (PUST + LQQ plafonne a 1.7).
+    sat_gap : saturation au plafond (seulement si e_max est donne) — le jour ou la cible
+    passe a e_max (veille < e_max), achat jusqu'a e_max si l'ecart >= sat_gap, meme sous
+    buy_thr. None (defaut, strategie selectionnee) = desactive ; SAT_GAP_E = variante.
 
     funding requis si leverage>1 (financement LQQ) ; sinon renvoie None (le backtest
-    retombe sur le brut). Renvoie (equity_full, fees_yr_%, revis_yr)."""
+    retombe sur le brut). Renvoie (equity_full, fees_yr_%, revis_yr).
+    return_expo=True : ajoute en 4e element l'exposition REELLE detenue chaque jour apres
+    execution et seuillage par la bande (derive comprise entre deux rebalancements)."""
     p = np.asarray(price, float)
     ret = pd.Series(p).pct_change().fillna(0).values
     a = np.asarray(alloc, float)
@@ -260,9 +303,11 @@ def simulate_net(price, alloc, leverage=1, funding=None, cash_rate=0.0,
 
     E = np.clip(leverage * a, 0.0, 2.0 if e_max is None else min(float(e_max), 2.0))
     Etgt = np.concatenate([np.zeros(exec_lag), E[:-exec_lag]]) if exec_lag else E
+    cap = None if (e_max is None or sat_gap is None) else min(float(e_max), 2.0) - 1e-9
     vp = vl = 0.0
     vc = 1.0
     eq = np.empty(n)
+    expo = np.empty(n)
     fees_frac = 0.0
     revis = 0
     for t in range(n):
@@ -272,7 +317,9 @@ def simulate_net(price, alloc, leverage=1, funding=None, cash_rate=0.0,
         et = Etgt[t]
         force = (et == 0.0 and e_eff > 1e-9) or (e_eff == 0.0 and et > 1e-9)
         thr = buy_thr if et > e_eff else sell_thr   # asymetrie : monte fin, descend grossier
-        if abs(et - e_eff) >= thr or force:
+        sat = (cap is not None and t > 0 and et >= cap and Etgt[t - 1] < cap
+               and et - e_eff >= sat_gap)
+        if abs(et - e_eff) >= thr or force or sat:
             wl = max(0.0, et - 1.0)
             wp = et if et <= 1.0 else 2.0 - et
             tp, tl = wp * V, wl * V
@@ -283,7 +330,10 @@ def simulate_net(price, alloc, leverage=1, funding=None, cash_rate=0.0,
             vp, vl, vc = wp * V, wl * V, max(0.0, 1.0 - et) * V
             revis += 1
         eq[t] = V
+        expo[t] = (vp + 2 * vl) / V if V > 0 else 0.0
     yrs = n / ANN
+    if return_expo:
+        return eq, fees_frac / yrs * 100.0, revis / yrs, expo
     return eq, fees_frac / yrs * 100.0, revis / yrs
 
 

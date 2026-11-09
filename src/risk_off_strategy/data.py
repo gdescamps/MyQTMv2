@@ -60,6 +60,26 @@ def load_funding(dates):
     return s.values / 100.0
 
 
+FRED_DAILY_LAG = 1   # series quotidiennes FRED (BAA10Y, DGS2) publiees le lendemain
+Y2_CHG_DAYS = 126    # ~6 mois de seances
+
+
+def load_credit_rates(dates, lag=FRED_DAILY_LAG, chg_days=Y2_CHG_DAYS):
+    """(baa10y, y2_chg) alignes sur `dates` : ecart de credit BAA - Treasury 10 ans (%)
+    et variation du taux 2 ans sur ~6 mois (points). CONTEXTE du chart (crise de credit
+    / choc de taux) -- PAS dans la strategie. None si le fichier FRED est absent."""
+    baa = _load_fred("fred_baa10y_spread.parquet", "baa10y_spread", dates, lag)
+    fp = DATA_DIR / "fred_y2.parquet"
+    y2_chg = None
+    if fp.exists():
+        s = pd.read_parquet(fp)["y2"]
+        bd = pd.bdate_range(s.index.min(), max(s.index.max(), dates.max()))
+        s = s.reindex(bd.union(s.index)).sort_index().ffill()
+        chg = (s - s.shift(chg_days, freq="B").reindex(s.index))
+        y2_chg = chg.reindex(dates.union(chg.index)).sort_index().ffill().reindex(dates).shift(lag).values
+    return baa, y2_chg
+
+
 def load_ndx_excess_snapshot():
     """Snapshot courant de l'excess earnings yield NDX top-5/top-10 (trailing +
     forward vs taux reel), produit par download_ndx_excess_yield. Contexte du

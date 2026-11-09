@@ -7,8 +7,9 @@ plafonnee a E_MAX) NET DE FRAIS via simulate_net (TER PUST/LQQ, financement du
 levier, vente 0.5% au seuil live). La courbe brute de la meme strategie reste en
 pointille pour visualiser le cout des frais ; funding=None (taux court FRED
 indispo) -> repli sur le brut.
-  plot_backtest(..., last_days=None) : chart 6 panneaux (equity+SMA250, vol,
-  allocation, NFCI, inflation, CAPE/ECY S&P Shiller), bandes rouges = top-5 crises.
+  plot_backtest(..., last_days=None) : chart 8 panneaux (equity+SMA250, vol,
+  allocation, variables intermediaires [gap + bras actif ; facteurs cap_vol /
+  0.8.vt / decay_down], NFCI, inflation, CAPE/ECY S&P Shiller), bandes rouges = top-5 crises.
   last_days=252 / 21 -> meme mise en page, fenetree sur la derniere annee / mois
   (indicateurs calcules sur tout l'historique pour le warmup, puis fenetres ;
   equity rebasee au debut de la fenetre, metriques recalculees sur la fenetre).
@@ -23,9 +24,9 @@ import matplotlib.dates as mdates
 
 from src.risk_off_strategy.strategy import (
     realized_vol, simulate_net, SMA_LONG, VOL_TARGET, NFCI_OFF, CPI_OFF, ANN,
-    ABOVE_CAP, BELOW_SCALE, GAP_CUTOFF, GAP2_START, GAP2_SPAN, DECAY2_FLOOR,
+    ABOVE_CAP, BELOW_SCALE, GAP_CUTOFF,
     SLOPE_K, TER_PUST, TER_LQQ, SWAP_SPREAD, SELL_FEE, BUY_FEE, BUY_THR_ALLOC, SELL_THR_ALLOC,
-    E_MAX,
+    E_MAX, allocation_components,
 )
 
 
@@ -33,10 +34,9 @@ def _formula_text():
     """Formule d'allocation (auto-synchronisee sur les constantes de strategy.py)."""
     return (
         f"alloc x1 :   NFCI > {NFCI_OFF}  ou  IPC YoY > {CPI_OFF:.0f}%   ->   0        (garde-fous macro ; sinon :)\n"
-        f"   close > SMA{SMA_LONG} et SMA{SMA_LONG} montante ({SLOPE_K}j)   ->   min({ABOVE_CAP:.2f} / vol, 1) . decay_up   [risk-off precoce]\n"
+        f"   close > SMA{SMA_LONG} et SMA{SMA_LONG} montante ({SLOPE_K}j)   ->   min({ABOVE_CAP:.2f} / vol, 1)   [risk-off precoce]\n"
         f"   sinon (sous la MA ou MA plate/baissiere)   ->   {BELOW_SCALE:.1f} . min({VOL_TARGET:.2f} / vol, 1) . decay_down\n"
         f"vol = Yang-Zhang(OHLC, 10j) ann.        gap = close / SMA{SMA_LONG} - 1\n"
-        f"decay_up = clip(1 - max(0, gap - {GAP2_START:.2f}) / {GAP2_SPAN:.2f}, {DECAY2_FLOOR:.1f}, 1)        "
         f"decay_down = clip(1 + gap / {GAP_CUTOFF:.2f}, 0, 1)\n"
         f"deployee x{E_MAX} = min(2 . alloc x1, {E_MAX}) via PUST + LQQ (LQQ = part > 100%)     "
         f"exec_lag = 1 : close du soir  ->  execution J+1\n"
@@ -140,9 +140,9 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, cape=None, ecy=None, ndx_ey
     edg, cagrdg, dddg, shdg = _window_metrics(ret, pos_d, w0)
     # NET DE FRAIS (execution discretisee Bourso : TER PUST/LQQ, financement du
     # levier au taux court, bande asymetrique, vente 0.5%). funding=None -> pas de net.
-    netd = simulate_net(price, alloc, leverage=2, funding=funding, e_max=E_MAX)
+    netd = simulate_net(price, alloc, leverage=2, funding=funding, e_max=E_MAX, return_expo=True)
     if netd is not None:
-        eqdn, feesd, revd = netd
+        eqdn, feesd, revd, expo_real = netd
         edn, cagrdn, dddn, shdn = _metrics_from_equity(eqdn, w0)
     lbl_d = f"x{E_MAX} PUST+LQQ"
 
@@ -154,7 +154,10 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, cape=None, ecy=None, ndx_ey
             else f"{last_days}j : {d[0].date()} -> {d[-1].date()}")
 
     # Titre (suptitle) + formule + tableau en haut, panneaux data en dessous
-    npan = 3 + (nfci is not None) + (cpi is not None) + (cape is not None)
+    # variables intermediaires de la formule (meme source que compute_allocation)
+    comp = allocation_components(p, rv, above_cap=ABOVE_CAP if above_cap is None else above_cap,
+                                 vol_cap=vol is not None)
+    npan = 5 + (nfci is not None) + (cpi is not None) + (cape is not None)
     ratios = [2.6, 1.1, 1.1] + [1.1] * (npan - 3)
     fig = plt.figure(figsize=(15, 2.4 * npan + 5.5))
     fig.suptitle(f"{ticker} — resultats des strategies  ({span})",
@@ -229,10 +232,42 @@ def plot_backtest(price, alloc, nfci=None, cpi=None, cape=None, ecy=None, ndx_ey
     a3.fill_between(d, alloc[w0:], color="steelblue", alpha=0.35, step="mid", label="allocation x1 (signal)")
     a3.plot(d, expo_d[w0:], color="darkorange", lw=0.9, alpha=0.95,
             label=f"expo deployee = min(2 . alloc, {E_MAX}) via PUST + LQQ")
+    if netd is not None:
+        a3.step(d, expo_real[w0:], where="post", color="black", lw=1.1,
+                label="expo REELLE detenue (apres bande achat +0.50 / vente -1.00, exec J+1)")
     a3.axhline(1.0, color="grey", ls=":", lw=0.6)
     a3.axhline(E_MAX, color="darkorange", ls=":", lw=0.6, alpha=0.7)
     a3.set_ylabel("allocation / expo", fontsize=9); a3.set_ylim(-0.05, E_MAX + 0.2); a3.grid(True, alpha=0.2)
-    a3.legend(loc="upper left", fontsize=7, ncol=2)
+    a3.legend(loc="upper left", fontsize=7, ncol=3)
+
+    # ── variables intermediaires (1/2) : gap a la SMA250 + bras actif ──
+    arm = comp["arm_above"][w0:]
+    ag = next(ax)
+    gp = comp["gap"][w0:] * 100
+    ag.plot(d, gp, color="black", lw=0.8, label=f"gap = close / SMA{SMA_LONG} - 1 (%)")
+    ag.fill_between(d, 0, 1, where=arm, transform=ag.get_xaxis_transform(), step="mid",
+                    color="green", alpha=0.10, lw=0, label=f"bras HAUT (close > SMA et SMA montante {SLOPE_K}j)")
+    ag.fill_between(d, 0, 1, where=~arm, transform=ag.get_xaxis_transform(), step="mid",
+                    color="grey", alpha=0.15, lw=0, label="bras BAS (sous la MA ou MA plate/baissiere)")
+    ag.axhline(0, color="green", ls="-", lw=0.6, alpha=0.6)
+    ag.axhline(-GAP_CUTOFF * 100, color="navy", ls="--", lw=0.8, label=f"decay_down = 0 (-{GAP_CUTOFF*100:.0f}%)")
+    ag.set_ylabel("gap SMA (%)", fontsize=9); ag.grid(True, alpha=0.2)
+    ag.legend(loc="upper left", fontsize=7, ncol=2)
+
+    # ── variables intermediaires (2/2) : facteurs multiplicatifs (trait plein = bras actif) ──
+    af = next(ax)
+    facs = [("cap_vol", comp["cap_vol"], "red", f"cap_vol = min({ABOVE_CAP:.2f}/vol, 1)", True),
+            ("vt", BELOW_SCALE * comp["vt"], "steelblue", f"{BELOW_SCALE:.1f} . min({VOL_TARGET:.2f}/vol, 1)", False),
+            ("decay_down", comp["decay_down"], "navy", "decay_down", False)]
+    for _, v, col, lab, up in facs:
+        vw = v[w0:]
+        on = arm if up else ~arm
+        af.plot(d, vw, color=col, lw=0.6, alpha=0.25)
+        af.plot(d, np.where(on, vw, np.nan), color=col, lw=1.1,
+                label=f"{lab}  [{'bras haut' if up else 'bras bas'}]")
+    af.set_ylim(-0.05, 1.1)
+    af.set_ylabel("facteurs (0-1)", fontsize=9); af.grid(True, alpha=0.2)
+    af.legend(loc="lower left", fontsize=7, ncol=2)
 
     if nfci is not None:
         an = next(ax)

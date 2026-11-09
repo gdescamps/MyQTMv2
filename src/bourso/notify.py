@@ -96,7 +96,7 @@ def send_email(subject, body, to=None, images=None):
 EMERGENCY_LINE = "  ARRET D'URGENCE ACTIF — aucun achat tant qu'il n'est pas desactive"
 
 
-def _account_preview(account, alloc, alloc_pct, emergency=False):
+def _account_preview(account, alloc, alloc_pct, emergency=False, saturate=False):
     """Apercu de l'action du matin pour UN compte, en REUTILISANT le vrai chemin
     d'execution (real_bourso) : meme plafond d'exposition, meme bande asymetrique,
     meme force cash, meme reserve DCA, meme emergency-off (cible forcee a 0).
@@ -107,7 +107,7 @@ def _account_preview(account, alloc, alloc_pct, emergency=False):
         target_exposure, E_MAX, STRATEGY_LABEL,
     )
     target_e = 0.0 if emergency else target_exposure(alloc, E_MAX)
-    state, plan = plan_for_account(account, target_e)
+    state, plan = plan_for_account(account, target_e, saturate=saturate)
     if plan["orders"]:
         for o in plan["orders"]:
             o["status"] = "dry-run"
@@ -179,7 +179,8 @@ def send_recap():
     ok = True
     for account in accounts:
         try:
-            preview = _account_preview(account, alloc, alloc_pct, emergency)
+            preview = _account_preview(account, alloc, alloc_pct, emergency,
+                                       saturate=bool(signal.get("saturate_cap")))
         except Exception as e:  # noqa: BLE001
             preview = (f"  Compte:     {account.label} — CONNEXION KO ({str(e)[:200]})"
                        f"\n  Impossible de verifier le PEA ; l'execution du matin reessaiera.")
