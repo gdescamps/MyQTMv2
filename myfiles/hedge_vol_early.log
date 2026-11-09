@@ -1,0 +1,137 @@
+Jours stress (YZ10 >= 15%) depuis 2006-07-01 : 2917, dont 'importants' (baisse > 8 % sous 21 j) : 466
+Pics de vol : 301 jours sur 5111
+
+=== Score du modele BASE seul (prix : YZ10, vol60, ecart SMA, r5, r21) ===
+       base H1->H2  base H2->H1
+cible                          
+bad          0.584        0.597
+spike        0.693        0.665
+surp         0.051        0.154
+
+=== SURPRISE DE VOL (Δ R² hors echantillon) — trie par le gain du pire sens ===
+      variable  debut    n  gain H1->H2  gain H2->H1  gain min  IC residu  robuste
+     cot_es_am   2006 5111        0.014        0.010     0.010      0.065     True
+    pc_total_z   2006 5111        0.006        0.006     0.006     -0.032     True
+           vrp   2006 5111        0.013        0.006     0.006      0.115     True
+     vix9d_vix   2011 3976        0.009        0.002     0.002      0.094     True
+    cot_es_dlr   2006 5111        0.002        0.003     0.002     -0.041     True
+ cot_es_dlr_d4   2006 5102        0.001        0.002     0.001     -0.018     True
+ cot_nq_lev_d4   2006 5102        0.002        0.001     0.001      0.014     True
+          vvix   2007 4984        0.000        0.001     0.000      0.046    False
+  cot_es_am_d4   2006 5102        0.000        0.002     0.000      0.036    False
+ cot_nq_dlr_d4   2006 5102        0.002        0.000     0.000     -0.052    False
+   pc_equity_z   2006 5111        0.001        0.000     0.000     -0.004    False
+     vix_vix3m   2006 5101       -0.001        0.003    -0.001      0.076    False
+         gex_z   2011 3769        0.002       -0.001    -0.001     -0.056    False
+    cot_nq_dlr   2006 5111       -0.002        0.002    -0.002      0.016    False
+   cot_vix_dlr   2006 5067       -0.002        0.003    -0.002     -0.057    False
+   cot_vix_lev   2006 5067       -0.002       -0.003    -0.003      0.069    False
+        skew_z   2006 5111        0.000       -0.003    -0.003     -0.006    False
+ cot_vix_am_d4   2006 5048        0.000       -0.004    -0.004     -0.006    False
+    cot_es_lev   2006 5111        0.000       -0.004    -0.004     -0.055    False
+      pc_total   2006 5111       -0.005       -0.001    -0.005     -0.005    False
+    pc_index_z   2006 5111       -0.002       -0.005    -0.005     -0.011    False
+      pc_index   2006 5111       -0.005        0.003    -0.005      0.071    False
+  cot_nq_am_d4   2006 5102       -0.006        0.003    -0.006      0.054    False
+         dix_z   2011 3767       -0.007        0.000    -0.007      0.011    False
+ cot_es_lev_d4   2006 5102       -0.001       -0.008    -0.008     -0.030    False
+     cot_nq_am   2006 5111       -0.013       -0.009    -0.013      0.010    False
+    cot_nq_lev   2006 5111        0.006       -0.013    -0.013     -0.046    False
+    cot_vix_am   2006 5067       -0.016        0.003    -0.016     -0.053    False
+           vix   2006 5111       -0.017        0.005    -0.017      0.098    False
+cot_vix_dlr_d4   2006 5048       -0.008       -0.020    -0.020      0.005    False
+       gex_neg   2011 3894       -0.024       -0.018    -0.024      0.040    False
+     pc_equity   2006 5111       -0.024       -0.003    -0.024     -0.020    False
+cot_vix_lev_d4   2006 5048       -0.001       -0.025    -0.025      0.004    False
+          skew   2006 5111       -0.037        0.003    -0.037      0.011    False
+
+=== PIC DE VOL (Δ AUC) — trie par le gain du pire sens ===
+      variable  debut    n  gain H1->H2  gain H2->H1  gain min  IC residu  robuste
+  cot_nq_am_d4   2006 5102        0.011        0.018     0.011     -0.009     True
+    cot_nq_lev   2006 5111        0.010        0.009     0.009      0.102     True
+         gex_z   2011 3769        0.008        0.054     0.008      0.258     True
+           vrp   2006 5111        0.013        0.003     0.003     -0.075     True
+    pc_index_z   2006 5111        0.005        0.002     0.002     -0.089     True
+     vix9d_vix   2011 3976        0.002        0.022     0.002     -0.149     True
+ cot_nq_dlr_d4   2006 5102        0.010        0.001     0.001     -0.008     True
+ cot_es_lev_d4   2006 5102        0.001        0.002     0.001      0.003     True
+ cot_nq_lev_d4   2006 5102       -0.000       -0.000    -0.000      0.008    False
+      pc_index   2006 5111       -0.001        0.001    -0.001     -0.135    False
+     cot_nq_am   2006 5111       -0.002       -0.001    -0.002      0.010    False
+    cot_es_dlr   2006 5111        0.001       -0.003    -0.003      0.046    False
+    pc_total_z   2006 5111        0.017       -0.003    -0.003     -0.144    False
+    cot_nq_dlr   2006 5111       -0.004       -0.000    -0.004     -0.061    False
+  cot_es_am_d4   2006 5102       -0.005        0.004    -0.005     -0.021    False
+ cot_es_dlr_d4   2006 5102        0.000       -0.005    -0.005      0.007    False
+   cot_vix_lev   2006 5067       -0.008        0.003    -0.008     -0.061    False
+        skew_z   2006 5111       -0.010        0.005    -0.010      0.007    False
+ cot_vix_am_d4   2006 5048       -0.011        0.004    -0.011     -0.040    False
+cot_vix_lev_d4   2006 5048        0.001       -0.012    -0.012      0.013    False
+           vix   2006 5111       -0.012       -0.012    -0.012     -0.292    False
+     vix_vix3m   2006 5101       -0.004       -0.012    -0.012     -0.218    False
+         dix_z   2011 3767       -0.006       -0.015    -0.015     -0.024    False
+cot_vix_dlr_d4   2006 5048        0.001       -0.021    -0.021     -0.005    False
+      pc_total   2006 5111        0.002       -0.028    -0.028     -0.098    False
+   cot_vix_dlr   2006 5067       -0.005       -0.030    -0.030      0.088    False
+   pc_equity_z   2006 5111       -0.018       -0.037    -0.037     -0.148    False
+    cot_es_lev   2006 5111       -0.038       -0.004    -0.038      0.062    False
+     cot_es_am   2006 5111       -0.040        0.007    -0.040     -0.093    False
+       gex_neg   2011 3894       -0.042       -0.005    -0.042     -0.174    False
+          vvix   2007 4984       -0.046       -0.009    -0.046     -0.206    False
+     pc_equity   2006 5111       -0.046       -0.050    -0.050     -0.076    False
+    cot_vix_am   2006 5067       -0.082        0.009    -0.082      0.023    False
+          skew   2006 5111       -0.092       -0.002    -0.092      0.003    False
+
+=== VOL IMPORTANTE vs BENIGNE sur jours stress (Δ AUC) — trie par le gain du pire sens ===
+      variable  debut    n  gain H1->H2  gain H2->H1  gain min  IC residu  robuste
+    pc_index_z   2006 2917        0.008        0.032     0.008     -0.002     True
+         dix_z   2011 1946        0.003        0.005     0.003     -0.201     True
+       gex_neg   2011 2037        0.019        0.002     0.002     -0.277     True
+    cot_nq_lev   2006 2917       -0.001        0.011    -0.001     -0.068    False
+ cot_es_dlr_d4   2006 2908       -0.004        0.019    -0.004     -0.138    False
+ cot_nq_lev_d4   2006 2908       -0.001       -0.005    -0.005     -0.024    False
+ cot_nq_dlr_d4   2006 2908       -0.006       -0.006    -0.006     -0.063    False
+    cot_es_lev   2006 2917       -0.006       -0.008    -0.008     -0.058    False
+      pc_total   2006 2917        0.002       -0.008    -0.008     -0.298    False
+           vrp   2006 2917       -0.004       -0.010    -0.010      0.076    False
+          skew   2006 2917       -0.010       -0.008    -0.010      0.273    False
+     cot_es_am   2006 2917       -0.010        0.001    -0.010      0.254    False
+          vvix   2007 2843        0.007       -0.011    -0.011      0.012    False
+  cot_es_am_d4   2006 2908       -0.004       -0.014    -0.014      0.103    False
+  cot_nq_am_d4   2006 2908       -0.015       -0.004    -0.015      0.087    False
+      pc_index   2006 2917       -0.015       -0.003    -0.015     -0.050    False
+           vix   2006 2917       -0.016       -0.005    -0.016     -0.359    False
+   pc_equity_z   2006 2917       -0.019        0.001    -0.019     -0.283    False
+    cot_vix_am   2006 2874       -0.001       -0.021    -0.021      0.025    False
+    cot_nq_dlr   2006 2917       -0.014       -0.024    -0.024     -0.152    False
+ cot_vix_am_d4   2006 2860       -0.010       -0.027    -0.027     -0.030    False
+     vix_vix3m   2006 2907       -0.032       -0.004    -0.032     -0.371    False
+cot_vix_dlr_d4   2006 2860       -0.014       -0.033    -0.033      0.132    False
+     cot_nq_am   2006 2917       -0.023       -0.035    -0.035      0.205    False
+     pc_equity   2006 2917       -0.017       -0.039    -0.039     -0.337    False
+     vix9d_vix   2011 2071       -0.004       -0.049    -0.049     -0.277    False
+        skew_z   2006 2917       -0.014       -0.056    -0.056      0.235    False
+         gex_z   2011 1948        0.004       -0.058    -0.058      0.317    False
+   cot_vix_dlr   2006 2874       -0.010       -0.060    -0.060      0.149    False
+    pc_total_z   2006 2917       -0.068       -0.005    -0.068     -0.214    False
+   cot_vix_lev   2006 2874       -0.012       -0.079    -0.079     -0.052    False
+    cot_es_dlr   2006 2917       -0.087        0.000    -0.087     -0.150    False
+ cot_es_lev_d4   2006 2908       -0.082       -0.088    -0.088      0.053    False
+cot_vix_lev_d4   2006 2860       -0.063       -0.157    -0.157      0.029    False
+
+=== Backtest x1.7 net (frais 0.5 %) : YZ10 remplacee par une prevision de vol cross-fit ===
+                                           vol utilisee  frais %/an  revis/an  H1 06-15 %/an  H1 06-15 maxDD  H1 06-15 Calmar  H2 16-26 %/an  H2 16-26 maxDD  H2 16-26 Calmar  2006-26 %/an  2006-26 maxDD  2006-26 Calmar
+                                    YZ10 (ref deployee)        0.89       3.8           15.4           -29.0             0.53           25.6           -29.5             0.87          20.6          -29.5            0.70
+                            prevision base (prix seuls)        0.81       3.7           12.8           -34.5             0.37           22.9           -33.3             0.69          17.8          -34.5            0.52
+                             prevision base + cot_es_am        0.91       3.9           12.9           -34.7             0.37           21.1           -32.9             0.64          17.0          -34.7            0.49
+                                 YZ10 x delta cot_es_am        0.76       3.6           13.8           -28.8             0.48           23.5           -30.9             0.76          18.7          -31.5            0.59
+                                   prevision base + vrp        0.94       4.0           14.0           -29.9             0.47           22.8           -33.7             0.68          18.4          -35.0            0.53
+                                       YZ10 x delta vrp        0.80       3.6           14.4           -28.4             0.51           21.5           -33.6             0.64          18.0          -33.6            0.53
+                            prevision base + pc_total_z        0.83       3.8           12.8           -34.4             0.37           23.1           -33.2             0.69          17.9          -34.4            0.52
+                                YZ10 x delta pc_total_z        0.78       3.6           14.2           -29.0             0.49           25.4           -29.5             0.86          19.8          -29.5            0.67
+                             prevision base + vix9d_vix        0.89       3.9           12.7           -30.9             0.41           26.2           -27.5             0.95          19.5          -31.6            0.62
+                                 YZ10 x delta vix9d_vix        0.83       3.7           14.9           -29.0             0.51           21.9           -33.3             0.66          18.4          -33.3            0.55
+      prevision base + CBOE vol (VIX, terme, VVIX, VRP)        0.82       3.7           15.3           -28.4             0.54           24.3           -34.2             0.71          19.8          -34.2            0.58
+          YZ10 x delta CBOE vol (VIX, terme, VVIX, VRP)        0.76       3.5           15.2           -29.1             0.52           24.8           -31.3             0.79          20.1          -31.3            0.64
+prevision base + couverture pure (SKEW, put/call, CFTC)        0.78       3.5           14.0           -28.5             0.49           23.7           -29.2             0.81          18.9          -34.1            0.55
+    YZ10 x delta couverture pure (SKEW, put/call, CFTC)        0.80       3.6           14.8           -28.4             0.52           21.4           -31.0             0.69          18.1          -31.0            0.58
