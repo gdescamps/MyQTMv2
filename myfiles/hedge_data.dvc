@@ -1,0 +1,6 @@
+outs:
+- md5: e69b53393f5171dd64e29a24c586de51.dir
+  size: 649229
+  nfiles: 5
+  hash: md5
+  path: hedge_data
