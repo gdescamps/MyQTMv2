@@ -1,12 +1,12 @@
 """E_MAX 1.5 + saturation : balayage des seuils de réallocation (espace exposition).
 Actuel : achat 0.50 / vente 1.00. Frais 0.5 %/côté.
-    python -m myfiles.pust15_sat_band_sweep
+    python -m myfiles.failed_xp.pust15_sat_band_sweep
 """
 import numpy as np
 import pandas as pd
 
 import src.risk_off_strategy.strategy as st
-from myfiles.pust17_emax_saturate import metr
+from myfiles.failed_xp.pust17_emax_saturate import metr
 from src.risk_off_strategy.data import load_funding, load_macro, load_ohlc
 
 
@@ -30,7 +30,7 @@ def main():
                 r.update({f"{h} %/an": round(cg, 1), f"{h} DD": round(dd, 1), f"{h} Sh": round(sh, 2), f"{h} Cal": round(k, 2)})
             rows.append(r)
     df = pd.DataFrame(rows)
-    df.to_csv(f"myfiles/pust15_sat_band_sweep_{st.BUY_FEE*1000:.0f}bp10.csv", index=False)
+    df.to_csv(f"myfiles/failed_xp/pust15_sat_band_sweep_{st.BUY_FEE*1000:.0f}bp10.csv", index=False)
     pd.set_option("display.width", 320)
     cols = ["achat", "vente", "frais", "ordres", "tout %/an", "tout DD", "tout Sh", "tout Cal", "H1 Cal", "H2 Cal",
             "10ans %/an", "10ans Cal", "5ans %/an", "5ans DD"]

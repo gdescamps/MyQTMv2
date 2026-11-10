@@ -6,13 +6,13 @@ Familles :
   C. alloc lissée : EMA asymétrique de l'allocation (demi-vie montée hu / descente hd)
   D. paliers      : exposition quantifiée en paliers (pas d) avec hystérésis h (seuils dans la formule)
 Frais 0.5 % et 0.1 %/côté.
-    python -m myfiles.pust15_formula_inertia
+    python -m myfiles.failed_xp.pust15_formula_inertia
 """
 import numpy as np
 import pandas as pd
 
 import src.risk_off_strategy.strategy as st
-from myfiles.pust17_emax_saturate import metr
+from myfiles.failed_xp.pust17_emax_saturate import metr
 from src.risk_off_strategy.data import load_funding, load_macro, load_ohlc
 
 EM = 1.5
@@ -101,7 +101,7 @@ def main():
                     r.update({f"{k_} %/an": round(cg, 1), f"{k_} DD": round(dd, 1), f"{k_} Sh": round(sh, 2), f"{k_} Cal": round(cal, 2)})
                 rows.append(r)
     df = pd.DataFrame(rows)
-    df.to_csv("myfiles/pust15_formula_inertia.csv", index=False)
+    df.to_csv("myfiles/failed_xp/pust15_formula_inertia.csv", index=False)
     pd.set_option("display.width", 320)
     pd.set_option("display.max_rows", 500)
     cols = ["formule", "bande", "frais/an", "ordres/an", "tout %/an", "tout DD", "tout Sh", "tout Cal", "H1 Cal", "H2 Cal",

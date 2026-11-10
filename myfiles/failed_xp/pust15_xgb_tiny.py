@@ -6,15 +6,15 @@ h jours suivants (t+1 .. t+h, cohérent avec l'exécution J+1) :  max Σ a·r �
 -> le modèle apprend DIRECTEMENT l'allocation (pas de seuil de probabilité arbitraire).
 Apprentissage = années PAIRES (purge des h derniers jours de chaque année paire : leur cible déborde sur l'impaire),
 validation = années IMPAIRES. Backtest net déployé : E_MAX 1.5 + saturation, bande 0.50/1.00, frais 0.5 %.
-    python -m myfiles.pust15_xgb_tiny
+    python -m myfiles.failed_xp.pust15_xgb_tiny
 """
 import numpy as np
 import pandas as pd
 import xgboost as xgb
 
 import src.risk_off_strategy.strategy as st
-from myfiles.pust15_learned_evenodd import C, CP, EVEN, FUND, G, IDX, NF, ODD, P, SL, VOL, run, stitched, row as row_eo
-from myfiles.pust17_emax_saturate import metr  # noqa: F401
+from myfiles.failed_xp.pust15_learned_evenodd import C, CP, EVEN, FUND, G, IDX, NF, ODD, P, SL, VOL, run, stitched, row as row_eo
+from myfiles.failed_xp.pust17_emax_saturate import metr  # noqa: F401
 
 X = pd.DataFrame({"g": G, "sl": SL, "vol": VOL,
                   "nfci": pd.Series(NF).ffill().values, "cpi": pd.Series(CP).ffill().values})
@@ -53,7 +53,7 @@ def fit(h, gamma, n_trees, depth, lr=1.0):
 
 
 def main():
-    import myfiles.pust15_learned_evenodd as eo
+    import myfiles.failed_xp.pust15_learned_evenodd as eo
     rows = [row_eo("FORMULE experte (8 param.)", 8, eo.formula(eo.FORM_DEFAULT))]
     dumps = {}
     for h in (5, 21, 63):
@@ -67,8 +67,8 @@ def main():
                 rows.append(r)
                 dumps[lab] = bst.get_dump()
     df = pd.DataFrame(rows)
-    df.to_csv("myfiles/pust15_xgb_tiny.csv", index=False)
-    with open("myfiles/pust15_xgb_tiny_trees.txt", "w") as f:
+    df.to_csv("myfiles/failed_xp/pust15_xgb_tiny.csv", index=False)
+    with open("myfiles/failed_xp/pust15_xgb_tiny_trees.txt", "w") as f:
         for k_, v in dumps.items():
             f.write(f"### {k_}\n" + "\n".join(v) + "\n")
     pd.set_option("display.width", 340)

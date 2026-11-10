@@ -10,7 +10,7 @@ Par millésime (walk-forward, tout reste DANS l'apprentissage, aucune fuite vers
 4. ridge final sur les composantes retenues (alpha par validation temporelle) → prédiction test.
 Référence : même pipeline sans filtre (K=64, alpha par validation).
 Cibles : vol20 (X = MM20), surp = log(vol J+1..J+3 / YZ10) (X = jour, MM3).
-    python -m myfiles.pit_stable_features
+    python -m myfiles.failed_xp.pit_stable_features
 """
 import glob
 import os
@@ -108,7 +108,7 @@ def main():
             row[str(yr)] = round(gy.pred.corr(y.loc[gy.index], method="spearman"), 2)
         out.append(row)
     df = pd.DataFrame(out)
-    df.to_csv("myfiles/pit_stable_features.csv", index=False)
+    df.to_csv("myfiles/failed_xp/pit_stable_features.csv", index=False)
     pd.set_option("display.width", 250)
     print(df.to_string(index=False))
 

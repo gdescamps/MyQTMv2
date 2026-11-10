@@ -11,7 +11,7 @@ Pic : 'all' = plus haut historique, 252/126 = plus haut glissant (deblocage par 
 Execution : 'band' = le cap ne modifie que la cible (la bande 0.50/1.00 decide) ;
             'hard' = vente forcee jusqu'au cap des que expo effective − cap >= 0.20.
 Validation : parametres choisis sur une moitie (Calmar), lus sur l'autre — H1 2000-2012 / H2 2013-2026.
-    python -W ignore -m myfiles.pust17_dd_control      (log : myfiles/pust17_dd_control.log)
+    python -W ignore -m myfiles.failed_xp.pust17_dd_control      (log : myfiles/failed_xp/pust17_dd_control.log)
 
 Resultats (2026-11-09, ref = 16.4 %/an, maxDD -29.5 %, Calmar 0.55, H1/H2 0.23/0.88) — ECARTE :
   - 300 variantes : AUCUNE ne bat la ref en Calmar (meilleure : step 25 %/cap 1.0/shadow/126/band = 0.53).
@@ -156,7 +156,7 @@ def main():
         record(kind, {"p1": p1, "p2": p2, "source": source, "pic": window, "exec": mode}, *res)
 
     df = pd.DataFrame(rows)
-    df.to_csv("myfiles/pust17_dd_control.csv", index=False)
+    df.to_csv("myfiles/failed_xp/pust17_dd_control.csv", index=False)
     pd.set_option("display.width", 280)
     pd.set_option("display.max_rows", 300)
     cols = ["regle", "p1", "p2", "source", "pic", "exec", "% jours plafonnes", "expo moy", "H1 %/an", "H1 maxDD",

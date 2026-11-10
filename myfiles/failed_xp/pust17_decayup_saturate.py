@@ -2,13 +2,13 @@
 Re-applique l'ancien trim de sur-extension au bras « au-dessus » :
     decay_up = clip(1 − max(0, gap − 0.15)/0.20, FLOOR, 1)   (FLOOR=0.4 = valeur retirée en 2026-11)
 Grille : E_MAX 1.7/1.6/1.5 × saturation oui/non × decay_up non/oui (+ planchers 0.6, 0.8). Frais 0.5 %/côté.
-    python -m myfiles.pust17_decayup_saturate
+    python -m myfiles.failed_xp.pust17_decayup_saturate
 """
 import numpy as np
 import pandas as pd
 
 import src.risk_off_strategy.strategy as st
-from myfiles.pust17_emax_saturate import metr
+from myfiles.failed_xp.pust17_emax_saturate import metr
 from src.risk_off_strategy.data import load_funding, load_macro, load_ohlc
 
 GAP2_START, GAP2_SPAN = 0.15, 0.20
@@ -51,7 +51,7 @@ def main():
                         r["tout Sh"] = round(sh, 2)
                 rows.append(r)
     df = pd.DataFrame(rows)
-    df.to_csv("myfiles/pust17_decayup_saturate.csv", index=False)
+    df.to_csv("myfiles/failed_xp/pust17_decayup_saturate.csv", index=False)
     pd.set_option("display.width", 320)
     print(df.to_string(index=False))
 

@@ -10,7 +10,7 @@ Modèles :
   ARM9   : 2 bras (comme la formule) — au-dessus (g>0 & sl>0) : c1/vol·σ(a0 + a1 g) ; sinon c2/vol·σ(b0 + b1 g) ;
            × σ(m0 − m1·nf − m2·cpi)  -> 9 param.
   VT10   : c/vol · σ(w0 + w1 g + w2 sl + w3 lv + w4 nf + w5 cpi + w6 g·lv + w7 g·sl + w8 g²)  -> 10 param.
-    python -m myfiles.pust15_learned_evenodd
+    python -m myfiles.failed_xp.pust15_learned_evenodd
 """
 import json
 
@@ -19,7 +19,7 @@ import pandas as pd
 from scipy.optimize import differential_evolution
 
 import src.risk_off_strategy.strategy as st
-from myfiles.pust17_emax_saturate import metr
+from myfiles.failed_xp.pust17_emax_saturate import metr
 from src.risk_off_strategy.data import load_funding, load_macro, load_ohlc
 
 EM = 1.5
@@ -129,8 +129,8 @@ def main():
         rows.append(row(f"{name} appris (paires)", len(b), f(res.x)))
         print(f"done {name}: {params[name]}", flush=True)
     df = pd.DataFrame(rows)
-    df.to_csv("myfiles/pust15_learned_evenodd.csv", index=False)
-    json.dump(params, open("myfiles/pust15_learned_evenodd_params.json", "w"), indent=1)
+    df.to_csv("myfiles/failed_xp/pust15_learned_evenodd.csv", index=False)
+    json.dump(params, open("myfiles/failed_xp/pust15_learned_evenodd_params.json", "w"), indent=1)
     pd.set_option("display.width", 340)
     print(df.to_string(index=False))
 

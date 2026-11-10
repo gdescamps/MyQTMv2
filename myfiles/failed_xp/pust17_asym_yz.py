@@ -1,6 +1,6 @@
 """YZ 10 j × facteur d'asymétrie (vol pondérée baisses/hausses ÷ même vol sans asymétrie) — suite de pust17_asym_vol.
 Le facteur > 1 quand les baisses dominent les 10 dernières séances, < 1 après une série de hausses.
-    python -m myfiles.pust17_asym_yz
+    python -m myfiles.failed_xp.pust17_asym_yz
 """
 import numpy as np
 import pandas as pd
@@ -43,7 +43,7 @@ def main():
             row[k_] = round(100 * (eq[m][-1] / eq[m][0] - 1))
         rows.append(row)
     out = pd.DataFrame(rows)
-    out.to_csv("myfiles/pust17_asym_yz.csv", index=False)
+    out.to_csv("myfiles/failed_xp/pust17_asym_yz.csv", index=False)
     pd.set_option("display.width", 280)
     cols = ["candidat", "H1 %/an", "H1 maxDD", "H1 Calmar", "H2 %/an", "H2 maxDD", "H2 Calmar", "tout %/an", "tout maxDD",
             "tout Calmar", "frais %/an", "revis/an"] + list(EPIS)

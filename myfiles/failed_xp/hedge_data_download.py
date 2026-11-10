@@ -1,4 +1,4 @@
-"""Telecharge les donnees gratuites de couverture / positionnement institutionnel -> myfiles/hedge_data/.
+"""Telecharge les donnees gratuites de couverture / positionnement institutionnel -> myfiles/failed_xp/hedge_data/.
 
   cftc_{nq,es,vix}.parquet : CFTC Traders in Financial Futures (futures only), hebdo depuis 2006
                              E-mini Nasdaq-100 (209742), E-mini S&P 500 (13874A), VIX futures (1170E1)
@@ -6,14 +6,14 @@
   dix.parquet              : SqueezeMetrics DIX (dark pool) / GEX (gamma dealers), quotidien depuis 2011
   cboe_idx.parquet         : ^SKEW, ^VVIX, ^VIX, ^VIX3M, ^VIX9D (yfinance), quotidien
 Put/call CBOE : deja dans data/cboe_putcall.parquet. Non couverts : NAAIM (page JS), short interest FINRA.
-    python -m myfiles.hedge_data_download
+    python -m myfiles.failed_xp.hedge_data_download
 """
 import os
 
 import pandas as pd
 import requests
 
-OUT = "myfiles/hedge_data"
+OUT = "myfiles/failed_xp/hedge_data"
 CFTC = {"nq": "209742", "es": "13874A", "vix": "1170E1"}
 CFTC_URL = "https://publicreporting.cftc.gov/resource/gpe5-46if.json"
 UA = {"User-Agent": "Mozilla/5.0 (research script)"}

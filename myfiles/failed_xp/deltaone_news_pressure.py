@@ -69,4 +69,4 @@ pd.set_option("display.width", 220)
 for per in ("biaisé", "OOS"):
     print(f"\n#### {per}")
     print(res[res["période"] == per].drop(columns="période").to_string(index=False))
-res.to_csv("myfiles/deltaone_news_pressure.csv", index=False)
+res.to_csv("myfiles/failed_xp/deltaone_news_pressure.csv", index=False)

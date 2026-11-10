@@ -7,7 +7,7 @@ Variance journalière d_t = gap overnight² + Garman-Klass intraday (même mati�
               λ_hausse les jours haussiers (oubli rapide)
 Injectée à la place de la YZ 10 j dans compute_allocation (x1.7 PUST+LQQ, frais 0.1 %/côté, NFCI+CPI).
 Validation : H1 2000-2012 / H2 2013-2026 (battre la YZ sur les deux), validation croisée, épisodes.
-    python -m myfiles.pust17_asym_vol
+    python -m myfiles.failed_xp.pust17_asym_vol
 """
 import numpy as np
 import pandas as pd
@@ -65,7 +65,7 @@ def main():
             row[k_] = round(100 * (eq[m][-1] / eq[m][0] - 1))
         rows.append(row)
     out = pd.DataFrame(rows)
-    out.to_csv("myfiles/pust17_asym_vol.csv", index=False)
+    out.to_csv("myfiles/failed_xp/pust17_asym_vol.csv", index=False)
     pd.set_option("display.width", 280)
     cols = ["candidat", "H1 Calmar", "H2 Calmar", "tout %/an", "tout maxDD", "tout Calmar", "frais %/an", "revis/an"] + list(EPIS)
     print(out[cols].to_string(index=False))

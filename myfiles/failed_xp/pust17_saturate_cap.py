@@ -2,7 +2,7 @@
 jour = 1.7), on achète jusqu'à 1.7 quel que soit l'écart (≥ min_gap), même sous le seuil d'achat 0.50.
 Ensuite la bande normale reprend (pas de complément continu tant que la cible reste au plafond).
 Comparé à : actuelle, et « complément continu au plafond » (pust17_topup_cap).
-    python -m myfiles.pust17_saturate_cap
+    python -m myfiles.failed_xp.pust17_saturate_cap
 """
 import numpy as np
 import pandas as pd
@@ -89,7 +89,7 @@ def main():
                 row[k_] = round(100 * (eq[m][-1] / eq[m][0] - 1))
             rows.append(row)
     df = pd.DataFrame(rows)
-    df.to_csv("myfiles/pust17_saturate_cap.csv", index=False)
+    df.to_csv("myfiles/failed_xp/pust17_saturate_cap.csv", index=False)
     pd.set_option("display.width", 340)
     cols = ["variante", "tout %/an", "tout maxDD", "tout Calmar", "tout Sharpe", "H1 Calmar", "H2 Calmar", "5 ans %/an",
             "5 ans maxDD", "frais %/an", "ordres/an", "dont saturations/an", "expo moy. cible=1.7", "T4 2020-T1 2021"] + list(EPIS)

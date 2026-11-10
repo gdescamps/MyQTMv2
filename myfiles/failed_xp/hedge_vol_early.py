@@ -1,7 +1,7 @@
 """Les donnees de couverture / positionnement institutionnel detectent-elles la volatilite plus tot,
 ou separent-elles la vol "importante" de la vol "benigne" ? (QQQ, 2006-2026)
 
-Donnees (myfiles/hedge_data_download.py + data/cboe_putcall.parquet), toutes decalees d'1 seance ;
+Donnees (myfiles/failed_xp/hedge_data_download.py + data/cboe_putcall.parquet), toutes decalees d'1 seance ;
 CFTC (positions du mardi) utilisable a partir du vendredi de publication, puis +1 seance :
   CBOE    : VIX, VIX/VIX3M, VIX9D/VIX, VVIX, VRP = VIX − YZ10, SKEW (+ z 1 an)
   put/call: index, equity, total (MM5 + z 1 an)
@@ -21,7 +21,7 @@ Backtest (strategie deployee x1.7, frais 0.5 %) : la YZ10 de la formule est remp
 YZ10·exp(pred_surp − moyenne train), cross-fit 2 moities ; controle = meme chose avec le modele base seul.
 Variante "YZ10 x delta" : YZ10·exp(pred_base+variable − pred_base) = seul l'apport propre de la variable,
 sans le retour a la moyenne du modele base (les seuils ABOVE_CAP / VOL_TARGET sont calibres sur YZ10 brute).
-    python -W ignore -m myfiles.hedge_vol_early      (log : myfiles/hedge_vol_early.log)
+    python -W ignore -m myfiles.failed_xp.hedge_vol_early      (log : myfiles/failed_xp/hedge_vol_early.log)
 
 Resultats (2026-11-09) — NEGATIF :
   - Base prix seule : R² surprise 0.05/0.15, AUC pic 0.69/0.67, AUC importante/benigne 0.58/0.60 (les prix
@@ -43,7 +43,7 @@ import src.risk_off_strategy.strategy as st
 from src.risk_off_strategy.data import load_funding, load_macro, load_ohlc
 from src.risk_off_strategy.strategy import CPI_OFF, E_MAX, NFCI_OFF, simulate_net
 
-D = "myfiles/hedge_data"
+D = "myfiles/failed_xp/hedge_data"
 START = "2006-07-01"
 SPLIT = pd.Timestamp("2016-01-01")
 BASE = ["b_lyz", "b_lrv60", "b_gap", "b_r5", "b_r21"]
@@ -212,7 +212,7 @@ def main():
     print(f"Pics de vol : {int(T['spike'].loc[START:].sum())} jours sur {int(T['spike'].loc[START:].notna().sum())}\n")
 
     inc = incremental(F, T, feats)
-    inc.to_csv("myfiles/hedge_vol_early.csv", index=False)
+    inc.to_csv("myfiles/failed_xp/hedge_vol_early.csv", index=False)
     base_rows = inc.groupby("cible")[["base H1->H2", "base H2->H1"]].first()
     print("=== Score du modele BASE seul (prix : YZ10, vol60, ecart SMA, r5, r21) ===")
     print(base_rows.to_string())
@@ -245,7 +245,7 @@ def main():
     bt = backtest(o, idx, yz, preds)
     print("\n=== Backtest x1.7 net (frais 0.5 %) : YZ10 remplacee par une prevision de vol cross-fit ===")
     print(bt.to_string(index=False))
-    bt.to_csv("myfiles/hedge_vol_early_backtest.csv", index=False)
+    bt.to_csv("myfiles/failed_xp/hedge_vol_early_backtest.csv", index=False)
 
 
 if __name__ == "__main__":

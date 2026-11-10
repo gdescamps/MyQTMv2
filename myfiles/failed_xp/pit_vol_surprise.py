@@ -7,7 +7,7 @@ Action (seuils = quantiles des prédictions sur l'APPRENTISSAGE, pas de look-ahe
   retour : pred < q10 train → YZ × g (g = 0.8, 0.7)        → elle revient plus tôt après un choc
   les deux
 Jours sans news → YZ seule. Frais 0.1 %/côté.
-    python -m myfiles.pit_vol_surprise
+    python -m myfiles.failed_xp.pit_vol_surprise
 """
 import glob
 import os
@@ -105,7 +105,7 @@ def main():
             run(f"{xn} retour ×{gct}", np.where(lo, yv * gct, yv), lo)
         run(f"{xn} coupe ×1.3 + retour ×0.8", np.where(hi, yv * 1.3, np.where(lo, yv * 0.8, yv)), hi | lo)
     df = pd.DataFrame(rows)
-    df.to_csv("myfiles/pit_vol_surprise.csv", index=False)
+    df.to_csv("myfiles/failed_xp/pit_vol_surprise.csv", index=False)
     pd.set_option("display.width", 260)
     print(f"\n=== Stratégie x1.7 (2014 → fin ; news sur {years}, sinon YZ) ===")
     print(df.to_string(index=False))

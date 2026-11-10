@@ -1,6 +1,6 @@
 """Bilan par plafond d'exposition E_MAX 1.0 -> 1.7, AVEC la saturation au plafond (SAT_GAP_E=0.10,
 plafond = e_max) vs sans. Frais 0.5 %/côté (tarif actuel).
-    python -m myfiles.pust17_emax_saturate
+    python -m myfiles.failed_xp.pust17_emax_saturate
 """
 import numpy as np
 import pandas as pd
@@ -41,7 +41,7 @@ def main():
         cg, dd, sh, k = metr(p.values, idx, a, b)
         print(f"B&H {h}: {cg:.1f}%/an DD {dd:.1f} Sharpe {sh:.2f} Calmar {k:.2f}")
     df = pd.DataFrame(rows)
-    df.to_csv("myfiles/pust17_emax_saturate.csv", index=False)
+    df.to_csv("myfiles/failed_xp/pust17_emax_saturate.csv", index=False)
     pd.set_option("display.width", 300)
     print(df.to_string(index=False))
 

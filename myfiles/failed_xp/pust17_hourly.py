@@ -16,7 +16,7 @@ Variantes :
   horaire coupe seule    : cible journalière le matin ; en journée, seules les VENTES sont permises
   × vol : YZ de la veille (prix seul) | max(YZ veille, vol horaire 10 j mise à l'échelle YZ, causal)
 Prix « nowcast » QQQ = close QQQ J × P_t / P_close_US_J.
-    python -m myfiles.pust17_hourly
+    python -m myfiles.failed_xp.pust17_hourly
 """
 import numpy as np
 import pandas as pd
@@ -180,7 +180,7 @@ def main():
         rows.append(row)
         print(f"  {name} fait", flush=True)
     df = pd.DataFrame(rows)
-    df.to_csv("myfiles/pust17_hourly.csv", index=False)
+    df.to_csv("myfiles/failed_xp/pust17_hourly.csv", index=False)
     pd.set_option("display.width", 280)
     print(df.to_string(index=False))
 

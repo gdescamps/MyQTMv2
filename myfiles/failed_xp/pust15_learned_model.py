@@ -15,14 +15,14 @@ Exécution = déploiement étudié : E_MAX 1.5 + saturation, bande 0.50/1.00, fr
 Objectifs : (a) Calmar net 2000-2026 ; (b) CAGR net avec maxDD ≤ 30 %.
 Apprentissage 2000-2026 = backtest 2000-2026 (in-sample assumé). En plus, pour info : validation croisée
 2 plis (apprendre H1 -> tester H2, et l'inverse).
-    python -m myfiles.pust15_learned_model
+    python -m myfiles.failed_xp.pust15_learned_model
 """
 import numpy as np
 import pandas as pd
 from scipy.optimize import differential_evolution
 
 import src.risk_off_strategy.strategy as st
-from myfiles.pust17_emax_saturate import metr
+from myfiles.failed_xp.pust17_emax_saturate import metr
 from src.risk_off_strategy.data import load_funding, load_macro, load_ohlc
 
 EM = 1.5
@@ -113,8 +113,8 @@ def main():
             rows[-1]["CV H2→H1 Cal"] = round(metr(e2, IDX, "2000-01-01", "2012-12-31")[3], 2)
             print(f"done {name} {obj}: {params[f'{name} {obj}']}", flush=True)
     df = pd.DataFrame(rows)
-    df.to_csv("myfiles/pust15_learned_model.csv", index=False)
-    pd.Series(params).to_json("myfiles/pust15_learned_model_params.json")
+    df.to_csv("myfiles/failed_xp/pust15_learned_model.csv", index=False)
+    pd.Series(params).to_json("myfiles/failed_xp/pust15_learned_model_params.json")
     pd.set_option("display.width", 340)
     cols = ["modèle", "param.", "tout %/an", "tout DD", "tout Sh", "tout Cal", "H1 Cal", "H2 Cal", "10ans %/an", "10ans Cal",
             "5ans %/an", "5ans DD", "frais/an", "ordres/an", "2008", "2020", "2022", "CV H1→H2 Cal", "CV H2→H1 Cal"]

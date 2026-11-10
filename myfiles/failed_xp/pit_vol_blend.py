@@ -7,7 +7,7 @@ cible de vol en dessous). On la remplace par un mélange avec la vol prédite pa
 Jours sans prédiction (avant 2014, années de test pas encore calculées, news manquante) → YZ seule
 (= stratégie de base, le fallback de prod). Prédiction de l'article du soir J utilisée pour l'alloc
 de J, exécutée J+1 par simulate_net (pas de look-ahead). Frais 0.1 %/côté.
-    python -m myfiles.pit_vol_blend
+    python -m myfiles.failed_xp.pit_vol_blend
 """
 import numpy as np
 import pandas as pd
@@ -64,7 +64,7 @@ def main():
                 r[str(y)] = round(100 * (eq[my][-1] / eq[my][0] - 1), 1)
             rows.append(r)
     df = pd.DataFrame(rows)
-    df.to_csv("myfiles/pit_vol_blend.csv", index=False)
+    df.to_csv("myfiles/failed_xp/pit_vol_blend.csv", index=False)
     pd.set_option("display.width", 250)
     print(f"Fenêtre {years[0]} → fin ; années avec news : {years} (autres années = YZ seule)")
     print(df.to_string(index=False))

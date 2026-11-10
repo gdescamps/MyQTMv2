@@ -2,14 +2,14 @@
 Même objectif que pust15_xgb_tiny (utilité moyenne-variance de a = σ(f) sur le rendement QQQ des h jours suivants,
 exécution J+1, purge des h derniers jours de chaque année paire), mêmes entrées que la formule.
 Taille = arbres × (seuils + feuilles) ≈ n × (2^(d+1) − 1) (borne haute). eta 0.1, subsample 0.8.
-    python -m myfiles.pust15_xgb_big
+    python -m myfiles.failed_xp.pust15_xgb_big
 """
 import numpy as np
 import pandas as pd
 import xgboost as xgb
 
-import myfiles.pust15_learned_evenodd as eo
-from myfiles.pust15_xgb_tiny import X, fwd_ret, make_obj
+import myfiles.failed_xp.pust15_learned_evenodd as eo
+from myfiles.failed_xp.pust15_xgb_tiny import X, fwd_ret, make_obj
 from src.risk_off_strategy.data import load_macro  # noqa: F401
 
 IDX, EVEN, C = eo.IDX, eo.EVEN, eo.C
@@ -43,7 +43,7 @@ def main():
                     rows.append(r)
             print(f"done h={h} γ={gamma}", flush=True)
     df = pd.DataFrame(rows)
-    df.to_csv("myfiles/pust15_xgb_big.csv", index=False)
+    df.to_csv("myfiles/failed_xp/pust15_xgb_big.csv", index=False)
 
 
 if __name__ == "__main__":

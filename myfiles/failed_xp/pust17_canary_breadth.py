@@ -17,7 +17,7 @@ Familles testees (le garde-fou s'applique a l'alloc AVANT les coupe-circuits mac
              C'est un signal de RE-ENTREE, pas de protection.
 Fonds Vanguard (VL publiee apres le run du soir) decales d'une seance ; ETF US au close du jour.
 Validation : seuil choisi sur une moitie (Calmar), lu sur l'autre — H1 2000-2012 / H2 2013-2026.
-    python -W ignore -m myfiles.pust17_canary_breadth      (log : myfiles/pust17_canary_breadth.log)
+    python -W ignore -m myfiles.failed_xp.pust17_canary_breadth      (log : myfiles/failed_xp/pust17_canary_breadth.log)
 
 Resultats (2026-11-09, ref = 16.4 %/an, maxDD -29.5 %, Calmar 0.55, H1/H2 0.23/0.88) :
   - Canaris DAA/BAA : TOUS pires. Les canaris sont "mauvais" 45-55 % du temps (obligations en 2013, 2018,
@@ -39,7 +39,7 @@ from src.risk_off_strategy.data import load_funding, load_macro, load_ohlc
 from src.risk_off_strategy.strategy import (CPI_OFF, E_MAX, NFCI_OFF, allocation_components, compute_allocation,
                                             simulate_net, yang_zhang_vol)
 
-CACHE = "myfiles/pust17_canary_close.parquet"
+CACHE = "myfiles/failed_xp/pust17_canary_close.parquet"
 TICKERS = ["VEIEX", "VBMFX", "VTMGX", "XLB", "XLE", "XLF", "XLI", "XLK", "XLP", "XLU", "XLV", "XLY"]
 FUNDS = ["VEIEX", "VBMFX", "VTMGX"]   # VL apres le run du soir -> lag 1
 SECTORS = ["XLB", "XLE", "XLF", "XLI", "XLK", "XLP", "XLU", "XLV", "XLY"]
@@ -164,7 +164,7 @@ def main():
         run("zweig", hold, "boost", np.where(boost, np.maximum(a0, np.minimum(cap_vol, 1.0)), a0), boost)
 
     df = pd.DataFrame(rows)
-    df.to_csv("myfiles/pust17_canary_breadth.csv", index=False)
+    df.to_csv("myfiles/failed_xp/pust17_canary_breadth.csv", index=False)
     pd.set_option("display.width", 260)
     pd.set_option("display.max_rows", 200)
     cols = ["famille", "param", "action", "% jours", "episodes", "H1 %/an", "H1 maxDD", "H1 Calmar",

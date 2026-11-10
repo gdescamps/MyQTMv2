@@ -7,7 +7,7 @@ sur la strategie deployee x1.7 PUST+LQQ (frais 0.5 %/cote, sans saturation, macr
   frac     : f = part des L ou le bras "au-dessus" est actif (prix > SMA_L ET SMA_L montante) ;
              alloc = f · cap_vol + (1 − f) · moyenne_L(bras bas_L)
 Validation : une SMA unique "choisie" sur une moitie (Calmar) puis lue sur l'autre, vs ensembles non regles.
-    python -W ignore -m myfiles.pust17_lookback_ensemble      (log : myfiles/pust17_lookback_ensemble.log)
+    python -W ignore -m myfiles.failed_xp.pust17_lookback_ensemble      (log : myfiles/failed_xp/pust17_lookback_ensemble.log)
 
 Resultats (2026-11-09, ref SMA250 = 16.4 %/an, maxDD -29.5 %, Calmar 0.55, H1/H2 0.23/0.88) :
   - SMA unique 100-300 : Calmar 0.25 -> 0.55, mediane 0.45 ; 250 = le MAX (in-sample) -> 0.55 est optimiste.
@@ -103,7 +103,7 @@ def main():
         run("frac", name, np.clip(f * comp[250]["above"] + (1 - f) * below, 0, 1))
 
     df = pd.DataFrame(rows)
-    df.to_csv("myfiles/pust17_lookback_ensemble.csv", index=False)
+    df.to_csv("myfiles/failed_xp/pust17_lookback_ensemble.csv", index=False)
     pd.set_option("display.width", 260)
     cols = ["type", "nom", "alloc moy", "H1 %/an", "H1 maxDD", "H1 Calmar", "H2 %/an", "H2 maxDD", "H2 Calmar",
             "tout %/an", "tout maxDD", "tout Calmar", "frais %/an", "revis/an"]
