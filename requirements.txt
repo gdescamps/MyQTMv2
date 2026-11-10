@@ -13,3 +13,4 @@ python-dotenv>=1.0.0
 anthropic[bedrock]>=2.6.0
 dvc-gs==3.0.2
 dvc-ssh==4.2.2
+eodhd==1.0.32
