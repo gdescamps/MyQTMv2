@@ -2221,4 +2221,39 @@ utiliser le score de confiance pour seuiler les signaux
 attendre un biais de confirmation d'1 bougie 
 donc attendre un bougie de confirmation haussiere pour valide le trade 
 
+----------------------
+
+est ce qu'il existe 
+des papiers de recherche
+gere le trading par LLM
+en 
+mettant a jour un contexte global macro glissant
+
+en analyse les themes :
+inflation, taux directeurs
+calendrier economique 
+calendrier des resultats
+les news 
+indicateur technique 
+
+le trading s'articule en 4 etapes
+
+mise a jour du contexte sentimentique global macro animant le marche
+
+surveillance de theme de news recurent : 
+inflation, consommation, droit de douane, transport, guerre
+
+surveillance de theme de news dynamique :
+theme ou scenario generé en du contexte
+
+systeme pour determiner la fiabilité des acteurs
+
+determiner les écheances à venir a court terme
+
+determiner le niveau d'allocation de portefeuille en fonction de :
+le contexte economique : inflation, douane, fed, taux, spread de credit
+evenements : elections, pendemie, attentats, guerre, mouvement sociaux.
+valorisation : investissement, revenu, prix, technique
+suprises de echeance
+echeances a venir
 
