@@ -39,7 +39,7 @@ from src.risk_off_strategy.data import load_funding, load_macro, load_ohlc
 from src.risk_off_strategy.strategy import (CPI_OFF, E_MAX, NFCI_OFF, allocation_components, compute_allocation,
                                             simulate_net, yang_zhang_vol)
 
-CACHE = "myfiles/failed_xp/pust17_canary_close.parquet"
+CACHE = "data/pust17_canary_close.parquet"
 TICKERS = ["VEIEX", "VBMFX", "VTMGX", "XLB", "XLE", "XLF", "XLI", "XLK", "XLP", "XLU", "XLV", "XLY"]
 FUNDS = ["VEIEX", "VBMFX", "VTMGX"]   # VL apres le run du soir -> lag 1
 SECTORS = ["XLB", "XLE", "XLF", "XLI", "XLK", "XLP", "XLU", "XLV", "XLY"]

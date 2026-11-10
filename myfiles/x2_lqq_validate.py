@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / ".env")
 FRED_KEY = os.environ.get("FRED")
-RATES_CACHE = ROOT / "myfiles" / "x2_rates.parquet"
+RATES_CACHE = ROOT / "data" / "x2_rates.parquet"
 ANN = 252
 TER_LQQ = 0.0060
 TER_PUST = 0.0030

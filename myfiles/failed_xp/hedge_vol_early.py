@@ -43,7 +43,7 @@ import src.risk_off_strategy.strategy as st
 from src.risk_off_strategy.data import load_funding, load_macro, load_ohlc
 from src.risk_off_strategy.strategy import CPI_OFF, E_MAX, NFCI_OFF, simulate_net
 
-D = "myfiles/failed_xp/hedge_data"
+D = "data/hedge_data"
 START = "2006-07-01"
 SPLIT = pd.Timestamp("2016-01-01")
 BASE = ["b_lyz", "b_lrv60", "b_gap", "b_r5", "b_r21"]

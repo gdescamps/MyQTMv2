@@ -40,7 +40,7 @@ from src.risk_off_strategy.strategy import (
 )
 
 TER_LQQ, TER_PUST, SWAP_SPREAD, SELL_FEE = 0.0060, 0.0030, 0.0040, 0.005
-RATES_CACHE = ROOT / "myfiles" / "x2_rates.parquet"
+RATES_CACHE = ROOT / "data" / "x2_rates.parquet"
 OUT_PNG = ROOT / "myfiles" / "x2_lqq_net.png"
 
 # ── Donnees ───────────────────────────────────────────────
