@@ -191,11 +191,11 @@ BOURSO_ID_4=""         ...
 ```
 
 - Un slot n'est **gere** que si `BOURSO_ID_n` ET `BOURSO_CODE_n` sont renseignes ; un slot vide n'est pas traite.
-- `BOURSO_MAIL_n` = destinataire des mails de CE compte (rapport du matin, recap du soir, alerte split). Vide -> `MAILING_LIST` de `notify.py`.
+- **Tous les mails partent uniquement a `BOURSO_MAIL_1`** (depuis le 2026-11-11 : rapports du matin et recaps du soir de CHAQUE compte, alertes split, `check_cli`, erreurs de backtest — `notify.default_recipients()`). Vide -> `MAILING_LIST` de `notify.py`. `BOURSO_MAIL_2..4` ne recoivent plus rien.
 - L'ancienne paire `BOURSO_ID`/`BOURSO_CODE` reste acceptee comme slot 1 si `BOURSO_ID_1` est absent.
 - Chaque login Bourso a son propre PEA : l'id (hexa 32 car.) est **decouvert une fois** via `bourso-cli accounts --trading` (compte de trading nomme `PEA ...`, hors `PEA-PME`) et mis en cache dans `logs/accounts.json` (nom + id + mail, jamais d'identifiant client — lu par la webapp). Forcer un id avec `BOURSO_PEA_ID_n`. Verifier avec `python -m src.bourso.accounts`.
 - Le **meme signal est replique** sur tous les comptes geres : chaque compte est lu, decide (bande de non-action sur SA propre allocation reelle) et execute a son tour. Un compte injoignable est relance toutes les heures jusqu'a 17h **sans bloquer les autres**, puis recoit un mail `CONNEXION KO` et une ligne `connection_error` dans `trades.jsonl`. Code de sortie 1 si au moins un compte a echoue.
-- **Un mail par compte chaque matin** a `BOURSO_MAIL_n` : connexion (OK/ECHEC), allocation conseillee vs reelle (avant/apres), action du jour, especes/titres/total, mode LIVE/DRY-RUN. Le recap du soir (`notify --recap`) envoie de meme un mail par compte avec l'apercu de l'action du lendemain sur ce compte.
+- **Un seul mail de synthese chaque matin**, envoye a `BOURSO_MAIL_1` : etat de chaque PEA (expo avant → apres, capital, especes, action) + total, puis le detail par compte : connexion (OK/ECHEC), allocation conseillee vs reelle (avant/apres), action du jour, especes/titres/total, mode LIVE/DRY-RUN. Le recap du soir (`notify --recap`) envoie de meme UN mail avec l'apercu de l'action du lendemain sur chaque compte + le total.
 - `trades.jsonl` : champs `account` (slot) et `account_name` ; les anciennes lignes sans `account` = slot 1. `logs/last_price.json` : cles `INSTRUMENT#slot` (l'ancienne cle `INSTRUMENT` = slot 1).
 - `python -m src.real_bourso --account 2` limite un run a un slot ; `python -m src.bourso.execute pea PUST buy 4 --account 2` pour un ordre manuel sur un autre compte ; `python -m src.bourso.list_accounts` liste tous les PEA geres.
 - `check_cli` (cron 20h) teste la connexion de **chaque** compte et alerte `CONNEXION COMPTE KO` si l'un echoue.
@@ -243,7 +243,7 @@ Le backtest ecrit `outputs/qqq_strategy/signal.json` :
 ```
 
 - `status`: `"running"` au debut du backtest, `"ok"` a la fin. Si crash, reste `"running"` et le matin refuse d'executer.
-- `allocation`: 0.0 (cash) a 1.0 (full invest) ; `exposure` = min(2 x allocation, `e_max`) ; `rsi14` = RSI de Wilder du QQQ (information, affiche dans le mail du matin).
+- `allocation`: 0.0 (cash) a 1.0 (full invest) ; `exposure` = min(2 x allocation, `e_max`) ; `rsi14` = RSI de Wilder du QQQ (information, affiche dans le mail du matin). `exposure_history` = cible des 6 dernieres seances : le recap du soir annonce le changement de cible **avant -> apres** a executer le lendemain matin (objet `expo cible 102% -> 40% demain matin` si l'ecart >= 5 pts), le mail du matin le rappelle (les ordres restent soumis a la bande : une baisse de cible de 58 pts sur un PEA non leve ne vend rien).
 - Le script du matin verifie la fraicheur du signal : age max `MAX_SIGNAL_AGE_HOURS=90h`. Assez large pour tolerer les week-ends/feries (lundi matin = signal du vendredi soir ~58h ; long week-end jeu. soir → mar. matin ~82h). Au-dela = le backtest du soir s'est arrete → refus.
 
 ## Frais et seuils

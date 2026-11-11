@@ -201,6 +201,12 @@ def run_ticker(ticker):
         "probability": last_alloc,      # compat real_bourso/webapp (= allocation)
         "allocation": last_alloc,
         "exposure": target_exposure(last_alloc),   # expo deployee = min(2.alloc, E_MAX)
+        # Cible des dernieres seances (la plus recente en dernier) : les mails affichent
+        # le changement de cible veille -> aujourd'hui (avant / apres).
+        "exposure_history": [
+            {"date": str(d.date()), "exposure": target_exposure(float(a))}
+            for d, a in zip(price.index[-6:], alloc[-6:])
+        ],
         "e_max": E_MAX,
         "rsi14": rsi14,
         "macro_off": macro_off,

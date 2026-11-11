@@ -511,6 +511,34 @@ def exposure_after(plan, state):
     return (val["PUST"] + 2 * val["LQQ"]) / V if V > 0 else 0.0
 
 
+def balances_after(plan, state):
+    """(titres, especes) apres les ordres du plan qui ont abouti (executed / dry-run),
+    valorises au cours lu ce matin, frais deduits du cash."""
+    stocks, cash = float(state["stocks"]), float(state["cash"])
+    for o in plan["orders"]:
+        if o.get("status") not in ("executed", "dry-run"):
+            continue
+        amt = o.get("executed_quantity", o["quantity"]) * o["price"]
+        if o["side"] == "sell":
+            stocks -= amt
+            cash += amt * (1 - SELL_FEE)
+        else:
+            stocks += amt
+            cash -= amt * (1 + BUY_FEE)
+    return stocks, cash
+
+
+def balance_lines(stocks, cash, stocks_after=None, cash_after=None, indent="  "):
+    """Titres / especes / total : avant ET apres execution s'il y a eu execution
+    (stocks_after renseigne), sinon une seule ligne."""
+    def one(t, c):
+        return f"titres {_eur(t)} EUR | especes {_eur(c)} EUR | total {_eur(t + c)} EUR"
+    if stocks_after is None:
+        return f"{indent}{one(stocks, cash)}\n"
+    return (f"{indent}Avant execution : {one(stocks, cash)}\n"
+            f"{indent}Apres execution : {one(stocks_after, cash_after)}\n")
+
+
 # ── Execution ─────────────────────────────────────────────
 
 def execute_order(instrument, side, quantity, dry_run=True, tolerance=LIMIT_TOLERANCE_PCT, account=None):
@@ -726,13 +754,148 @@ def detect_split(prev_price, cur_price, factor=SPLIT_DETECT_FACTOR):
     return ratio if ratio >= factor else None
 
 
-def _send_account_email(account, subject, body):
-    """Mail a l'adresse du compte (repli MAILING_LIST) — jamais bloquant."""
+# Mails du matin : plus d'envoi par compte. Chaque compte AJOUTE son rapport a ce
+# tampon ; main() envoie UN mail de synthese des PEA (a BOURSO_MAIL_1) apres chaque
+# passe sur les comptes (puis apres chaque relance horaire eventuelle).
+_MAIL_DIGEST = []
+
+# Les mails ne parlent que d'EXPOSITION cible (deduite de l'allocation du signal :
+# min(2 x allocation, E_MAX)) ; cette note rappelle qu'elle inclut le levier.
+EXPO_NOTE = (f"levier inclus : 100% = PUST seul, au-dela la part > 100% est portee par "
+             f"LQQ x2, plafond {E_MAX*100:.0f}%")
+
+# Regle de la bande (rappelee dans les mails du soir et du matin) — seuils de strategy.py.
+BAND_NOTE = (
+    f"Regle d'execution (bande asymetrique, ecart = expo cible - expo reelle de chaque PEA) :\n"
+    f"    - ACHAT si la cible depasse l'expo reelle d'au moins {BUY_THR_E*100:.0f} pts\n"
+    f"    - VENTE seulement si l'expo reelle depasse la cible d'au moins {SELL_THR_E*100:.0f} pts\n"
+    f"      (ou si la cible est forcee a 0% : garde-fou macro / arret d'urgence)\n"
+    f"    - sinon : aucun ordre, le PEA garde son exposition\n"
+    f"    Consequence : sans levier (expo ~100%), une baisse de cible ne vend rien sauf passage a 0%.\n"
+    f"    Pourquoi : meilleur reglage net de frais du backtest 2000-2026 ; vendre plus tot (50-90 pts)\n"
+    f"    ne reduit pas le drawdown et coute 2 a 3 pts de CAGR/an (frais + rebonds rates).")
+
+# Ecart de cible (en points d'exposition) a partir duquel l'objet du mail annonce le
+# changement « avant -> apres » (le corps l'affiche toujours).
+TARGET_CHANGE_SUBJECT_PTS = 5
+
+
+def target_change(signal, target_e=None):
+    """Changement de cible veille -> signal du jour, lu dans `exposure_history` de
+    signal.json (ecrit par risk_off_strategy.run). `target_e` = cible reellement
+    appliquee si elle differe du signal (arret d'urgence / garde-fou -> 0).
+
+    Renvoie (subject_part, line) :
+      subject_part : "expo cible 102% -> 40%" si |ecart| >= TARGET_CHANGE_SUBJECT_PTS,
+                     sinon "expo cible 40%" ;
+      line         : "Exposition cible : avant 102% (signal du 2026-11-11) -> apres 40%
+                     (signal du 2026-11-12), -62 pts" + l'historique des seances.
+    Sans historique (ancien signal.json) : valeur seule, comme avant."""
+    new = signal.get("exposure", 0.0) if target_e is None else target_e
+    hist = [h for h in signal.get("exposure_history") or [] if h.get("date") != signal.get("date")]
+    if not hist:
+        return f"expo cible {new*100:.0f}%", f"Exposition cible : {new*100:.0f}%"
+    prev = hist[-1]
+    d = round(new * 100) - round(prev["exposure"] * 100)
+    if d == 0:
+        line = (f"Exposition cible : {new*100:.0f}% — inchangee "
+                f"(signal du {prev['date']} : {prev['exposure']*100:.0f}%)")
+    else:
+        line = (f"Exposition cible : avant {prev['exposure']*100:.0f}% (signal du {prev['date']})"
+                f" -> apres {new*100:.0f}% (signal du {signal.get('date')}), {d:+d} pts")
+    seq = " / ".join(f"{h['exposure']*100:.0f}%" for h in hist[-4:]) + f" / {new*100:.0f}%"
+    line += f"\n  Cible des dernieres seances : {seq}"
+    subj = (f"expo cible {prev['exposure']*100:.0f}% -> {new*100:.0f}%"
+            if abs(d) >= TARGET_CHANGE_SUBJECT_PTS else f"expo cible {new*100:.0f}%")
+    return subj, line
+
+
+def _send_account_email(account, subject, body, short=None, stocks=None, cash=None,
+                        e_before=None, e_after=None, n_done=0, n_error=0,
+                        stocks_after=None, cash_after=None):
+    """Rapport du compte -> tampon du mail de synthese (cf. flush_mail_digest).
+    stocks / cash = titres / especes lus avant ordres ; *_after = apres execution
+    (seulement s'il y a eu execution). n_done / n_error = ordres passes / en erreur."""
+    _MAIL_DIGEST.append({"account": account, "subject": subject, "body": body,
+                         "short": short or subject.replace("[MyQTM] ", ""), "stocks": stocks,
+                         "cash": cash, "stocks_after": stocks_after, "cash_after": cash_after,
+                         "e_before": e_before, "e_after": e_after,
+                         "n_done": n_done, "n_error": n_error})
+
+
+def _eur(x):
+    return f"{x:,.0f}".replace(",", " ")
+
+
+def digest_mail(entries, mode, target_e, signal, notes=()):
+    """(sujet, corps) du mail de synthese : un tableau d'etat des PEA + totaux, puis le
+    detail de chaque compte. Pur (teste sans envoi)."""
+    lines, n_read, any_exec = [], 0, False
+    tot = {"stocks": 0.0, "cash": 0.0, "stocks_after": 0.0, "cash_after": 0.0}
+    for e in entries:
+        acc = e["account"]
+        name = f"compte {acc.slot} — {acc.name or acc.label}"
+        if e.get("stocks") is not None:
+            n_read += 1
+            executed = e.get("stocks_after") is not None
+            any_exec = any_exec or executed
+            tot["stocks"] += e["stocks"]
+            tot["cash"] += e["cash"] or 0.0
+            tot["stocks_after"] += e["stocks_after"] if executed else e["stocks"]
+            tot["cash_after"] += e["cash_after"] if executed else (e["cash"] or 0.0)
+            expo = (f"expo {e['e_before']*100:.0f}% -> {e['e_after']*100:.0f}%"
+                    if e["e_before"] is not None else "expo --")
+            lines.append(f"  {name}\n      {expo} — {e['short']}\n"
+                         + balance_lines(e["stocks"], e["cash"] or 0.0, e.get("stocks_after"),
+                                         e.get("cash_after"), indent="      ").rstrip("\n"))
+        else:
+            lines.append(f"  {name}\n      {e['short']}")
+    rsi = signal.get("rsi14")
+    t_subj, t_line = target_change(signal, target_e)
+    head = (f"Synthese des {len(entries)} PEA — {date.today()} ({mode})\n"
+            f"Changement de cible applique ce matin (annonce dans le recap d'hier soir ; les ordres dependent de la bande) :\n"
+            f"  {t_line}\n"
+            f"  (signal du {signal['date']}" + (f", RSI14 {rsi:.1f}" if rsi is not None else "")
+            + f" ; {EXPO_NOTE})\n"
+            f"  {BAND_NOTE}\n\n")
+    body = head + "\n".join(lines) + "\n"
+    if n_read:
+        body += f"\n  TOTAL {n_read} PEA\n" + balance_lines(
+            tot["stocks"], tot["cash"],
+            tot["stocks_after"] if any_exec else None, tot["cash_after"] if any_exec else None,
+            indent="      ")
+    for n in notes:
+        body += f"\n  {n}"
+    if notes:
+        body += "\n"
+    body += "\n" + "=" * 60 + "\nDETAIL PAR COMPTE\n" + "=" * 60 + "\n"
+    body += ("\n" + "-" * 60 + "\n").join(e["body"] for e in entries)
+    # Objet : expo cible puis expo REELLE de chaque PEA apres les ordres du jour
+    # (KO = compte illisible ; les ordres et leur statut sont dans le corps).
+    reals = " | ".join(f"c{e['account'].slot} " + (f"{e['e_after']*100:.0f}%" if e["e_after"] is not None else "KO")
+                       for e in entries)
+    done = [f"c{e['account'].slot}" for e in entries if e.get("n_done")]
+    errs = [f"c{e['account'].slot}" for e in entries if e.get("n_error")]
+    ops = (f"EXECUTION {' '.join(done)}" if done else "aucune execution")
+    if errs:
+        ops += f" — ORDRE EN ERREUR {' '.join(errs)}"
+    subject = (f"[MyQTM] {mode} {len(entries)} PEA — {t_subj} — "
+               f"expo reelle {reals} — {ops}")
+    return subject, body
+
+
+def flush_mail_digest(mode, target_e, signal, notes=()):
+    """Envoie le mail de synthese des rapports en tampon (BOURSO_MAIL_1) — jamais bloquant."""
+    if not _MAIL_DIGEST:
+        return
+    entries = list(_MAIL_DIGEST)
+    _MAIL_DIGEST.clear()
+    subject, body = digest_mail(entries, mode, target_e, signal, notes)
     try:
         from src.bourso.notify import send_email
-        send_email(subject, body, to=account.recipients)
+        send_email(subject, body)
     except Exception as e:  # noqa: BLE001
-        print(f"[WARN] Email non envoye ({account.label}): {e}")
+        print(f"[WARN] Email de synthese non envoye: {e}")
 
 
 def _base_record(account, signal, target_e, execute):
@@ -834,7 +997,9 @@ def process_account(account, signal, target_e, execute, force_buy=False, buys_on
             f"  Connexion:   OK\n"
             f"  ⚠️ {msg}\n\n"
             f"  Action:      AUCUNE (garde-fou split) — reprise a la prochaine seance\n"
-            f"  Mode:        {mode}\n")
+            f"  Mode:        {mode}\n",
+            short="SPLIT detecte — aucune position", stocks=state["stocks"], cash=state["cash"],
+            e_before=state["exposure"], e_after=state["exposure"])
         rec = _base_record(account, signal, target_e, execute)
         rec.update(side=None, quantity=0, orders=[], positions=_positions_record(state),
                    cash=state["cash"], equity=state["equity"], exposure_before=state["exposure"],
@@ -895,15 +1060,15 @@ def process_account(account, signal, target_e, execute, force_buy=False, buys_on
     tw = plan.get("target_weights") or dict(zip(("PUST", "LQQ", "cash"), composition(target_e)))
     rsi = signal.get("rsi14")
     rsi_txt = f", RSI14 {rsi:.1f}" if rsi is not None else ""
-    subject = f"[MyQTM] {mode} {account.name} — expo {target_e*100:.0f}% — {subject_tail}"
+    subject = f"[MyQTM] {mode} {account.name} — expo cible {target_e*100:.0f}% — {subject_tail}"
     body = (
         f"{account.name} (compte {account.slot}) — {today}\n\n"
         f"  Connexion:   OK\n"
         f"  Strategie:   {STRATEGY_LABEL} (PUST x1 + LQQ x2), exposition plafonnee x{E_MAX}\n"
-        f"  Signal du:   {signal['date']}  (allocation {signal['allocation']*100:.0f}%{rsi_txt})\n\n"
+        f"  Signal du:   {signal['date']}{(' (' + rsi_txt[2:] + ')') if rsi_txt else ''}\n\n"
     )
     body += (
-        f"  Exposition cible:  {target_e*100:.0f}%  (= min(2 x {signal['allocation']*100:.0f}%, {E_MAX*100:.0f}%))\n"
+        f"  Exposition cible:  {target_e*100:.0f}%  ({EXPO_NOTE})\n"
         f"  Exposition reelle: {plan['e_eff']*100:.0f}%  ->  {e_after*100:.0f}% apres ordres du jour\n"
         f"  Composition:  {composition_line(state)}\n"
         f"  Cible:        PUST {tw['PUST']*100:.0f}% | LQQ {tw['LQQ']*100:.0f}% | especes {tw['cash']*100:.0f}%\n\n"
@@ -915,13 +1080,13 @@ def process_account(account, signal, target_e, execute, force_buy=False, buys_on
                  f"  Investi en entier aujourd'hui a la composition cible du signal (sans bande).\n")
     if capital_info["withdrawal_today"] > 0:
         body += f"\n  Retrait detecte : -{capital_info['withdrawal_today']:.0f} EUR\n"
-    body += (
-        f"\n  Especes:     {state['cash']:.2f} EUR\n"
-        f"  Titres:      {state['stocks']:.2f} EUR\n"
-        f"  Total:       {state['equity']:.2f} EUR\n"
-        f"  Mode:        {mode}\n"
-    )
-    _send_account_email(account, subject, body)
+    s_after, c_after = balances_after(plan, state) if done else (None, None)
+    body += "\n" + balance_lines(state["stocks"], state["cash"], s_after, c_after)
+    body += f"  Mode:        {mode}\n"
+    _send_account_email(account, subject, body, short=subject_tail, stocks=state["stocks"],
+                        cash=state["cash"], e_before=plan["e_eff"], e_after=e_after,
+                        n_done=len(done), n_error=len(errors),
+                        stocks_after=s_after, cash_after=c_after)
 
     # 8. Journal
     sides = {o["side"] for o in plan["orders"]}
@@ -982,6 +1147,7 @@ def main():
     #    attendent le credit des ventes sont relances toutes les heures jusqu'a la
     #    cloture Euronext, sans bloquer les autres.
     euronext_close = datetime.now().replace(hour=17, minute=0, second=0)
+    mode = "LIVE" if args.execute else "DRY-RUN"
     pending = [(a, False) for a in accounts]
     failures = {}
     while pending:
@@ -997,13 +1163,21 @@ def main():
                 print(f"[ERREUR] {account.label}: {e}")
                 failures[account.slot] = (account, e)
         pending = [(a, False) for a, _ in failures.values()] + waiting
-        if not pending or datetime.now() >= euronext_close:
+        retrying = bool(pending) and datetime.now() < euronext_close
+        notes = []
+        if retrying:
+            notes = ([f"{a.label} : connexion en echec ({str(e)[:120]}) — nouvelle tentative dans 1h"
+                      for a, e in failures.values()]
+                     + [f"{a.label} : achats en attente de cash — nouvelle tentative dans 1h"
+                        for a, _ in waiting])
+        flush_mail_digest(mode, target_e, signal, notes)
+        if not retrying:
             break
         print(f"\n[RETRY] {len(failures)} compte(s) en echec, {len(waiting)} en attente de cash, "
               f"nouvelle tentative dans 1h...")
         time.sleep(3600)
 
-    # 4. Comptes definitivement en echec : mail "connexion KO" + trace dans le journal
+    # 4. Comptes definitivement en echec : "connexion KO" (mail de synthese) + journal
     for account, err in failures.values():
         msg = str(err)[:300]
         _send_account_email(account,
@@ -1012,12 +1186,14 @@ def main():
             f"  Connexion:   ECHEC — {msg}\n"
             f"  Exposition cible: {target_e*100:.0f}%  (signal du {signal['date']})\n"
             f"  Action:      AUCUNE — le compte n'a pas pu etre lu, aucun ordre passe.\n"
-            f"  Verifier logs/cron_pea.log.\n")
+            f"  Verifier logs/cron_pea.log.\n",
+            short="CONNEXION KO — aucun ordre")
         rec = _base_record(account, signal, target_e, args.execute)
         rec.update(side=None, quantity=0, orders=[], positions=None, cash=0, equity=0,
                    reason=f"connexion KO: {msg}", result={"status": "connection_error", "error": msg})
         log_trade(rec)
 
+    flush_mail_digest(mode, target_e, signal)
     print("\nTermine." + (f"  ({len(failures)} compte(s) en echec)" if failures else ""))
     sys.exit(1 if failures else 0)
 

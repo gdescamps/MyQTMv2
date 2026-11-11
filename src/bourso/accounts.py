@@ -2,12 +2,13 @@
 
     BOURSO_ID_1="..."       identifiant client BoursoBank
     BOURSO_CODE_1="..."     mot de passe (code a 8 chiffres)
-    BOURSO_MAIL_1="..."     adresse qui recoit les mails de CE compte (connexion, allocation)
+    BOURSO_MAIL_1="..."     adresse qui recoit TOUS les mails (de tous les comptes)
     BOURSO_ID_2=""          ... slot 2 vide -> ignore (le compte n'est pas gere)
     ...
 
-Un slot n'est GERE que si `BOURSO_ID_n` ET `BOURSO_CODE_n` sont renseignes. Le mail est
-optionnel (repli sur la MAILING_LIST de notify.py). L'ancienne paire `BOURSO_ID` /
+Un slot n'est GERE que si `BOURSO_ID_n` ET `BOURSO_CODE_n` sont renseignes. Seul
+BOURSO_MAIL_1 sert a l'envoi (repli MAILING_LIST de notify.py) ; BOURSO_MAIL_n (n > 1)
+est lu mais ignore pour l'envoi. L'ancienne paire `BOURSO_ID` /
 `BOURSO_CODE` (mono-compte) reste acceptee comme slot 1 si `BOURSO_ID_1` est absent.
 
 Chaque login Bourso a son propre PEA (id hexa de 32 caracteres) : il est decouvert une
@@ -56,11 +57,11 @@ class BoursoAccount:
 
     @property
     def recipients(self):
-        """Destinataires des mails de ce compte : son adresse, sinon la MAILING_LIST."""
-        if self.mail:
-            return [self.mail]
-        from src.bourso.notify import MAILING_LIST
-        return list(MAILING_LIST)
+        """Destinataires des mails de ce compte : TOUS les mails partent a BOURSO_MAIL_1
+        (repli MAILING_LIST), quel que soit le slot — BOURSO_MAIL_n (n > 1) n'est plus
+        utilise pour l'envoi (cf. notify.default_recipients)."""
+        from src.bourso.notify import default_recipients
+        return default_recipients()
 
 
 def _read_dotenv():

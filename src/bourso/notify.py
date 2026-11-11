@@ -48,14 +48,23 @@ def _get_app_password():
     )
 
 
+def default_recipients():
+    """Destinataire UNIQUE de tous les mails (execution du matin de chaque compte, recap
+    du soir, alertes check_cli, erreurs) : BOURSO_MAIL_1 (env ou .env), repli MAILING_LIST
+    s'il est vide. Les BOURSO_MAIL_n des autres slots ne recoivent plus rien."""
+    from src.bourso.accounts import _env, _read_dotenv
+    mail = _env("BOURSO_MAIL_1", _read_dotenv())
+    return [mail] if mail else list(MAILING_LIST)
+
+
 def send_email(subject, body, to=None, images=None):
     """Send an email via Gmail SMTP, with optional inline images.
 
-    to: single address or list. Defaults to MAILING_LIST.
+    to: single address or list. Defaults to default_recipients() (BOURSO_MAIL_1).
     images: list of file paths to embed inline in the email body.
     """
     if to is None:
-        to = MAILING_LIST
+        to = default_recipients()
     if isinstance(to, str):
         to = [to]
 
@@ -96,12 +105,12 @@ def send_email(subject, body, to=None, images=None):
 EMERGENCY_LINE = "  ARRET D'URGENCE ACTIF — aucun achat tant qu'il n'est pas desactive"
 
 
-def _account_preview(account, alloc, alloc_pct, emergency=False):
+def _account_preview(account, alloc, emergency=False):
     """Apercu de l'action du matin pour UN compte, en REUTILISANT le vrai chemin
     d'execution (real_bourso) : meme plafond d'exposition, meme bande asymetrique,
     meme force cash, meme apport detecte, meme emergency-off (cible forcee a 0).
     Source unique -> le recap ne peut pas diverger de ce que le cron du matin fera
-    reellement (hors apport detecte le matin meme)."""
+    reellement (hors apport detecte le matin meme). Renvoie (texte, state)."""
     from src.real_bourso import (
         plan_for_account, exposure_after, describe_order, composition_line,
         target_exposure, E_MAX, STRATEGY_LABEL,
@@ -122,18 +131,18 @@ def _account_preview(account, alloc, alloc_pct, emergency=False):
         f"\n  PEA actuel: {composition_line(state)}, {state['cash']:.0f} EUR especes"
         f"\n  Exposition: {plan['e_eff']*100:.0f}% -> {e_after*100:.0f}% "
         + ("(cible forcee a 0% : arret d'urgence)" if emergency else
-           f"(cible {target_e*100:.0f}% = min(2 x {alloc_pct}, {E_MAX*100:.0f}%))")
+           f"(cible {target_e*100:.0f}%, levier inclus)")
     )
     if plan.get("deposit", 0) > 0:
         preview += (f"\n  Apport detecte : +{plan['deposit']:.0f} EUR, investi demain matin "
                     f"a la composition cible")
-    return preview
+    return preview, state
 
 
 def send_recap():
-    """Recap du soir : signal + graphe, puis UN mail par compte Bourso gere (a l'adresse
-    du compte) avec l'apercu de l'action du matin sur CE compte. Sans compte gere,
-    le recap part a la MAILING_LIST sans apercu."""
+    """Recap du soir : UN seul mail (a BOURSO_MAIL_1, cf. default_recipients) = signal +
+    graphe + synthese de TOUS les PEA geres (apercu de l'action du matin compte par
+    compte + total). Sans compte gere, le recap part sans apercu."""
     if not SIGNAL_PATH.exists():
         print("[ERREUR] signal.json introuvable")
         return False
@@ -144,7 +153,6 @@ def send_recap():
     status = signal.get("status", "?")
     ticker = signal.get("ticker", "QQQ")
     date = signal.get("date", "?")
-    prob = signal.get("probability", 0)
     alloc = signal.get("allocation", 0)
 
     if status != "ok":
@@ -153,19 +161,21 @@ def send_recap():
         send_email(subject, body)
         return False
 
-    alloc_pct = f"{alloc*100:.0f}%"
     from src.risk_off_strategy.strategy import E_MAX, target_exposure
-    from src.real_bourso import is_emergency_off
+    from src.real_bourso import is_emergency_off, EXPO_NOTE, BAND_NOTE, target_change
     emergency = is_emergency_off()
     expo = signal.get("exposure", target_exposure(alloc, E_MAX))
+    signal.setdefault("exposure", expo)
+    t_subj, t_line = target_change(signal)
     header = (
         (f"{EMERGENCY_LINE}\n  (supprimer logs/emergency_off.json pour reprendre la strategie)\n\n"
          if emergency else "") +
         f"Backtest {ticker} termine avec succes.\n\n"
         f"  Date:        {date}\n"
-        f"  Probabilite: {prob:.4f}\n"
-        f"  Allocation:  {alloc_pct}\n"
-        f"  Exposition:  {expo*100:.0f}% = min(2 x {alloc_pct}, {E_MAX*100:.0f}%) via PUST + LQQ\n"
+        f"  Changement de cible a executer demain matin :\n"
+        f"  {t_line}\n"
+        f"  ({EXPO_NOTE})\n"
+        f"  {BAND_NOTE}\n"
         f"  Graphe joint: dernier mois — strategie deployee PUST + LQQ x{E_MAX} (net de frais) vs B&H {ticker}\n\n"
     )
     images = [BACKTEST_1M] if BACKTEST_1M.exists() else []
@@ -173,25 +183,33 @@ def send_recap():
     from src.bourso.accounts import load_accounts
     accounts = load_accounts()
     if not accounts:
-        send_email(f"[MyQTM] {ticker} {date} — alloc {alloc_pct} (prob {prob:.3f})",
+        send_email(f"[MyQTM] {ticker} {date} — {t_subj} demain matin",
                    header + "(aucun compte Bourso gere)\n", images=images)
         return True
 
     ok = True
+    sections, tot_eq, tot_cash, n_ko = [], 0.0, 0.0, 0
     for account in accounts:
         try:
-            preview = _account_preview(account, alloc, alloc_pct, emergency)
+            preview, state = _account_preview(account, alloc, emergency)
+            tot_eq += state["equity"]
+            tot_cash += state["cash"]
         except Exception as e:  # noqa: BLE001
             preview = (f"  Compte:     {account.label} — CONNEXION KO ({str(e)[:200]})"
                        f"\n  Impossible de verifier le PEA ; l'execution du matin reessaiera.")
             ok = False
-        subject = (f"[MyQTM] {'ARRET D URGENCE — ' if emergency else ''}{ticker} {date} — alloc {alloc_pct} "
-                   f"(prob {prob:.3f}) — {account.name or account.label}")
-        try:
-            send_email(subject, header + preview + "\n", to=account.recipients, images=images)
-        except Exception as e:  # noqa: BLE001
-            print(f"[ERREUR] envoi recap {account.label}: {e}")
-            ok = False
+            n_ko += 1
+        sections.append(f"[compte {account.slot} — {account.name or account.label}]\n{preview}\n")
+    eur = lambda x: f"{x:,.0f}".replace(",", " ")  # noqa: E731
+    synth = (f"SYNTHESE DES {len(accounts)} PEA — total {eur(tot_eq)} EUR (especes {eur(tot_cash)} EUR)"
+             + (f" — {n_ko} compte(s) illisible(s)" if n_ko else "") + "\n\n")
+    subject = (f"[MyQTM] {'ARRET D URGENCE — ' if emergency else ''}{ticker} {date} — {t_subj} demain matin "
+               f"— {len(accounts)} PEA" + (f" — {n_ko} KO" if n_ko else ""))
+    try:
+        send_email(subject, header + synth + "\n".join(sections), images=images)
+    except Exception as e:  # noqa: BLE001
+        print(f"[ERREUR] envoi recap: {e}")
+        ok = False
     return ok
 
 
