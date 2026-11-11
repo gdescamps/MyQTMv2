@@ -1,15 +1,15 @@
 {
   "1": {
-    "expected_cash": 54748.12,
-    "as_of": "2026-11-05",
-    "traded_notional": 54642.58,
+    "expected_cash": 54685.94,
+    "as_of": "2026-11-11",
+    "traded_notional": 0.0,
     "deposits": [],
     "dca": null
   },
   "2": {
-    "expected_cash": 53198.53,
-    "as_of": "2026-11-05",
-    "traded_notional": 48979.39,
+    "expected_cash": 53326.94,
+    "as_of": "2026-11-11",
+    "traded_notional": 0.0,
     "deposits": [
       {
         "date": "2026-10-02",
@@ -32,11 +32,11 @@
     ],
     "dca": {
       "deposit": 20000.0,
-      "released": 0.781134,
+      "released": 1.0,
       "detected": "2026-10-23",
-      "last_tranche": "2026-10-30",
-      "weeks": 2,
-      "done": false,
+      "last_tranche": "2026-11-06",
+      "weeks": 3,
+      "done": true,
       "events": [
         {
           "date": "2026-10-23",
@@ -56,14 +56,21 @@
           "rsi": 44.4,
           "tranche": 0.3119,
           "released": 0.781134
+        },
+        {
+          "date": "2026-11-06",
+          "type": "tranche",
+          "rsi": 26.9,
+          "tranche": 0.2189,
+          "released": 1.0
         }
       ]
     }
   },
   "3": {
-    "expected_cash": 820.68,
-    "as_of": "2026-11-05",
-    "traded_notional": 738.17,
+    "expected_cash": 818.44,
+    "as_of": "2026-11-11",
+    "traded_notional": 0.0,
     "deposits": [],
     "dca": null
   }
