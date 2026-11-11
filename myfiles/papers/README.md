@@ -166,7 +166,63 @@ arXiv 2603.21473, NTU/NUS (groupe Cambria, comme FIN-FORCE).
 
 ---
 
-## 4. Données (pour reproduire les papiers sur actions individuelles)
+## 4. Session du 2026-11-10 — trading piloté par LLM avec contexte macro glissant
+
+**Question** : existe-t-il des travaux où un LLM gère l'allocation en tenant à jour un **contexte macro glissant** (inflation, taux directeurs, calendrier économique, calendrier des résultats, news, technique), avec : thèmes de news récurrents, thèmes dynamiques générés par le contexte, fiabilité des acteurs, échéances à venir, puis niveau d'allocation ?
+
+**Réponse courte** : non, pas de bout en bout. Chaque brique existe séparément ; **le calendrier des échéances (et leurs surprises) et la fiabilité des acteurs jugée sur leurs annonces passées ne sont couverts par aucun papier trouvé**.
+
+> ⚠️ **Niveau de lecture** : PDF téléchargés, mais seuls les **résumés** (et la première page des deux papiers CLEF) ont été lus. Les notes ci-dessous ne valent pas les fiches détaillées de la section 1 ; les chiffres sont ceux annoncés par les auteurs, non vérifiés.
+
+### 4.1 PDF ajoutés
+
+| Fichier | Papier | Brique couverte | Intérêt a priori |
+|---|---|---|---|
+| `Empirical-Asset-Pricing-with-Large-Language-Model-Agents.pdf` | Cheng & Chin, [arXiv 2409.17266](https://arxiv.org/abs/2409.17266), 2024 | **Contexte glissant** : l'agent écrit des rapports d'analyse à partir des news, avec mémoire des rapports passés et une note macro/micro réécrite au fil de l'eau ; l'embedding des rapports alimente un modèle de pricing. Sharpe +10,6 % par rapport aux références ML. | ⭐⭐⭐ Le mécanisme de note mise à jour est le plus proche de l'étape 1. |
+| `FinMem_-….pdf` | Yu et al., [arXiv 2311.13743](https://arxiv.org/abs/2311.13743), 2023 | **Mémoire en couches** (court / moyen / long terme) + profil de l'agent + décision. Actions individuelles. | ⭐⭐ Référence classique pour l'architecture de mémoire. |
+| `EdgeQuant-Agent_-….pdf` | Kava et al., CLEF 2026 FinMMEval tâche 3 | Mémoire à 4 niveaux (news, 10-Q, 10-K, couche réflexive), ChromaDB. Décision quotidienne BUY/HOLD/SELL sur TSLA et BTC. 2ᵉ sur 18 en évaluation **live** sur TSLA, 8ᵉ sur BTC. | ⭐⭐ Mémoire hiérarchique testée en réel, mais fenêtre de 6 à 8 semaines. |
+| `TrustMe-CLEF-2026-….pdf` | Kundu, Kaneshiro, Imai, CLEF 2026 FinMMEval tâche 3 | Agent LLM qui **suit la tendance par défaut** et ne s'écarte que sur preuve claire. Classe les news par narratif dominant et par horizon (catalyseur d'un jour ou thème de plusieurs jours). **Gros catalogue de résultats négatifs.** | ⭐⭐⭐ Constat clé : les news fournies décrivent des événements **déjà dans le cours de clôture**. Conclusion voisine de la nôtre (socle trend-following, LLM en garde-fou). |
+| `Leveraging-LLMS-for-Top-Down-Sector-Allocation-….pdf` | Quek et al. (groupe Cambria), [arXiv 2503.09647](https://arxiv.org/abs/2503.09647), 2025 | **Allocation top-down** : documents de politique monétaire + indicateurs économiques + sentiment → poids sectoriels. Sharpe annoncé 2,51 contre −0,61 pour le momentum croisé. | ⭐⭐ Bon gabarit d'entrées macro ; rendement de 8,79 % seulement, période sans doute courte et contaminée. |
+| `Hierarchical-AI-Multi-Agent-Fundamental-Investing_-….pdf` | He et al., [arXiv 2510.21147](https://arxiv.org/abs/2510.21147), 2025 | **Architecture complète** : agent macro (filtre les secteurs) → 4 agents par entreprise (fondamental, technique, rapports, news) → agent portefeuille (RL) → agent contrôle du risque. CSI 300. | ⭐⭐ Le découpage en agents le plus proche de la liste de thèmes. |
+| `CN-Buzz2Portfolio_-….pdf` | Chen et al., [arXiv 2603.22305](https://arxiv.org/abs/2603.22305), 2026 | **News du jour → poids d'ETF** macro et sectoriels (pas d'actions). Chaîne en 3 étapes : compression, perception, allocation. 9 LLM comparés, 2024 → mi-2025. Données et code publiés. | ⭐⭐⭐ Le cadre le plus proche d'une allocation sur ETF à partir du flux de news. |
+| `Enhancing-Regime-Shift-Detection-….pdf` | Yi et al., [arXiv 2605.30363](https://arxiv.org/abs/2605.30363), 2026 | **Changement de régime** : le LLM propose des dates à partir des minutes du FOMC, un test VAR les valide sur 14 séries taux/macro (et inversement). F1 = 0,82, détection le jour même. Pas d'allocation. | ⭐⭐⭐ Validation croisée texte ↔ données : bon modèle pour ne pas laisser le LLM décider seul. |
+| `TrustTrade_-….pdf` | Li et al., [arXiv 2603.22567](https://arxiv.org/abs/2603.22567), 2026 | **Fiabilité de l'information** : plusieurs agents LLM indépendants, signaux pondérés par leur accord sémantique et numérique ; signaux temporels déterministes comme ancrage ; mémoire réflexive. | ⭐⭐ Fiabilité par consensus entre agents, pas par historique de l'acteur. |
+| `The-simulation-of-judgment-in-LLMs.pdf` | Loru et al. (Sapienza), [arXiv 2502.04426](https://arxiv.org/abs/2502.04426), 2025 (v1 intitulée *Decoding AI Judgment*) | 6 LLM notent la fiabilité de sources de presse, comparés à NewsGuard et MBFC. Sorties alignées, mais critères différents : asymétrie politique, confusion entre forme du texte et fiabilité (« epistemia »). | ⭐ Mise en garde pour l'étape « fiabilité des acteurs ». |
+| `Look-Ahead-Bench_-….pdf` | Benhenda, [arXiv 2601.13770](https://arxiv.org/abs/2601.13770), 2026 | **Biais d'anticipation** mesuré dans des flux de trading réalistes : l'alpha de Llama 3.1 et DeepSeek s'effondre après leur cutoff, pas celui des modèles point-in-time (Pitinf). [Code](https://github.com/benstaf/lookaheadbench). | ⭐⭐⭐ À lire avant tout backtest d'une couche LLM. |
+| `Summoning-the-Oracle-to-Slay-It_-….pdf` | Li, Wang, Ma, [arXiv 2605.24564](https://arxiv.org/abs/2605.24564), 2026 | FinCAD : décodage qui atténue la mémoire des dates connues, sans réentraînement. Rendements in-sample corrigés jusqu'à −67 %, hors échantillon 2025 quasi inchangé. | ⭐⭐ Chiffre l'ampleur de la contamination. |
+| `Can-LLM-based-Financial-Investing-Strategies-Outperform-….pdf` | Li, Kim, Cucuringu, Ma (FINSABER), [arXiv 2505.07078](https://arxiv.org/abs/2505.07078), 2025 | Backtests sur 20 ans et plus de 100 titres : l'avantage des stratégies LLM disparaît. Elles sont **trop prudentes en marché haussier et trop agressives en marché baissier**. Conclusion des auteurs : privilégier détection de tendance et contrôle du risque par régime. | ⭐⭐⭐ La douche froide ; conforte le socle déterministe actuel. |
+
+**Ordre de lecture conseillé** : FINSABER, Look-Ahead-Bench, TrustMe (résultats négatifs), puis Cheng & Chin, CN-Buzz2Portfolio, Regime Shift Detection.
+
+### 4.2 Vus en ligne, sans PDF local
+
+| Papier | Résumé | Intérêt |
+|---|---|---|
+| **Taibi, Gross-Klussmann, Osterrieder — *Trading Macro Narratives*** (avril 2026, [lien d'origine](https://digital-ai-finance.github.io/macro_narratives/paper_signal_tilt_core_revised.pdf), **404 au 2026-11-10**) | 65 narratifs macro « evergreen » suivis sur 2004–2025, transformés en signaux pour des portefeuilles actions et facteurs. Rendements positifs annoncés ; rotation, frais et mise en œuvre laissés ouverts. | Le plus proche des **thèmes récurrents** (inflation, douane, guerre…). À retrouver (SSRN ou arXiv). |
+| DatedGPT (Yan et al., 2026) | Modèles entraînés sur données filtrées par date. | Alternative à ChronoGPT / PIT-4B (section 2). |
+| Bybee, Kelly, Manela, Xiu — *Business News and Business Cycles* (cité de mémoire, non revérifié) | Thèmes extraits du WSJ par modèle de sujets, reliés au cycle économique. | Ancêtre sans LLM du suivi de thèmes récurrents. |
+
+### 4.3 Correspondance avec le pipeline envisagé
+
+| Étape | Couverture | Sources |
+|---|---|---|
+| 1. Contexte macro glissant | Partielle | Cheng & Chin, FinMem, EdgeQuant |
+| 2. Thèmes récurrents | Bonne | Trading Macro Narratives, Bybee et al. |
+| 3. Thèmes dynamiques générés par le contexte | **Faible** : classification, pas découverte | TrustMe |
+| 4. Fiabilité des acteurs | **Faible** : consensus entre agents ou notation de médias, rien sur l'historique d'un acteur | TrustTrade, Loru et al. |
+| 5. Échéances à venir et surprises | **Aucune** | (Regime Shift Detection utilise les minutes du FOMC, sans calendrier) |
+| 6. Niveau d'allocation | Bonne, mais sectorielle ou par ETF | Quek et al., He et al., CN-Buzz2Portfolio |
+
+### 4.4 Conséquences pour ce dépôt
+
+1. **Aucun backtest 2000–2026 d'une couche LLM n'est fiable** : le modèle connaît 2008, 2020 et 2022 (Look-Ahead-Bench, FinCAD). Seul le suivi en temps réel après le cutoff valide quelque chose, ou un modèle point-in-time (section 2).
+2. **Garder la formule déterministe comme socle** et faire tourner la couche sémantique en **observation seule** : journal quotidien du contexte, des thèmes, des échéances et de l'allocation suggérée, sans effet sur les ordres. FINSABER et TrustMe arrivent tous deux à « tendance d'abord, LLM en garde-fou ».
+3. **Les news sont souvent déjà dans le cours** (TrustMe) : ce qui peut porter de l'information en avance, ce sont les **échéances connues à l'avance** et l'écart au consensus, soit précisément la brique que personne n'a publiée.
+4. **Ne pas laisser le LLM décider seul** : valider chaque signal textuel par les données (schéma texte ↔ VAR de Yi et al.), et ancrer sur des signaux déterministes (TrustTrade).
+
+---
+
+## 5. Données (pour reproduire les papiers sur actions individuelles)
 
 - **CRSP** : payant, accessible via WRDS (abonnement institutionnel ou universitaire). Pas d'offre particulier raisonnable.
 - **Gratuit, partiel** :
