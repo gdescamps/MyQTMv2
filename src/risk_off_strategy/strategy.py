@@ -180,22 +180,7 @@ def composition(e):
     return 2.0 - e, e - 1.0, 0.0
 
 
-# ── Deploiement progressif d'un APPORT de capital (DCA pilote par le RSI) ───────
-# Un apport detecte sur le PEA n'est pas investi d'un coup : un budget B (part de
-# l'apport liberee, 0 au depart) grossit chaque semaine SI le RSI(14) du QQQ est sous
-# DCA_RSI_GATE, d'une tranche DCA_BASE + DCA_SLOPE . (gate - RSI) (plus le RSI est
-# bas, plus la tranche est grosse) ; la part non liberee est RESERVEE (exclue de
-# l'equity que la strategie alloue). Filet : tout est libere apres DCA_MAX_WEEKS.
-# Calibre sur 1300 apports simules 2001-2025 (myfiles/rsi_dca_entry_test.py, 1 an
-# apres l'apport, x1 net) : vs entree immediate, pire 5% des drawdowns de 1ere annee
-# -17.1% -> ~-14/-15%, aucune annee < -10%, pour ~-1.5 pt de rendement moyen de 1ere
-# annee (CAGR 3 ans 11.6% -> 11.0%) : c'est une assurance contre une tres mauvaise
-# premiere annee, pas un gain.
-DCA_RSI_GATE = 50.0    # tranche uniquement si RSI(14) < gate
-DCA_BASE = 0.20        # tranche de base (part de l'apport) par semaine eligible
-DCA_SLOPE = 0.02       # + DCA_SLOPE par point de RSI sous la gate (RSI 30 -> 0.60)
-DCA_MAX_WEEKS = 26     # filet : tout l'apport est libere au plus tard apres 26 semaines
-DCA_WEEK_DAYS = 7      # cadence des tranches (jours calendaires)
+# RSI(14) de Wilder du QQQ : publie dans signal.json (information du mail du matin).
 
 
 def rsi_wilder(close, n=14):
@@ -206,16 +191,6 @@ def rsi_wilder(close, n=14):
     rsi = 100 - 100 / (1 + up / dn.replace(0, np.nan))
     rsi = rsi.where(~((dn == 0) & (up > 0)), 100.0)     # que des hausses -> 100
     return rsi.fillna(50).values
-
-
-def dca_tranche(rsi, gate=DCA_RSI_GATE, base=DCA_BASE, slope=DCA_SLOPE):
-    """Part de l'apport liberee cette semaine : 0 si RSI >= gate, sinon
-    clip(base + slope . (gate - rsi), 0, 1). rsi=None (inconnu) -> tranche de base."""
-    if rsi is None or not np.isfinite(rsi):
-        return base
-    if rsi >= gate:
-        return 0.0
-    return float(np.clip(base + slope * (gate - rsi), 0.0, 1.0))
 
 
 def simulate_net(price, alloc, leverage=1, funding=None, cash_rate=0.0,

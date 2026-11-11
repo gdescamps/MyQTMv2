@@ -229,7 +229,7 @@ def _load_json(path):
 
 
 def load_capital_entry(slot):
-    """Entree logs/capital.json du slot (apport detecte / DCA en cours), ou {}."""
+    """Entree logs/capital.json du slot (cash attendu + apports detectes), ou {}."""
     return _load_json(CAPITAL_FILE).get(str(slot), {})
 
 
@@ -269,8 +269,7 @@ def row_view(t):
     return {"date": t.get("date", ""), "equity": equity, "cash": cash, "positions": positions,
             "orders": orders, "legacy": legacy, "target_alloc": float(t.get("target_alloc") or 0),
             "target_exposure": t.get("target_exposure"), "probability": float(t.get("probability") or 0),
-            "executed": bool(t.get("executed")), "capital": t.get("capital") or {},
-            "reserved": float(t.get("reserved") or 0)}
+            "executed": bool(t.get("executed")), "capital": t.get("capital") or {}}
 
 
 def order_cash_flow(o):
@@ -335,7 +334,7 @@ def compute_portfolio_history(trades):
             "probability": v["probability"],
             "side": (t.get("side") or "hold"),
             "orders": v["orders"], "executed": v["executed"],
-            "capital": v["capital"], "reserved": v["reserved"],
+            "capital": v["capital"],
         })
     return history
 
@@ -838,8 +837,9 @@ def render_allocations(portfolio):
     for p in reversed(portfolio):
         action = " + ".join(f"{o['side'].upper()} {o['quantity']} {o['instrument']}" for o in p["orders"]
                             if o["side"] in ("buy", "sell") and o["quantity"] > 0) or "HOLD"
-        if p.get("reserved"):
-            action += f" · réserve DCA {p['reserved']:.0f} EUR"
+        dep = (p.get("capital") or {}).get("deposit_today") or 0
+        if dep > 0:
+            action += f" · apport +{dep:.0f} EUR"
         rows.append({
             "date": p["date"], "pust": _cell(p, "PUST"), "lqq": _cell(p, "LQQ"),
             "cash": f"{p['cash']:.0f} EUR ({p['cash_weight']*100:.0f}%)",
@@ -854,7 +854,7 @@ def render_allocations(portfolio):
 
 def render_account_card(acc):
     """Carte de statut d'UN compte (onglet Comptes) : connexion, dernier run, exposition
-    cible vs reelle, repartition PUST / LQQ / cash, capital a allouer detecte."""
+    cible vs reelle, repartition PUST / LQQ / cash, dernier apport detecte."""
     st = account_status(acc)
     last = acc["last"] or {}
     hist = compute_portfolio_history(acc["trades"])
@@ -864,8 +864,6 @@ def render_account_card(acc):
     real_e = cur.get("exposure", 0)
     n_live = sum(1 for p in hist for o in p["orders"] if o["done"] and o["side"] in ("buy", "sell"))
     cap = load_capital_entry(acc["slot"])
-    dca = cap.get("dca") if cap else None
-    dca_active = bool(dca and not dca.get("done"))
     pending = load_pending_entry(acc["slot"])
 
     with ui.element("div").classes("card"):
@@ -876,8 +874,6 @@ def render_account_card(acc):
                 if acc.get("mail"):
                     ui.label(acc["mail"]).style("font-size:0.75rem; color:#999")
             with ui.row().classes("items-center gap-2"):
-                if dca_active:
-                    ui.badge("CAPITAL À ALLOUER DÉTECTÉ", color="blue")
                 if pending:
                     ui.badge("ACHAT DIFFÉRÉ", color="orange")
                 if st.get("mode"):
@@ -924,26 +920,10 @@ def render_account_card(acc):
                 '<span style="color:#bdbdbd">■</span> cash &nbsp;·&nbsp; '
                 f'exposition = PUST + 2 × LQQ = {real_e*100:.0f}%</div>')
 
-        # Capital a allouer (apport detecte, deploiement progressif DCA / RSI)
-        if dca_active:
-            reserved = dca["deposit"] * (1 - dca["released"])
-            last_tr = dca.get("last_tranche")
-            with ui.element("div").style(
-                    "width:100%; margin-top:12px; padding:10px 14px; border-radius:8px; "
-                    "background:#e3f2fd; border:1px solid #90caf9"):
-                ui.html(f'<div style="font-weight:700;color:#0d47a1">Capital à allouer détecté : '
-                        f'+{dca["deposit"]:.0f} EUR (le {dca.get("detected", "?")})</div>')
-                ui.html(f'<div style="font-size:0.8rem;color:#333;margin-top:4px">'
-                        f'Déployé {dca["released"]*100:.0f}% · réservé {reserved:.0f} EUR · '
-                        f'{dca.get("weeks", 0)} tranche(s) · dernière tranche {last_tr or "—"}<br>'
-                        f'Règle : chaque semaine, tranche = 20% + 2% × (50 − RSI14) si RSI14 &lt; 50 '
-                        f'(0 sinon) ; tout investi au plus tard après 26 semaines.</div>')
-                ui.html('<div style="width:100%;height:8px;border-radius:4px;background:#bbdefb;margin-top:6px">'
-                        f'<div style="width:{dca["released"]*100:.1f}%;height:8px;border-radius:4px;'
-                        'background:#1976d2"></div></div>')
-        elif cap.get("deposits"):
+        # Dernier apport / retrait detecte (investi le jour de la detection)
+        if cap.get("deposits"):
             d = cap["deposits"][-1]
-            ui.label(f"Dernier apport détecté : {d.get('amount', 0):+.0f} EUR le {d.get('date', '?')} (entièrement déployé)") \
+            ui.label(f"Dernier apport détecté : {d.get('amount', 0):+.0f} EUR le {d.get('date', '?')}") \
                 .style("font-size:0.75rem; color:#666; margin-top:8px")
         if pending:
             ui.label(f"Achat différé depuis le {pending.get('date')} : "
@@ -990,8 +970,6 @@ def index_page():
     model_date = last_trade.get("model_date", "--")
     n_exec = sum(1 for t in usable for o in row_view(t)["orders"] if o["done"] and o["side"] in ("buy", "sell"))
     n_ko = sum(1 for acc in accounts.values() if account_status(acc)["state"] != "ok")
-    n_dca = sum(1 for acc in accounts.values()
-                if (load_capital_entry(acc["slot"]).get("dca") or {}).get("done") is False)
 
     with ui.element("div").classes("layout"):
         # ── Sidebar ──
@@ -1014,8 +992,6 @@ def index_page():
                     ("Trades", f"{n_exec}", ""),
                     ("Comptes", f"{n_accounts - n_ko}/{n_accounts} OK" if n_accounts else "0", acc_color),
                 ]
-                if n_dca:
-                    metrics.append(("Capital à allouer", f"{n_dca} compte(s)", "gain-positive"))
                 metrics.append(("Model", model_date, "mono"))
                 for label, value, extra_class in metrics:
                     with ui.element("div").classes("sidebar-metric"):
@@ -1137,8 +1113,8 @@ def index_page():
                         ui.label("Le meme signal est replique sur chaque compte gere ; chaque compte "
                                  "est lu, decide et execute independamment (bande de non-action sur "
                                  "sa propre exposition reelle). Strategie PUST + LQQ, exposition = "
-                                 "min(2 x allocation, 170%) ; un apport de capital detecte est deploye "
-                                 "par tranches hebdomadaires quand le RSI14 < 50.").style("font-size: 0.8rem; color: #666")
+                                 "min(2 x allocation, 170%) ; un apport de capital detecte est investi "
+                                 "en entier le matin suivant, a la composition cible du signal.").style("font-size: 0.8rem; color: #666")
                         if not accounts:
                             ui.label("Aucun compte connu (trades.jsonl / logs/accounts.json vides).") \
                                 .classes("text-gray-500")

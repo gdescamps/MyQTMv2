@@ -228,19 +228,19 @@ def test_min_buy_amount_is_200():
 
 
 def test_buy_below_min_amount_is_left_in_cash():
-    """Tranche DCA de 150 EUR liberee : l'achat LQQ vaudrait 100 EUR < 200 -> aucun
-    ordre, le cash reste sur le compte (il sera deploye avec la tranche suivante)."""
-    st = _state(pust=300, lqq=7000, cash=20000)
-    plan = compute_orders(1.7, st, reserved=19850, force_buy=True)
+    """Apport de 150 EUR (compte a E=1.7) : l'achat LQQ vaudrait 100 EUR < 200 -> aucun
+    ordre, le cash reste sur le compte."""
+    st = _state(pust=300, lqq=7000, cash=150)
+    plan = compute_orders(1.7, st, deposit=150)
     assert plan["orders"] == [] and plan["mode"] is None
     assert plan["below_min"] == ["10 LQQ (100 EUR)"]
     assert "minimum 200 EUR" in plan["reason"]
 
 
 def test_buy_at_or_above_min_amount_is_sent():
-    # tranche de 300 EUR : 21 LQQ = 210 EUR >= 200 -> ordre envoye
-    st = _state(pust=300, lqq=7000, cash=20000)
-    plan = compute_orders(1.7, st, reserved=19700, force_buy=True)
+    # apport de 300 EUR : 21 LQQ = 210 EUR >= 200 -> ordre envoye
+    st = _state(pust=300, lqq=7000, cash=300)
+    plan = compute_orders(1.7, st, deposit=300)
     assert _orders(plan) == [("LQQ", "buy", 21)]
     assert plan["below_min"] == []
 
@@ -332,23 +332,75 @@ def test_no_restructure_below_leverage():
     assert plan["orders"] == []
 
 
-# ── DCA : reserve + achat sans bande ──────────────────────
-def test_reserved_cash_is_excluded_from_equity_and_buys():
-    # 100k investis a E=1.7 + apport 20k entierement reserve -> aucun cash oisif
+# ── apport de capital : investi en entier a la composition cible ──
+def test_deposit_invested_at_target_composition_without_band():
+    # 100k investis a E=1.7 + apport 20k : l'existant est dans la bande -> on n'investit
+    # que l'apport, a composition(1.7) = PUST 30% / LQQ 70%, achats seulement
     st = _state(pust=300, lqq=7000, cash=20000)
-    plan = compute_orders(1.7, st, reserved=20000)
+    plan = compute_orders(1.7, st, deposit=20000)
+    assert plan["mode"] == "deposit"
+    assert all(o["side"] == "buy" for o in plan["orders"])
+    q = dict((o["instrument"], o["quantity"]) for o in plan["orders"])
+    assert q["PUST"] == 60                              # 30% x 20k / 100
+    assert 1200 < q["LQQ"] <= 1400                      # 70% x 20k / 10, plafond cash reserve
+    assert "apport +20000 EUR" in plan["reason"]
+
+
+def test_deposit_does_not_trigger_band_on_existing_book():
+    # existant E=1.0 (100k PUST), cible 1.3 : delta hors apport 0.30 < 0.50 -> pas de bande ;
+    # l'apport de 50k (qui ferait tomber l'expo reelle a 0.67) est investi seul, a
+    # composition(1.3) = PUST 70% / LQQ 30% ; l'existant n'est pas touche
+    st = _state(pust=1000, cash=50000)
+    plan = compute_orders(1.3, st, deposit=50000)
+    assert plan["mode"] == "deposit"
+    q = dict((o["instrument"], o["quantity"]) for o in plan["orders"])
+    assert q["PUST"] == 350
+    assert 1300 < q["LQQ"] <= 1500
+    assert plan["e_eff"] == pytest.approx(100000 / 150000)
+
+
+def test_deposit_with_band_trigger_rebalances_whole_account():
+    # existant E=0.4 (PUST 40k + 60k cash voulu), cible 1.0 : delta 0.6 >= 0.5 -> bande
+    # d'achat sur TOUT le compte (apport compris), vers composition(1.0)
+    st = _state(pust=400, cash=70000)
+    plan = compute_orders(1.0, st, deposit=10000)
+    assert plan["mode"] == "buy_band"
+    assert "apport +10000 EUR inclus" in plan["reason"]
+    assert _orders(plan)[0][:2] == ("PUST", "buy")
+
+
+def test_deposit_below_band_without_deposit_would_not_trade():
+    # meme compte sans apport (E=1.0 hors apport, cible 1.3) -> rien
+    plan = compute_orders(1.3, _state(pust=1000, cash=0))
     assert plan["orders"] == []
-    assert plan["equity"] == pytest.approx(100000)
 
 
-def test_force_buy_deploys_released_tranche_without_band():
-    # tranche liberee 20% (reserve 16k) : delta +0.07 < 0.50 mais force_buy -> achats
+def test_deposit_stays_cash_when_target_is_zero():
+    plan = compute_orders(0.0, _state(cash=10000), deposit=10000)
+    assert plan["orders"] == []
+
+
+def test_deposit_on_empty_account_is_from_cash_entry():
+    plan = compute_orders(1.0, _state(cash=5000), deposit=5000)
+    assert plan["mode"] == "from_cash"
+    assert _orders(plan)[0][:2] == ("PUST", "buy")
+
+
+def test_deposit_cash_does_not_trigger_restructure():
+    # compte levier sans cash + apport 20k : le cash de l'apport n'est pas du "cash oisif"
     st = _state(pust=300, lqq=7000, cash=20000)
-    plan = compute_orders(1.7, st, reserved=16000, force_buy=True)
+    assert compute_orders(1.7, st, deposit=20000)["mode"] == "deposit"
+    # sans detection (apport non reconnu), c'est la restructuration qui l'investit
+    assert compute_orders(1.7, st)["mode"] == "restructure"
+
+
+def test_force_buy_without_band():
+    # achat reporte de la veille : delta +0.07 < 0.50 mais force_buy -> achats
+    st = _state(pust=300, lqq=7000, cash=4000)
+    plan = compute_orders(1.7, st, force_buy=True)
     assert plan["mode"] == "force_buy"
     assert all(o["side"] == "buy" for o in plan["orders"])
-    spent = sum(o["value"] for o in plan["orders"])
-    assert spent <= 4000 + 1e-6 and spent > 3800      # ~la tranche, a l'arrondi pres
+    assert sum(o["value"] for o in plan["orders"]) <= 4000
 
 
 def test_buys_only_never_sells():

@@ -27,9 +27,9 @@ C'est la migration immediate LQQ x2 -> PUST + LQQ x1.7 ; elle ne se redeclenche 
 ensuite (plus de cash oisif quand E > 1).
 
 Apport de capital : detecte par ecart entre le cash lu et le cash attendu (cf.
-src/bourso/capital.py), puis deploye par tranches hebdomadaires quand le RSI(14) < 50
-(tranche plus grosse si RSI plus bas) — la part non liberee est reservee (exclue de
-l'equity allouee). Le jour d'une tranche : achats sans bande vers la composition cible.
+src/bourso/capital.py) au run du matin qui suit le virement, et investi EN ENTIER ce
+jour-la, sans bande, a la composition cible du signal (composition(cible)) ; la bande
+continue de s'appliquer au portefeuille existant, evaluee hors apport.
 
 Multicompte : le meme signal est REPLIQUE sur chaque compte Bourso gere (slots
 BOURSO_ID_n/CODE_n/MAIL_n du .env, cf. src/bourso/accounts.py). Chaque compte est lu,
@@ -141,7 +141,7 @@ BUY_CASH_MARGIN = 0.03
 # un achat est de 200.0 euros", constate le 2026-09-28 sur 1 PUST a 110 EUR). Une jambe
 # d'achat dont la valeur (quantite x cours) est sous ce plancher n'est PAS envoyee : le
 # cash reste sur le compte (il sera deploye avec le prochain achat, quand l'ecart a la
-# cible / la tranche DCA cumulee depassera 200 EUR). Aucun plancher n'est applique aux
+# cible depassera 200 EUR). Aucun plancher n'est applique aux
 # ventes (non constate).
 MIN_BUY_EUR = 200.0
 
@@ -317,24 +317,28 @@ def is_emergency_off():
 
 # ── Decision ──────────────────────────────────────────────
 
-def compute_orders(target_e, state, reserved=0.0, force_buy=False, buys_only=False, e_max=None):
+def compute_orders(target_e, state, deposit=0.0, force_buy=False, buys_only=False, e_max=None):
     """Ordres (ventes puis achats) pour amener l'exposition reelle vers `target_e`,
-    dans la composition drag-minimale, sur l'equity GEREE (PUST + LQQ + cash - reserve).
+    dans la composition drag-minimale, sur l'equity GEREE (PUST + LQQ + cash).
 
-    reserved  : cash reserve (apport en cours de DCA), exclu de l'equity et des achats.
-    force_buy : achats sans bande (tranche DCA liberee, achat reporte de la veille).
+    deposit   : apport de capital detecte ce matin (EUR). La bande est evaluee sur le
+                portefeuille HORS apport (l'apport ne doit pas declencher a lui seul un
+                rebalancement) ; l'apport est ensuite investi en entier, sans bande, a la
+                composition CIBLE du jour (composition(target_e)) — achats seulement.
+    force_buy : achats sans bande (achat reporte de la veille).
     buys_only : jamais de vente (reprise d'un achat reporte le jour meme).
     Renvoie un plan {orders: [{instrument, side, quantity, price, value, fee}], mode,
-    reason, e_eff, e_new, target_e, equity, cash_avail, weights, target_weights}."""
+    reason, e_eff, e_new, target_e, equity, deposit, cash_avail, weights, target_weights}."""
     e_max = E_MAX if e_max is None else e_max
     pos = state["positions"]
     px = {k: float(pos[k]["price"]) for k in INSTRUMENTS}
     sh = {k: int(pos[k]["shares"]) for k in INSTRUMENTS}
     val = {k: sh[k] * px[k] for k in INSTRUMENTS}
-    cash = max(0.0, float(state["cash"]) - float(reserved))
+    cash = max(0.0, float(state["cash"]))
+    deposit = min(max(0.0, float(deposit or 0.0)), cash)
     V = val["PUST"] + val["LQQ"] + cash
     plan = {"orders": [], "mode": None, "reason": "", "target_e": target_e, "e_eff": 0.0,
-            "e_new": 0.0, "equity": V, "reserved": float(reserved), "cash_avail": cash,
+            "e_new": 0.0, "equity": V, "deposit": deposit, "cash_avail": cash,
             "weights": {"PUST": 0.0, "LQQ": 0.0, "cash": 1.0}, "target_weights": None}
     if V <= 0:
         plan["reason"] = "PEA vide (equity geree = 0)"
@@ -343,13 +347,20 @@ def compute_orders(target_e, state, reserved=0.0, force_buy=False, buys_only=Fal
     e_eff = (val["PUST"] + 2.0 * val["LQQ"]) / V
     w = {"PUST": val["PUST"] / V, "LQQ": val["LQQ"] / V, "cash": cash / V}
     plan.update(e_eff=e_eff, weights=w)
+    # Decision de bande sur le portefeuille HORS apport (V0) : un apport fait baisser
+    # l'exposition reelle mais n'est pas un signal de rebalancement.
+    V0 = V - deposit
+    e_dec = (val["PUST"] + 2.0 * val["LQQ"]) / V0 if V0 > 1e-9 else 0.0
+    cash0_w = (cash - deposit) / V0 if V0 > 1e-9 else 0.0
     invested = sh["PUST"] > 0 or sh["LQQ"] > 0
     to_cash = target_e <= 1e-9 and invested
     from_cash = (not invested) and target_e > 1e-9
-    delta = target_e - e_eff
+    delta = target_e - e_dec
 
-    print(f"\nExposition (equity geree {V:.0f} EUR" + (f", reserve DCA {reserved:.0f} EUR" if reserved else "") + "):")
+    print(f"\nExposition (equity geree {V:.0f} EUR" + (f", dont apport {deposit:.0f} EUR" if deposit else "") + "):")
     print(f"  Reelle:  {e_eff*100:.1f}%  (PUST {w['PUST']*100:.0f}% | LQQ {w['LQQ']*100:.0f}% | cash {w['cash']*100:.0f}%)")
+    if deposit:
+        print(f"  Hors apport: {e_dec*100:.1f}%  (base de la decision de bande)")
     print(f"  Cible:   {target_e*100:.1f}%")
     print(f"  Delta:   {delta*100:+.1f}%")
 
@@ -368,13 +379,17 @@ def compute_orders(target_e, state, reserved=0.0, force_buy=False, buys_only=Fal
     elif -delta >= SELL_THR_E:
         mode = "sell_band"
     elif force_buy and delta > 1e-9:
-        mode = "force_buy"                  # tranche DCA / achat reporte : sans bande
+        mode = "force_buy"                  # achat reporte de la veille : sans bande
     # Cash oisif alors que le compte est levier (E > 1) : pas la realisation drag-
     # minimale (ex. ancienne "LQQ + cash", ou achat refuse/partiel) -> restructuration
     # vers la cible bornee par [E_eff, E_eff + cash] : le cash seul remonte l'expo
     # (achats, pas de vente) ; on ne revend du LQQ que si la cible est sous E_eff.
-    elif e_eff > 1.0 and w["cash"] >= IDLE_CASH_TOL and not buys_only:
+    # (Evalue hors apport : l'apport est investi a part, a la composition cible.)
+    elif e_dec > 1.0 and cash0_w >= IDLE_CASH_TOL and not buys_only:
         mode = "restructure"
+    # Apport seul (portefeuille existant dans la bande) : on n'investit QUE l'apport.
+    elif deposit > 0 and target_e > 1e-9:
+        mode = "deposit"
     else:
         if delta > 0:
             plan["reason"] = f"Achat ignore: delta +{delta*100:.1f}% < seuil {BUY_THR_E*100:.0f}%"
@@ -385,16 +400,25 @@ def compute_orders(target_e, state, reserved=0.0, force_buy=False, buys_only=Fal
         plan["e_new"] = e_eff
         return plan
 
+    # Cible en EUR par instrument. Modes "globaux" (bande, force, entree/sortie du cash) :
+    # tout le compte, apport compris, vers composition(cible). Restructuration / apport
+    # seul : portefeuille existant (hors apport) + apport x composition(cible).
+    dep_w = composition(target_e)
     if mode == "restructure":
         # clip(cible, E_eff, E_eff + cash) : E_eff + w_cash = tout le cash en PUST (sans
         # vente) ; en dessous de E_eff il faudrait vendre du LQQ -> on garde E_eff.
-        e_new = min(max(target_e, e_eff), e_eff + w["cash"], e_max)
+        e0 = min(max(target_e, e_dec), e_dec + cash0_w, e_max)
+        cp, cl, _ = composition(e0)
+        tgt = {"PUST": cp * V0 + dep_w[0] * deposit, "LQQ": cl * V0 + dep_w[1] * deposit}
+    elif mode == "deposit":
+        tgt = {"PUST": val["PUST"] + dep_w[0] * deposit, "LQQ": val["LQQ"] + dep_w[1] * deposit}
     else:
-        e_new = target_e
-    wp, wl, wc = composition(e_new)
-    tgt = {"PUST": wp * V, "LQQ": wl * V}
-    plan.update(mode=mode, e_new=e_new, target_weights={"PUST": wp, "LQQ": wl, "cash": wc})
-    buys_only = buys_only or mode in ("force_buy", "from_cash")
+        tgt = {"PUST": dep_w[0] * V, "LQQ": dep_w[1] * V}
+    e_new = (tgt["PUST"] + 2.0 * tgt["LQQ"]) / V
+    wp, wl = tgt["PUST"] / V, tgt["LQQ"] / V
+    wc = 1.0 - wp - wl
+    plan.update(mode=mode, e_new=e_new, target_weights={"PUST": wp, "LQQ": wl, "cash": wc if wc > 1e-9 else 0.0})
+    buys_only = buys_only or mode in ("force_buy", "from_cash", "deposit")
 
     orders = []
     if not buys_only:
@@ -443,15 +467,20 @@ def compute_orders(target_e, state, reserved=0.0, force_buy=False, buys_only=Fal
               "buy_band": f"achat (delta +{delta*100:.1f}% >= {BUY_THR_E*100:.0f}%)",
               "sell_band": f"vente (delta {delta*100:.1f}% <= -{SELL_THR_E*100:.0f}%)",
               "force_buy": f"achat sans bande (delta +{delta*100:.1f}%)",
-              "restructure": f"restructuration vers expo {e_new*100:.0f}% (cash oisif {w['cash']*100:.0f}%, "
-                             f"cible {target_e*100:.0f}%)"}
+              "restructure": f"restructuration vers expo {e_new*100:.0f}% (cash oisif {cash0_w*100:.0f}%, "
+                             f"cible {target_e*100:.0f}%)",
+              "deposit": f"investissement de l'apport +{deposit:.0f} EUR a la composition cible "
+                         f"(PUST {dep_w[0]*100:.0f}% | LQQ {dep_w[1]*100:.0f}% | especes {dep_w[2]*100:.0f}%)"}
+    label = labels[mode]
+    if deposit and mode != "deposit":
+        label += f" [apport +{deposit:.0f} EUR inclus]"
     min_txt = (f" ; achat sous le minimum {MIN_BUY_EUR:.0f} EUR conserve en cash : "
                + ", ".join(below_min)) if below_min else ""
     if not orders:
-        plan["reason"] = f"{labels[mode]} : rien a faire (marge d'1 part / cash insuffisant){min_txt}"
+        plan["reason"] = f"{label} : rien a faire (marge d'1 part / cash insuffisant){min_txt}"
         plan["mode"] = None
         return plan
-    plan["reason"] = labels[mode] + " : " + " ; ".join(describe_order(o) for o in orders) + min_txt
+    plan["reason"] = label + " : " + " ; ".join(describe_order(o) for o in orders) + min_txt
     return plan
 
 
@@ -466,7 +495,7 @@ def exposure_after(plan, state):
     """Exposition reelle apres les ordres du plan qui ont abouti (executed / dry-run)."""
     pos = state["positions"]
     val = {k: pos[k]["shares"] * pos[k]["price"] for k in INSTRUMENTS}
-    cash = max(0.0, float(state["cash"]) - plan.get("reserved", 0.0))
+    cash = max(0.0, float(state["cash"]))
     for o in plan["orders"]:
         if o.get("status") not in ("executed", "dry-run"):
             continue
@@ -554,7 +583,7 @@ def execute_plan(plan, state, account, execute):
     if not buys:
         return False
 
-    cash_avail = max(0.0, float(state["cash"]) - plan.get("reserved", 0.0))
+    cash_avail = max(0.0, float(state["cash"]))
     sold = [o for o in sells if o["status"] in ("executed", "dry-run")]
     if not execute:
         # dry-run : on suppose les ventes creditees (produit net de frais)
@@ -573,7 +602,7 @@ def execute_plan(plan, state, account, execute):
 
         try:
             st = retry(_wait_cash, label=f"Attente credit ventes {account.label}")
-            cash_avail = max(0.0, st["cash"] - plan.get("reserved", 0.0))
+            cash_avail = max(0.0, st["cash"])
         except Exception as e:  # noqa: BLE001
             print(f"[ATTENTE] {e} -> achats reportes (reprise horaire, puis lendemain)")
             for o in buys:
@@ -721,9 +750,9 @@ def _positions_record(state):
     return {k: {"shares": p["shares"], "price": p["price"]} for k, p in state["positions"].items()}
 
 
-def composition_line(state, reserved=0.0):
+def composition_line(state):
     pos = state["positions"]
-    cash = max(0.0, state["cash"] - reserved)
+    cash = max(0.0, state["cash"])
     V = sum(p["value"] for p in pos.values()) + cash
     if V <= 0:
         return "PEA vide"
@@ -732,26 +761,28 @@ def composition_line(state, reserved=0.0):
 
 
 def plan_for_account(account, target_e, state=None):
-    """Lecture + plan SANS effet de bord (apercu du soir) : la reserve DCA courante est
-    prise en compte, sans detection d'apport ni tranche. Renvoie (state, plan)."""
-    from src.bourso.capital import load_capital_state, get_entry, reserved_cash
+    """Lecture + plan SANS effet de bord (apercu du soir) : un apport deja visible sur le
+    compte est detecte (sur une copie de l'etat capital, rien n'est persiste) et inclus
+    dans l'apercu, comme le ferait le run du matin. Renvoie (state, plan)."""
+    import copy
+    from src.bourso.capital import load_capital_state, get_entry, detect_deposit
     state = state or get_pea_state(account)
-    entry = get_entry(load_capital_state(), account.slot)
-    reserved = reserved_cash(entry, state["cash"])
+    entry = copy.deepcopy(get_entry(load_capital_state(), account.slot))
+    deposit, _ = detect_deposit(entry, state["cash"], state["equity"])
     pending = load_pending().get(str(account.slot))
-    plan = compute_orders(target_e, state, reserved=reserved, force_buy=pending is not None)
+    plan = compute_orders(target_e, state, deposit=deposit, force_buy=pending is not None)
     return state, plan
 
 
 def process_account(account, signal, target_e, execute, force_buy=False, buys_only=False):
-    """Lit le PEA du compte, detecte un apport / avance le DCA, decide, execute (ventes,
+    """Lit le PEA du compte, detecte un apport (investi le jour meme a la composition
+    cible), decide, execute (ventes,
     attente du cash, achats), journalise et envoie le mail du compte. Leve si le PEA
     reste illisible (le mail d'echec est envoye par main).
 
     Renvoie {plan, state, pending} (pending = achats en attente de cash)."""
     from src.bourso.capital import (
-        load_capital_state, save_capital_state, get_entry, detect_deposit, start_dca,
-        apply_withdrawal, dca_step, reserved_cash, dca_summary, record_expected_cash,
+        load_capital_state, save_capital_state, get_entry, detect_deposit, record_expected_cash,
     )
     mode = "LIVE" if execute else "DRY-RUN"
     print(f"\n{'-'*60}\n  {account.label.upper()}\n{'-'*60}")
@@ -770,29 +801,18 @@ def process_account(account, signal, target_e, execute, force_buy=False, buys_on
         print(f"  [REPRISE] achat reporte du {pending_prev.get('date')} : achats sans bande")
         force_buy = True
 
-    # 3. Apport / retrait de capital + tranche DCA (persistes dans logs/capital.json,
-    #    en LIVE seulement : un dry-run ne doit pas deplacer la reference de cash)
+    # 3. Apport / retrait de capital (ecart cash lu vs cash attendu, persiste dans
+    #    logs/capital.json en LIVE seulement : un dry-run ne deplace pas la reference).
+    #    Un apport est investi AUJOURD'HUI (lendemain du virement) en entier, a la
+    #    composition cible du signal — plus de DCA ni de reserve.
     cap_state = load_capital_state()
     entry = get_entry(cap_state, account.slot)
     deposit, withdrawal = detect_deposit(entry, state["cash"], state["equity"], today)
     if deposit > 0:
-        start_dca(entry, deposit, today)
-        print(f"\n  *** APPORT DE CAPITAL DETECTE : +{deposit:.0f} EUR -> deploiement progressif (DCA/RSI) ***")
+        print(f"\n  *** APPORT DE CAPITAL DETECTE : +{deposit:.0f} EUR -> investi aujourd'hui a la composition cible ***")
     if withdrawal > 0:
-        apply_withdrawal(entry, withdrawal)
         print(f"\n  [INFO] retrait detecte : -{withdrawal:.0f} EUR")
-    tranche = dca_step(entry, signal.get("rsi14"), today)
-    if tranche > 0:
-        print(f"  [DCA] tranche liberee aujourd'hui : {tranche*100:.0f}% de l'apport "
-              f"(RSI14 {signal.get('rsi14', float('nan')):.1f})")
-        force_buy = True
-    reserved = reserved_cash(entry, state["cash"])
-    dca = dca_summary(entry, state["cash"])
-    if dca:
-        print(f"  [DCA] apport {dca['deposit']:.0f} EUR, libere {dca['released']*100:.0f}%, "
-              f"reserve {dca['reserved']:.0f} EUR, prochaine tranche {dca['next_tranche'] or 'aujourd hui'}")
-    capital_info = {"deposit_today": round(deposit, 2), "withdrawal_today": round(withdrawal, 2),
-                    "tranche_today": round(tranche, 4), "reserved": round(reserved, 2), "dca": dca}
+    capital_info = {"deposit_today": round(deposit, 2), "withdrawal_today": round(withdrawal, 2)}
 
     # 4. Detection de split / anomalie de prix (par instrument) -> aucune position aujourd'hui
     splits = {}
@@ -822,13 +842,15 @@ def process_account(account, signal, target_e, execute, force_buy=False, buys_on
                    reason=f"split detecte ({det}) — no trade",
                    result={"status": "split_detected", "splits": {k: list(v) for k, v in splits.items()}})
         log_trade(rec)
-        if execute:
+        if execute and deposit <= 0:
+            # un apport du jour n'est PAS acte : il sera re-detecte (et investi) au
+            # prochain run, au lieu de rester en cash oisif
             record_expected_cash(entry, state["cash"], [], today)
             save_capital_state(cap_state)
         return {"plan": None, "state": state, "pending": False}
 
     # 5. Decision (bande asymetrique sur l'exposition reelle de CE compte)
-    plan = compute_orders(target_e, state, reserved=reserved, force_buy=force_buy, buys_only=buys_only)
+    plan = compute_orders(target_e, state, deposit=deposit, force_buy=force_buy, buys_only=buys_only)
     print(f"\nDecision: {plan['reason']}")
 
     # 6. Execution — ventes, attente du cash, achats (backoff court par ordre)
@@ -883,22 +905,16 @@ def process_account(account, signal, target_e, execute, force_buy=False, buys_on
     body += (
         f"  Exposition cible:  {target_e*100:.0f}%  (= min(2 x {signal['allocation']*100:.0f}%, {E_MAX*100:.0f}%))\n"
         f"  Exposition reelle: {plan['e_eff']*100:.0f}%  ->  {e_after*100:.0f}% apres ordres du jour\n"
-        f"  Composition:  {composition_line(state, reserved)}\n"
+        f"  Composition:  {composition_line(state)}\n"
         f"  Cible:        PUST {tw['PUST']*100:.0f}% | LQQ {tw['LQQ']*100:.0f}% | especes {tw['cash']*100:.0f}%\n\n"
         f"  Action:      " + "\n               ".join(action_lines) + "\n"
         + (f"  Type ordre:  limite ±{LIMIT_TOLERANCE_PCT}% (tampon d'ouverture), ventes puis achats\n" if plan["orders"] else "")
     )
     if capital_info["deposit_today"] > 0:
         body += (f"\n  *** APPORT DE CAPITAL DETECTE : +{capital_info['deposit_today']:.0f} EUR ***\n"
-                 f"  Deploiement progressif : tranche hebdo si RSI14 < 50 (plus grosse si RSI plus bas),\n"
-                 f"  tout investi au plus tard apres 26 semaines. Part reservee : {reserved:.0f} EUR.\n")
+                 f"  Investi en entier aujourd'hui a la composition cible du signal (sans bande).\n")
     if capital_info["withdrawal_today"] > 0:
         body += f"\n  Retrait detecte : -{capital_info['withdrawal_today']:.0f} EUR\n"
-    if dca:
-        body += (f"\n  Capital en cours de deploiement : apport {dca['deposit']:.0f} EUR, "
-                 f"libere {dca['released']*100:.0f}%, reserve {dca['reserved']:.0f} EUR"
-                 + (f", tranche du jour {tranche*100:.0f}%" if tranche > 0 else "")
-                 + f", prochaine tranche {dca['next_tranche'] or 'aujourd hui'}\n")
     body += (
         f"\n  Especes:     {state['cash']:.2f} EUR\n"
         f"  Titres:      {state['stocks']:.2f} EUR\n"
@@ -923,7 +939,7 @@ def process_account(account, signal, target_e, execute, force_buy=False, buys_on
                orders=[{k: o.get(k) for k in ("instrument", "side", "quantity", "price", "value", "fee", "status", "error")}
                        for o in plan["orders"]],
                positions=_positions_record(state), cash=state["cash"], equity=state["equity"],
-               reserved=reserved, exposure_before=plan["e_eff"], exposure_after=e_after,
+               exposure_before=plan["e_eff"], exposure_after=e_after,
                mode=plan["mode"], capital=capital_info, reason=plan["reason"],
                result=None if status is None else {"status": status,
                                                    "errors": [o.get("error") for o in errors] or None})

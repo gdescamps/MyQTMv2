@@ -155,9 +155,8 @@ The morning script holds the target exposure in the drag-minimal composition (`E
 cash; `E > 1`: PUST = 2−E, LQQ = E−1, no idle cash), trades inside the same asymmetric no-trade
 band as the net backtest (buy if +0.50 exposure, sell if −1.00), sells before it buys (buys wait
 for the sale proceeds and are sized on the cash Bourso actually reserves — limit price +3% plus a
-3% provision — a refused buy is deferred and re-sized rather than dropped), and deploys a **detected cash
-deposit** progressively: weekly tranches only when the QQQ RSI(14) is below 50, larger the lower
-the RSI (see `BOURSO.md`).
+3% provision — a refused buy is deferred and re-sized rather than dropped), and invests a **detected cash
+deposit** in full the next morning, at the signal's target composition (see `BOURSO.md`).
 
 PEA execution talks to Boursorama through **`bourso-cli`** (Rust). Upstream
 [azerpas/bourso-api](https://github.com/azerpas/bourso-api) exposes the account-reading

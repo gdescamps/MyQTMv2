@@ -193,7 +193,7 @@ def run_ticker(ticker):
         (nfci is not None and np.nan_to_num(nfci[-1], nan=-9) > NFCI_OFF) or
         (cpi is not None and np.nan_to_num(cpi[-1], nan=-9) > CPI_OFF)
     )
-    rsi14 = float(rsi_wilder(price.values)[-1])   # DCA d'un apport (real_bourso)
+    rsi14 = float(rsi_wilder(price.values)[-1])   # info (mail du matin)
     signal = {
         "status": "ok",
         "ticker": ticker,

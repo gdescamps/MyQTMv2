@@ -99,7 +99,7 @@ EMERGENCY_LINE = "  ARRET D'URGENCE ACTIF — aucun achat tant qu'il n'est pas d
 def _account_preview(account, alloc, alloc_pct, emergency=False):
     """Apercu de l'action du matin pour UN compte, en REUTILISANT le vrai chemin
     d'execution (real_bourso) : meme plafond d'exposition, meme bande asymetrique,
-    meme force cash, meme reserve DCA, meme emergency-off (cible forcee a 0).
+    meme force cash, meme apport detecte, meme emergency-off (cible forcee a 0).
     Source unique -> le recap ne peut pas diverger de ce que le cron du matin fera
     reellement (hors apport detecte le matin meme)."""
     from src.real_bourso import (
@@ -119,13 +119,14 @@ def _account_preview(account, alloc, alloc_pct, emergency=False):
     preview += (
         f"\n  Compte:     {state['account_name']} (compte {account.slot}) — connexion OK"
         f"\n  Strategie:  {STRATEGY_LABEL} (PUST x1 + LQQ x2), plafond d'expo x{E_MAX}"
-        f"\n  PEA actuel: {composition_line(state, plan['reserved'])}, {state['cash']:.0f} EUR especes"
+        f"\n  PEA actuel: {composition_line(state)}, {state['cash']:.0f} EUR especes"
         f"\n  Exposition: {plan['e_eff']*100:.0f}% -> {e_after*100:.0f}% "
         + ("(cible forcee a 0% : arret d'urgence)" if emergency else
            f"(cible {target_e*100:.0f}% = min(2 x {alloc_pct}, {E_MAX*100:.0f}%))")
     )
-    if plan["reserved"] > 0:
-        preview += f"\n  Apport en cours de deploiement : {plan['reserved']:.0f} EUR reserves (DCA/RSI)"
+    if plan.get("deposit", 0) > 0:
+        preview += (f"\n  Apport detecte : +{plan['deposit']:.0f} EUR, investi demain matin "
+                    f"a la composition cible")
     return preview
 
 

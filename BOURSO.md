@@ -177,7 +177,7 @@ Formats : `csv`, `json`. Sans `--output`, ecrit sur stdout.
 - Exposition cible `E = min(2 x allocation, 1.7)`, realisee **drag-minimale** : `E <= 1` → PUST = E, cash = 1−E ; `E > 1` → PUST = 2−E, LQQ = E−1, **cash = 0** (LQQ ne porte que la part > 100%, tout le cash travaille). Exposition reelle = (PUST + 2 x LQQ) / equity geree (PUST + LQQ + cash − reserve DCA ; les autres lignes du PEA sont ignorees).
 - **Migration depuis l'ancien "LQQ + cash"** : automatique et immediate au premier run LIVE — le compte est levier (E > 1) avec du cash oisif (>= 5%) → restructuration **a exposition constante** (plafonnee 1.7) : vente de l'excedent de LQQ (~17% du compte, frais ~0.5% du vendu), achat de PUST avec tout le cash. Ne se redeclenche pas ensuite (plus de cash quand E > 1). Dry-run pour voir le plan : `python -m src.real_bourso --account 1`.
 - **Ventes puis achats** : les achats attendent que le produit des ventes soit credite (`trade summary` est temps reel : des que l'ordre est execute). Backoff ~15 min, puis relance horaire jusqu'a 17h ; si le cash n'est toujours pas la, l'achat est ecrit dans `logs/pending_orders.json` et repris **le lendemain matin sans bande** (mail "ACHAT DIFFERE").
-- **Apport de capital** : detecte le matin par ecart entre le cash lu et le cash attendu (cash de la veille ± flux des ordres ; seuil de bruit max(100 EUR, 0.5% equity, 5% du notionnel traite la veille)). L'apport est **reserve** puis libere par tranches **hebdomadaires quand le RSI14 du QQQ < 50** : tranche = 20% + 2% x (50 − RSI) (RSI 40 → 40%, RSI 30 → 60%), premiere tranche le jour de la detection, tout libere au plus tard apres 26 semaines. Le jour d'une tranche les achats se font sans bande. Etat dans `logs/capital.json` ; mail "APPORT +X EUR" et panneau "Capital a allouer detecte" dans la webapp. Un retrait reduit d'abord la reserve. **Ne pas ajouter de capital le jour de la mise en prod** (la premiere lecture initialise seulement la reference de cash).
+- **Apport de capital** : detecte le matin par ecart entre le cash lu et le cash attendu (cash de la veille ± flux des ordres ; seuil de bruit max(100 EUR, 0.5% equity, 5% du notionnel traite la veille)). L'apport est **investi en entier le matin de la detection** (= le lendemain du virement), **sans bande**, a la **composition cible** du signal (`composition(E_cible)`, mode `deposit`, achats seulement). La bande s'applique au portefeuille existant **hors apport** ; si elle se declenche, tout le compte (apport compris) va a la cible. Cible 0 (garde-fou / arret d'urgence) → l'apport reste en cash. Un jour de split, l'apport n'est pas acte (re-detecte au run suivant). Etat dans `logs/capital.json` ; mail "APPORT +X EUR", apercu dans le recap du soir, dernier apport affiche dans la webapp. (L'ancien DCA hebdo pilote par le RSI a ete retire le 2026-11-11.) **Ne pas ajouter de capital le jour de la mise en prod** (la premiere lecture initialise seulement la reference de cash).
 
 ## Multicompte
 
@@ -199,7 +199,7 @@ BOURSO_ID_4=""         ...
 - `trades.jsonl` : champs `account` (slot) et `account_name` ; les anciennes lignes sans `account` = slot 1. `logs/last_price.json` : cles `INSTRUMENT#slot` (l'ancienne cle `INSTRUMENT` = slot 1).
 - `python -m src.real_bourso --account 2` limite un run a un slot ; `python -m src.bourso.execute pea PUST buy 4 --account 2` pour un ordre manuel sur un autre compte ; `python -m src.bourso.list_accounts` liste tous les PEA geres.
 - `check_cli` (cron 20h) teste la connexion de **chaque** compte et alerte `CONNEXION COMPTE KO` si l'un echoue.
-- Webapp : onglet **Comptes** (une carte de statut par compte : exposition cible/reelle, repartition PUST / LQQ / cash, capital a allouer detecte, achat differe) ; Gain reel / Trades / Allocations sont affiches par compte.
+- Webapp : onglet **Comptes** (une carte de statut par compte : exposition cible/reelle, repartition PUST / LQQ / cash, dernier apport detecte, achat differe) ; Gain reel / Trades / Allocations sont affiches par compte.
 
 ## Cron
 
@@ -243,7 +243,7 @@ Le backtest ecrit `outputs/qqq_strategy/signal.json` :
 ```
 
 - `status`: `"running"` au debut du backtest, `"ok"` a la fin. Si crash, reste `"running"` et le matin refuse d'executer.
-- `allocation`: 0.0 (cash) a 1.0 (full invest) ; `exposure` = min(2 x allocation, `e_max`) ; `rsi14` = RSI de Wilder du QQQ (DCA des apports).
+- `allocation`: 0.0 (cash) a 1.0 (full invest) ; `exposure` = min(2 x allocation, `e_max`) ; `rsi14` = RSI de Wilder du QQQ (information, affiche dans le mail du matin).
 - Le script du matin verifie la fraicheur du signal : age max `MAX_SIGNAL_AGE_HOURS=90h`. Assez large pour tolerer les week-ends/feries (lundi matin = signal du vendredi soir ~58h ; long week-end jeu. soir → mar. matin ~82h). Au-dela = le backtest du soir s'est arrete → refus.
 
 ## Frais et seuils
@@ -261,7 +261,7 @@ Le backtest ecrit `outputs/qqq_strategy/signal.json` :
   `"Le montant minimum pour un achat est de 200.0 euros"`, constate le 2026-09-28 sur 1 PUST a 110 EUR). Une jambe
   d'achat sous ce plancher (au dimensionnement dans `compute_orders`, ou apres plafonnement par le cash reel dans
   `execute_plan`) n'est **pas envoyee** : statut `skipped`, le cash **reste sur le compte** et sera deploye avec le
-  prochain achat (ecart a la cible ou tranches DCA cumulees >= 200 EUR). Un refus 5110 recu malgre tout (cours bouge)
+  prochain achat (ecart a la cible >= 200 EUR). Un refus 5110 recu malgre tout (cours bouge)
   est aussi `skipped`, pas `error`. Aucun plancher n'est applique aux ventes (non constate). Corollaire pour les
   **petits comptes** : une `restructure` dont aucun achat n'est possible (jambe PUST < 1 part ou < 200 EUR) n'envoie
   pas non plus ses ventes — vendre du LQQ sans racheter du PUST baisserait l'exposition hors bande (ex. 300 EUR en
@@ -283,8 +283,8 @@ Le backtest ecrit `outputs/qqq_strategy/signal.json` :
 
 | Script | Role |
 |---|---|
-| `src/real_bourso.py` | Execution matin: lit signal, puis pour CHAQUE compte gere : etat PEA (PUST + LQQ + cash), apport/DCA, ventes puis achats, mail |
-| `src/bourso/capital.py` | Detection d'apport (cash lu vs attendu) + DCA hebdo pilote par le RSI (`logs/capital.json`) |
+| `src/real_bourso.py` | Execution matin: lit signal, puis pour CHAQUE compte gere : etat PEA (PUST + LQQ + cash), apport (investi a la cible), ventes puis achats, mail |
+| `src/bourso/capital.py` | Detection d'apport / retrait (cash lu vs attendu, `logs/capital.json`) |
 | `src/bourso/accounts.py` | Slots multicompte du `.env` + decouverte/cache du PEA de chaque login |
 | `src/bourso/prepare.py` | Lecture etat PEA (cash/positions/cours) via `trade summary` (`creds=` par compte) |
 | `src/bourso/execute.py` | Execution manuelle interactive (PEA ou CTO, `--account N`) |
@@ -298,7 +298,7 @@ Le backtest ecrit `outputs/qqq_strategy/signal.json` :
 - `logs/cron_pea.log` — sortie de l'execution matin
 - `logs/trades.jsonl` — historique des ordres, une ligne par compte et par jour (lu par la webapp)
 - `logs/accounts.json` — cache des PEA decouverts par slot (nom, id, mail)
-- `logs/capital.json` — cash attendu, apports detectes et DCA en cours, par slot
+- `logs/capital.json` — cash attendu et apports detectes, par slot
 - `logs/pending_orders.json` — achats reportes (produit des ventes non credite avant 17h)
 - `logs/last_price.json` — prix de reference du garde-fou split (`PUST#slot`, `LQQ#slot`)
 - `logs/cron_bourso_check.log` — sortie du check quotidien bourso-cli (20h)
