@@ -68,6 +68,7 @@ class Pit:
         import torch
         import transformers
         self.torch = torch
+        torch.set_num_threads(C.WORKERS)              # cœurs max pour les traitements par lot
         self.tok = transformers.AutoTokenizer.from_pretrained(C.PIT_REPO, revision=C.PIT_REVISION,
                                                               trust_remote_code=True)
         self.dev = "cuda" if torch.cuda.is_available() else "cpu"

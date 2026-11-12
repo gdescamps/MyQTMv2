@@ -61,6 +61,7 @@ class Qwen:
         import torch
         import transformers
         self.torch = torch
+        torch.set_num_threads(C.WORKERS)              # cœurs max pour les traitements par lot
         self.tok = transformers.AutoTokenizer.from_pretrained(C.QWEN_REPO, revision=C.QWEN_REVISION)
         self.dev = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = transformers.AutoModelForCausalLM.from_pretrained(
