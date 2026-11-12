@@ -2348,5 +2348,13 @@ Donner des estimations en termes de temps d'usage du GB10 pour réaliser les inf
 
 Ne pas lancer le traitement complet du corpus de news sans me donner les estimations en termes de coûts et de temps. 
 
+Dans le portage, tu peux corriger des fuites temporelles que tu identifies. 
 
+----------------
 
+relancer le traitement du corpus de news 
+classer les categories et le sentiment avec Qwen2.5-7B garder les embeddings du sentiment. 
+le sentiment avec PIT, garder les embeddings
+garder les données de traitement 
+bien nommée et coherantes entre les classement de Haiku, Qwen2.5-7B, PIT 
+dans data/portefolio_strategy
