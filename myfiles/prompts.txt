@@ -2257,3 +2257,55 @@ valorisation : investissement, revenu, prix, technique
 suprises de echeance
 echeances a venir
 
+
+
+J'ai l'idée suivante. 
+Entraînez un backbone JEPA 
+Spécialisé pour prendre des embeddings text 
+Les embeddings sont extraits sur différents thèmes. 
+Mais avec un niveau d’anonymisation
+Les unités de temps des thèmes 
+Différents thèmes pourraient être 
+Description de l'actif qu'on trade 
+separer le contexte inflation Fed. 
+Les news concernant les entreprises 
+Leurs concurrents 
+Une série de features qui sont associées 
+Données économiques 
+Données fondamentales 
+Les données associées au rendement 
+à la volatilité
+
+L'idée serait de prendre le corpus. 
+
+De traiter une entreprise à la fois 
+Où créer des indices, imaginaire 
+Associer, par exemple, des entreprises du même secteur. 
+Sans entraîner les indices officiels 
+Nasdaq, Standard & Poors, Dow Jones. 
+
+Ensuite, on procéderait à un apprentissage auto-supervisé. 
+Dans l'espace latent à la mode JEPA 
+Mais les données à cacher à reconstituer dans l'espace latent 
+
+Ce ne serait pas forcément le thème sémantique, pas forcément le rendement. En fait, une alternance 
+D'une partie manquante 
+Que l'apprentissage auto-supervisé doit retrouver 
+
+L'entrainement final consiste à rajouter des couches linéaires en sortie de l'espace latent. 
+Entraîné et tester sur des intervalles entrelacer 
+Pour régresser la cible souhaitée rendement en volatilité, allocation 
+En masquant en entrée lors de l'entraînement 
+Ces données qui sont inconnues
+
+
+Ok, donc si je paraphrase 
+Si je fais abstraction de l'objectif de ce dépôt 
+Peut changer pour trouver l'alpha 
+Le rendement est associé au contexte global macro. 
+Et a une série d'actifs dans un secteur 
+Fais varier la série d'actifs. 
+Ne démultiplie pas. 
+Au niveau des données, le contexte global macro 
+
+La limite des données reste l'horizon de temps, qui bride le contexte global macro ? 
