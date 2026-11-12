@@ -9,7 +9,7 @@ Risque résiduel de fuite : Haiku connaît la suite des événements et pourrait
 consigne l'interdit (faits de l'article seulement, aucun jugement, aucune connaissance extérieure), mais
 ce n'est pas vérifiable article par article.
 
-Reprenable : un enregistrement par (titre, jour) dans data/portefolio_strategy/digests.jsonl.
+Reprenable : un enregistrement par (titre, jour) dans data/portefolio_strategy/llm/haiku/digests.jsonl.
 
     python -m src.portefolio_strategy.digest --limit 20     # smoke test (quelques centimes)
     python -m src.portefolio_strategy.digest --full         # tout le corpus : voir estimate.py AVANT
@@ -27,7 +27,7 @@ import pandas as pd
 from . import config as C
 from . import news as N
 
-DIGESTS = C.DATA / "digests.jsonl"
+DIGESTS = C.HAIKU_DIR / "digests.jsonl"
 SECTIONS = ("COMPANY", "COMPETITORS", "GLOBAL")
 
 SYSTEM = """You condense financial news for a downstream classifier. You receive news articles published \
@@ -115,6 +115,7 @@ def run(limit=None, seed=0, workers=C.WORKERS):
         todo = todo.sample(min(limit, len(todo)), random_state=seed)
     groups = {k: g for k, g in news.merge(todo, on=["day", "symbol"]).groupby(["day", "symbol"])}
     client, model = make_client(), C.HAIKU_MODEL
+    C.HAIKU_DIR.mkdir(parents=True, exist_ok=True)
     lock, tot, t0 = threading.Lock(), [0, 0, 0], time.time()
 
     def one(key):
@@ -141,7 +142,7 @@ def run(limit=None, seed=0, workers=C.WORKERS):
         list(ex.map(one, list(groups)))
     n = max(tot[2], 1)
     if tot[2]:
-        (C.DATA / "haiku_timing.json").write_text(json.dumps(
+        (C.HAIKU_DIR / "timing.json").write_text(json.dumps(
             {"calls": tot[2], "seconds": round(time.time() - t0, 1), "workers": workers}))
     print(f"{tot[2]} condensés ; entrée {tot[0]} tokens ({tot[0] / n:.0f}/appel), sortie {tot[1]} "
           f"({tot[1] / n:.0f}/appel) ; coût {cost(tot[0], tot[1]):.4f} $ ; {time.time() - t0:.0f} s")

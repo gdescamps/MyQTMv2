@@ -275,3 +275,79 @@ def test_predictions_are_out_of_sample():
     u = U.load_universe()                                    # on ne prédit que des membres de l'univers du jour
     s = p.sample(200, random_state=0)
     assert all(sym in U.members_on(u, d) for d, sym in zip(s["date"], s["symbol"]))
+
+
+# --------------------------------------------------------------------------- sentiment fournisseur + catégories
+def test_vendor_categories_from_tags_and_title():
+    from src.portefolio_strategy import vendor_sentiment as V
+    assert V.categories(["EARNINGS", "INC"], "Acme beats estimates") == ["earnings", "analyst"]
+    assert V.categories([], "FedEx launches new service") == ["product"]            # « FED » ne matche pas FedEx
+    assert "macro" in V.categories(["INFLATION"], "Stocks slide") and V.categories([], "Hello world") == []
+    assert "legal" in V.categories([], "Class action filed against Acme")           # titre seul (tags vides en 2024)
+
+
+def test_vendor_aggregate_and_block_use_only_past_news_days():
+    from src.portefolio_strategy import vendor_sentiment as V
+    rows = []
+    for i, (day, pol, earn) in enumerate([("2021-01-04", 0.8, True), ("2021-01-04", 0.2, False),
+                                          ("2021-01-06", -0.5, True), ("2021-01-11", 0.1, False)]):
+        r = {"day": pd.Timestamp(day), "symbol": "A", "key": f"k{i}", "polarity": pol, "pos": 0.1, "neg": 0.05, "neu": 0.85}
+        r.update({c: (c == "earnings" and earn) for c in V.CATEGORIES})
+        rows.append(r)
+    agg = V.aggregate(pd.DataFrame(rows))
+    assert agg["n"].tolist() == [2, 1, 1] and agg["polarity"].tolist() == pytest.approx([0.5, -0.5, 0.1])
+    assert agg["cat_earnings_n"].tolist() == [1, 1, 0] and agg["cat_earnings_pol"].iloc[0] == pytest.approx(0.8)
+    vb = F.vendor_block(agg)
+    assert vb["ts_vs_polarity_0"].tolist() == pytest.approx([0.5, -0.5, 0.1])
+    assert vb["ts_vs_polarity_1"].tolist()[1:] == pytest.approx([0.5, -0.5])        # jour de news précédent
+    assert vb["vs_cat_earnings_pol5"].tolist() == pytest.approx([0.8, 0.15, 0.15])  # moyenne des articles passés
+    assert vb["vs_pol5"].iloc[1] == pytest.approx((0.5 * 2 - 0.5) / 3, abs=1e-4)
+    # tronquer l'avenir ne change pas le passé
+    pd.testing.assert_frame_equal(F.vendor_block(agg.iloc[:2]), vb.iloc[:2])
+    j = F.asof_join(pd.to_datetime(["2021-01-05", "2021-01-06"]), vb, "vs_days")
+    assert j["ts_vs_polarity_0"].tolist() == pytest.approx([0.5, -0.5]) and j["vs_days"].tolist() == [1, 0]
+
+
+def test_feature_variants_select_sentiment_families():
+    cols = ["date", "symbol", "member", "o", "c", "rsi_14", "ts_news_sentiment_company_0", "news_days",
+            "sentiment_vs_rate", "ts_vs_polarity_0", "vs_cat_earnings_n5", "vs_days"]
+    df = pd.DataFrame(columns=cols)
+    assert F.feature_columns(df, "base") == ["rsi_14"]
+    assert F.feature_columns(df, "vendor") == ["rsi_14", "ts_vs_polarity_0", "vs_cat_earnings_n5", "vs_days"]
+    assert F.feature_columns(df, "pit") == ["rsi_14", "ts_news_sentiment_company_0", "news_days", "sentiment_vs_rate"]
+    assert len(F.feature_columns(df, "all")) == 7
+
+
+# --------------------------------------------------------------------------- stockage LLM commun (PIT, Qwen)
+def test_llm_outputs_share_names_across_models():
+    from src.portefolio_strategy import qwen as Q
+    assert D.DIGESTS == C.LLM / "haiku" / "digests.jsonl"
+    assert (S.SENTIMENTS, S.EMB_DIR) == (C.LLM / "pit" / "sentiment.parquet", C.LLM / "pit" / "sentiment_emb")
+    assert (Q.SENTIMENTS, Q.EMB_DIR) == (C.LLM / "qwen25" / "sentiment.parquet", C.LLM / "qwen25" / "sentiment_emb")
+    assert Q.CATEGORIES == C.LLM / "qwen25" / "categories.parquet"
+
+
+def test_score_rows_and_embedding_parts(tmp_path):
+    part = [{"day": "2020-01-02", "symbol": "AAA"}, {"day": "2020-01-02", "symbol": "BBB"}]
+    where = [(0, "company", "pos"), (0, "company", "neg")]
+    rows = S.score_rows(part, where, [(0.9, 1.0), (0.1, 0.8)])
+    assert rows[0]["company"] == 9.0 and rows[0]["global"] == 5.0 and rows[0]["mass_company"] == 0.8
+    assert rows[1]["company"] == 5.0 and rows[1]["p_pos_company"] is None        # rubrique vide : neutre
+    S.save_emb(tmp_path, np.ones((2, 4)), part, where)
+    S.save_emb(tmp_path, np.zeros((1, 4)), part, [(1, "global", "pos")])
+    assert sorted(f.name for f in tmp_path.iterdir()) == ["part_00000.npy", "part_00000.parquet",
+                                                          "part_00001.npy", "part_00001.parquet"]
+    ix = pd.read_parquet(tmp_path / "part_00000.parquet")
+    assert list(ix.columns) == ["day", "symbol", "category", "polarity", "row"] and list(ix["polarity"]) == ["pos", "neg"]
+    assert np.load(tmp_path / "part_00000.npy").dtype == np.float16
+    # reprise après interruption : le lot dont les notes n'ont pas été sauvées (BBB) est supprimé
+    S.prune_orphans(tmp_path, pd.DataFrame({"day": [pd.Timestamp("2020-01-02")], "symbol": ["AAA"]}))
+    assert sorted(f.name for f in tmp_path.iterdir()) == ["part_00000.npy", "part_00000.parquet"]
+
+
+def test_qwen_questions():
+    from src.portefolio_strategy import qwen as Q
+    comp, glob = Q.questions("company"), Q.questions("global")
+    assert [(k, key) for k, key, _ in glob] == [("sent", "pos"), ("sent", "neg")]
+    assert [key for k, key, _ in comp if k == "type"] == list(C.NEWS_TYPES)       # types sur company seulement
+    assert all(q.endswith("Yes or No.") for _, _, q in comp)

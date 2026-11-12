@@ -20,7 +20,7 @@ import pandas as pd
 from . import config as C
 from . import features as F
 from . import trade as T
-from .train import PREDICTIONS
+from .train import out_dir, predictions_path
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
@@ -113,8 +113,9 @@ def plot(res, bench, mc, m, mb, path, title):
     plt.close(fig)
 
 
-def main():
-    preds = pd.read_parquet(PREDICTIONS)
+def main(variant="all"):
+    OUT = out_dir(variant)
+    preds = pd.read_parquet(predictions_path(variant))
     td = T.build_trade_data(preds)
     _TD["data"] = td
     by_year = walk_forward_params(td)
@@ -134,23 +135,25 @@ def main():
         for typ, g in pos.groupby("type"):
             stats[typ] = {"n": int(len(g)), "win_rate_pct": round(float((g["gain"] > 0).mean() * 100), 1),
                           "mean_gain_pct": round(float(g["gain"].mean()), 2)}
-    train_rep = json.loads((C.OUT / "train_report.json").read_text()) if (C.OUT / "train_report.json").exists() else {}
+    train_rep = json.loads((OUT / "train_report.json").read_text()) if (OUT / "train_report.json").exists() else {}
     sent_cov = train_rep.get("sentiment_coverage", 0)
-    out = {"period": [f"{res['dates'][0]:%Y-%m-%d}", f"{res['dates'][-1]:%Y-%m-%d}"],
+    out = {"variant": variant, "period": [f"{res['dates'][0]:%Y-%m-%d}", f"{res['dates'][-1]:%Y-%m-%d}"],
            "sentiment_coverage": sent_cov, "fee_per_side": C.FEE,
            "strategy": m, "index": mb, "positions": stats,
            "monte_carlo_final_value": {"p5": float(np.percentile(mc[:, -1], 5)), "median": float(np.median(mc[:, -1])),
                                        "p95": float(np.percentile(mc[:, -1], 95))},
            "mean_positions": float(res["counts"].mean()), "mean_cash_pct": float(100 * (res["cash"] / res["values"]).mean())}
-    C.OUT.mkdir(parents=True, exist_ok=True)
-    (C.OUT / "metrics.json").write_text(json.dumps(out, indent=2))
-    (C.OUT / "params_by_year.json").write_text(json.dumps(by_year, indent=2, ensure_ascii=False))
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / "metrics.json").write_text(json.dumps(out, indent=2))
+    (OUT / "params_by_year.json").write_text(json.dumps(by_year, indent=2, ensure_ascii=False))
     pd.DataFrame({"date": res["dates"], "strategy": res["values"], "index": bench.values, "cash": res["cash"],
-                  "positions": res["counts"]}).to_csv(C.OUT / "equity.csv", index=False)
+                  "positions": res["counts"]}).to_csv(OUT / "equity.csv", index=False)
     if len(pos):
-        pos.sort_values("start").to_csv(C.OUT / "positions.csv", index=False)
-    note = "sans sentiment (corpus non traité)" if sent_cov < 0.05 else f"sentiment PIT sur {sent_cov:.0%} des lignes"
-    plot(res, bench, mc, m, mb, C.OUT / "backtest.png",
+        pos.sort_values("start").to_csv(OUT / "positions.csv", index=False)
+    note = F.VARIANTS[variant] if variant != "all" else (
+        "sans sentiment PIT (corpus non traité)" if sent_cov < 0.05 else f"sentiment PIT sur {sent_cov:.0%} des lignes"
+        + (" + sentiment fournisseur" if train_rep.get("vendor_sentiment_coverage", 0) > 0.05 else ""))
+    plot(res, bench, mc, m, mb, OUT / "backtest.png",
          f"portefolio_strategy — XGBoost walk-forward sur l'univers Nasdaq dynamique, {note}")
     print(f"période {out['period'][0]} → {out['period'][1]}")
     for name, x in (("stratégie", m), ("indice", mb)):
@@ -161,4 +164,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    main(variant=sys.argv[1] if len(sys.argv) > 1 else "all")

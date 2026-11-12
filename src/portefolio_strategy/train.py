@@ -28,6 +28,15 @@ from .trends import trend_labels
 PREDICTIONS = C.DATA / "predictions.parquet"
 
 
+def predictions_path(variant="all"):
+    """Variante « all » (tout le sentiment disponible) = fichiers historiques ; les autres ont un suffixe."""
+    return PREDICTIONS if variant == "all" else C.DATA / f"predictions_{variant}.parquet"
+
+
+def out_dir(variant="all"):
+    return C.OUT if variant == "all" else C.OUT / variant
+
+
 def cutoffs(first, last):
     out, t = [], pd.Timestamp(first)
     while t <= last:
@@ -120,10 +129,12 @@ def train_cutoff(df, cols, y, cutoff, nxt):
     return out, info, rank
 
 
-def main(df=None):
+def main(df=None, variant="all"):
     df = pd.read_parquet(F.FEATURES) if df is None else df
     df = df.sort_values(["symbol", "date"]).reset_index(drop=True)
-    cols = F.feature_columns(df)
+    cols = F.feature_columns(df, variant)
+    out = out_dir(variant)
+    print(f"variante « {variant} » ({F.VARIANTS[variant]}) : {len(cols)} features", flush=True)
     last = df["date"].max()
     cuts = cutoffs(C.FIRST_OOS_DATE, last)
     preds, infos, ranks, t0 = [], [], [], time.time()
@@ -144,20 +155,23 @@ def main(df=None):
     ok = p["y"].notna()
     f1 = f1_score(p.loc[ok, "y"].astype(int), p.loc[ok, "cls"], average="macro")
     acc = float((p.loc[ok, "y"].astype(int) == p.loc[ok, "cls"]).mean())
-    p.to_parquet(PREDICTIONS, index=False)
-    C.OUT.mkdir(parents=True, exist_ok=True)
+    p.to_parquet(predictions_path(variant), index=False)
+    out.mkdir(parents=True, exist_ok=True)
     imp = pd.concat(ranks, axis=1)
     imp["mean_rank_score"] = imp.mean(axis=1)
-    imp.sort_values("mean_rank_score", ascending=False).to_csv(C.OUT / "feature_importance.csv")
+    imp.sort_values("mean_rank_score", ascending=False).to_csv(out / "feature_importance.csv")
     sent_cov = float(df.loc[df["member"] & (df["date"] >= C.START_DATE), "ts_news_sentiment_company_0"].notna().mean())
-    rep = dict(oos_macro_f1=round(float(f1), 4), oos_accuracy=round(acc, 4), n_predictions=len(p),
+    vend_cov = float(df.loc[df["member"] & (df["date"] >= C.START_DATE), "ts_vs_polarity_0"].notna().mean()) \
+        if "ts_vs_polarity_0" in df else 0.0
+    rep = dict(variant=variant, vendor_sentiment_coverage=round(vend_cov, 4), oos_macro_f1=round(float(f1), 4), oos_accuracy=round(acc, 4), n_predictions=len(p),
                first=f"{p['date'].min():%Y-%m-%d}", last=f"{p['date'].max():%Y-%m-%d}", n_features=len(cols),
                sentiment_coverage=round(sent_cov, 4), cutoffs=infos)
-    (C.OUT / "train_report.json").write_text(json.dumps(rep, indent=2))
+    (out / "train_report.json").write_text(json.dumps(rep, indent=2))
     print(f"prédictions hors échantillon : {len(p)} lignes {rep['first']} → {rep['last']} ; "
           f"F1 macro {f1:.3f}, exactitude {acc:.3f} ; couverture sentiment {sent_cov:.1%}")
     return p
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    main(variant=sys.argv[1] if len(sys.argv) > 1 else "all")

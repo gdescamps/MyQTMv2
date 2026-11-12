@@ -37,11 +37,11 @@ def compute():
         e["cost_max"] = D.cost(e["in_tok"], e["out_tok_max"])
         e["todo"] = len(todo)
         e["none_share"] = {c: round(float((done[c] == "none").mean()), 2) for c in C.SENT_CATEGORIES}
-        t = C.DATA / "haiku_timing.json"
+        t = C.HAIKU_DIR / "timing.json"
         if t.exists():
             h = json.loads(t.read_text())
             e["haiku_s_per_call"] = h["seconds"] * h["workers"] / h["calls"]
-        p = C.DATA / "pit_timing.json"
+        p = C.PIT_DIR / "timing.json"
         if p.exists():
             g = json.loads(p.read_text())
             e["pit_passes_per_digest"] = g["passes"] / g["digests"]

@@ -12,6 +12,13 @@ EODHD = ROOT / "data" / "eodhd"                  # LECTURE SEULE
 DATA = ROOT / "data" / "portefolio_strategy"     # structures dérivées
 OUT = ROOT / "outputs" / "portefolio_strategy"   # sorties
 
+# Traitements LLM du corpus de news : un dossier par modèle, mêmes noms de fichiers et mêmes clés (day, symbol).
+#   llm/haiku/   digests.jsonl (condensés company / competitors / global), timing.json
+#   llm/pit/     sentiment.parquet, sentiment_emb/part_NNNNN.{npy,parquet}, timing.json
+#   llm/qwen25/  sentiment.parquet, sentiment_emb/…, categories.parquet (types de news), timing.json
+LLM = DATA / "llm"
+HAIKU_DIR, PIT_DIR, QWEN_DIR = LLM / "haiku", LLM / "pit", LLM / "qwen25"
+
 WORKERS = 5                    # cœurs max pour les traitements par lot (gb10)
 
 # --- Dates -----------------------------------------------------------------
@@ -46,6 +53,17 @@ HAIKU_PRICE_OUT = 0.50
 PIT_REPO = "Diamegs/PIT-4B-FT-201912"
 PIT_REVISION = "dd482b6a647f86b963626355a8e78d5588f63803"
 PIT_CTX = 2048
+QWEN_REPO = "Qwen/Qwen2.5-7B-Instruct"
+QWEN_REVISION = "a09a35458c702b33eeacc393d103063234e8bc28"
+# Types de news classés par Qwen (une question fermée par type, sur la rubrique « company » du condensé).
+NEWS_TYPES = {"earnings": "the financial results or earnings of the company",
+              "analyst": "analyst ratings, price targets or estimates",
+              "legal": "a lawsuit, an investigation or a legal issue",
+              "mna": "a merger or an acquisition",
+              "capital": "a dividend, a share buyback or a stock offering",
+              "product": "a new product, a contract or a partnership",
+              "management": "a change of executives or layoffs",
+              "macro": "the economy, interest rates or government policy"}
 SENT_CATEGORIES = ("company", "competitors", "global")
 NEWS_TS_SIZE = 10
 

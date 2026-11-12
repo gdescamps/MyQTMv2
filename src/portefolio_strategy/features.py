@@ -22,7 +22,7 @@ from . import universe as U
 
 FEATURES = C.DATA / "features.parquet"
 INDEX = C.DATA / "index.parquet"
-SENTIMENTS = C.DATA / "sentiments.parquet"
+SENTIMENTS = C.PIT_DIR / "sentiment.parquet"      # notes du LLM PIT (sentiment.py)
 ROWS_START = "2019-06-01"
 META = ["date", "symbol", "member", "o", "c"]
 EPS = 1e-9
@@ -190,6 +190,29 @@ def sentiment_block(sent):
     return _ts_block(d, [f"sentiment_{c}" for c in C.SENT_CATEGORIES], "ts_news_", C.NEWS_TS_SIZE)
 
 
+def vendor_block(vs):
+    """vs : sentiment fournisseur d'un titre (vendor_sentiment.py), une ligne par jour de news → features :
+    séries des derniers jours de news (polarité : 10 ; n, pos, neg : 3), extrêmes du dernier jour, et sur une
+    fenêtre glissante de 5 jours de news : polarité pondérée, nombre d'articles, et par catégorie de news le
+    nombre d'articles et leur polarité moyenne. Tout est calculé sur des jours de news passés."""
+    if vs is None or vs.empty:
+        return None
+    from .vendor_sentiment import CATEGORIES
+    d = vs.set_index("day").sort_index()
+    out = pd.concat([_ts_block(d, ["polarity"], "ts_vs_", C.NEWS_TS_SIZE), _ts_block(d, ["n", "pos", "neg"], "ts_vs_", 3)],
+                    axis=1)
+    out["vs_polarity_min"], out["vs_polarity_max"] = d["polarity_min"], d["polarity_max"]
+    n5 = d["n"].rolling(5, min_periods=1).sum()
+    out["vs_n5"] = n5
+    out["vs_pol5"] = (d["polarity"] * d["n"]).rolling(5, min_periods=1).sum() / n5
+    for c in CATEGORIES:
+        cn = d[f"cat_{c}_n"].rolling(5, min_periods=1).sum()
+        out[f"vs_cat_{c}_n5"] = cn
+        out[f"vs_cat_{c}_pol5"] = ((d[f"cat_{c}_pol"] * d[f"cat_{c}_n"]).fillna(0).rolling(5, min_periods=1).sum()
+                                   / cn.where(cn > 0))
+    return out.round(4)
+
+
 def _div(a, b):
     return np.where((b != 0) & ~np.isnan(b), a / np.where(b == 0, np.nan, b), np.nan)
 
@@ -207,7 +230,7 @@ def add_ratios(f):
     return f
 
 
-def stock_features(symbol, px, fund, market, econ, sent, member):
+def stock_features(symbol, px, fund, market, econ, sent, member, vendor=None):
     """Assemble toutes les features d'un titre. `px` : cours ajustés depuis PRICE_START."""
     f = price_features(px)
     dates = f.index
@@ -220,9 +243,14 @@ def stock_features(symbol, px, fund, market, econ, sent, member):
         sb = pd.DataFrame(columns=[f"ts_news_sentiment_{c}_{k}" for c in C.SENT_CATEGORIES
                                    for k in range(C.NEWS_TS_SIZE)], dtype=float)
     parts.append(asof_join(dates, sb, "news_days"))
+    vb = vendor_block(vendor)
+    if vb is not None:
+        parts.append(asof_join(dates, vb, "vs_days"))
     out = pd.concat([p.reindex(dates) for p in parts], axis=1)
-    for col in ("km_days", "es_days", "news_days", "vix_days"):
+    for col in ("km_days", "es_days", "news_days", "vix_days", "vs_days"):
         if col not in out:
+            if col == "vs_days":
+                continue
             out[col] = -1
         out[col] = out[col].fillna(-1).astype(int)
     for c in C.SENT_CATEGORIES:                       # colonnes toujours présentes (NaN tant que non notées)
@@ -237,18 +265,36 @@ def stock_features(symbol, px, fund, market, econ, sent, member):
     return out.rename_axis("date").reset_index()
 
 
-def feature_columns(df):
-    return [c for c in df.columns if c not in META]
+def is_pit_col(c):
+    return c.startswith("ts_news_") or c in ("news_days", "sentiment_vs_rate")
+
+
+def is_vendor_col(c):
+    return c.startswith(("vs_", "ts_vs_"))
+
+
+# Variantes d'évaluation : quelles familles de sentiment entrent dans le modèle.
+VARIANTS = {"base": "sans sentiment", "vendor": "sentiment fournisseur EODHD + catégories de news",
+            "pit": "sentiment LLM PIT-4B-FT-201912", "all": "sentiment PIT + fournisseur"}
+
+
+def feature_columns(df, variant="all"):
+    cols = [c for c in df.columns if c not in META]
+    if variant in ("base", "vendor"):
+        cols = [c for c in cols if not is_pit_col(c)]
+    if variant in ("base", "pit"):
+        cols = [c for c in cols if not is_vendor_col(c)]
+    return cols
 
 
 # --------------------------------------------------------------------------- construction
 def _one(args):
-    symbol, market, econ, sent, u = args
+    symbol, market, econ, sent, u, vendor = args
     px = eod.load_eod(symbol)
     if px is None or len(px) < 260:
         return None
     f = stock_features(symbol, px, eod.load_fund(symbol), market, econ, sent,
-                       lambda dates: U.member_mask(u, symbol, dates))
+                       lambda dates: U.member_mask(u, symbol, dates), vendor)
     return f[f["date"] >= ROWS_START]
 
 
@@ -267,15 +313,22 @@ def main():
     market, econ = market_features(index), econ_blocks()
     sent = load_sentiments()
     by_sym = dict(tuple(sent.groupby("symbol"))) if sent is not None else {}
+    from .vendor_sentiment import load_vendor
+    vend = load_vendor()
+    v_sym = dict(tuple(vend.groupby("symbol"))) if vend is not None else {}
     with ProcessPoolExecutor(C.WORKERS) as ex:
-        parts = [p for p in ex.map(_one, [(s, market, econ, by_sym.get(s), u) for s in symbols]) if p is not None]
+        parts = [p for p in ex.map(_one, [(s, market, econ, by_sym.get(s), u, v_sym.get(s)) for s in symbols])
+                 if p is not None]
     df = pd.concat(parts, ignore_index=True)
+    if "vs_days" in df:
+        df["vs_days"] = df["vs_days"].fillna(-1).astype(int)
     df.to_parquet(FEATURES, index=False)
     m = df[df["member"]]
     cov = m["ts_news_sentiment_company_0"].notna().mean()
     print(f"features : {len(df)} lignes, {df['symbol'].nunique()} titres, {len(feature_columns(df))} colonnes, "
           f"{df['date'].min():%Y-%m-%d} → {df['date'].max():%Y-%m-%d}")
-    print(f"lignes membres : {len(m)} ; couverture du sentiment : {cov:.1%}")
+    vcov = m["ts_vs_polarity_0"].notna().mean() if "ts_vs_polarity_0" in m else 0.0
+    print(f"lignes membres : {len(m)} ; couverture du sentiment PIT : {cov:.1%} ; du sentiment fournisseur : {vcov:.1%}")
     return df
 
 
