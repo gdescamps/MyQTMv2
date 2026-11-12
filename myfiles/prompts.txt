@@ -2309,3 +2309,44 @@ Ne démultiplie pas.
 Au niveau des données, le contexte global macro 
 
 La limite des données reste l'horizon de temps, qui bride le contexte global macro ? 
+
+--------------------
+
+avec les données 
+de data/eodhd
+À partir du 1r janvier 2020
+En utilisant pour créer les notes de sentiment Diamegs/PIT-4B-FT-201912 dont le cutoff est avant cette date du 1r janvier 2020
+En utilisant ce modèle générer un seul token en réponse, oui ou non ? Et récupérer la logique 
+
+Pour tous les traitements du corpus the news 
+Qui ne craint pas au niveau des fuites de données ? 
+utiliser la clé API haiku BEDROCK_ACCESS_KEY_ID
+
+Recréer l'équivalent de ref/MyQTM mais avec les données de data/eodhd, Diamegs/PIT-4B-FT-201912, Haiku
+dans portefolio_strategy
+
+Exécuter la stratégie sur la liste dynamique des actions du Nasdaq. 
+Pas une liste manuelle du repo ref/MyQTM
+Suivre la liste du Nasdaq, dynamiquement
+
+Produire les sorties de cette nouvelle implémentation. 
+outputs/portefolio_strategy
+
+Lors du traitement par lot du corpus, utilisez au maximum 5 core sur le gb10
+Pour réaliser l'inférence du  Diamegs/PIT-4B-FT-201912 utilisez le GB10. 
+
+N'utilisez le répertoire de données qu'en lecture : data/eodhd
+
+S'il faut décompresser ou créer des structures de données 
+utiliser 
+data/portefolio_strategy
+
+
+Réaliser des smoke tests pour valider le partage de la stratégie. 
+Donner des estimations en termes de coûts avec Haiku pour traiter le corpus de news 
+Donner des estimations en termes de temps d'usage du GB10 pour réaliser les inférences avec  Diamegs/PIT-4B-FT-201912
+
+Ne pas lancer le traitement complet du corpus de news sans me donner les estimations en termes de coûts et de temps. 
+
+
+
