@@ -423,3 +423,13 @@ def test_noisy_oracle_keeps_ranking_at_full_correlation():
     ic = lambda s: np.mean([s.iloc[i].corr(fwd.iloc[i], method="spearman") for i in range(len(fwd))])  # noqa: E731
     assert ic(perfect) == pytest.approx(1.0) and abs(ic(blind)) < 0.1
     assert 0.3 < ic(O.noisy(fwd, 0.5, 1)) < 0.7
+
+
+def test_set_model_targets():
+    from src.portefolio_strategy import set_model as SM
+    Y = np.array([[0.05, -0.02, 0.01, np.nan, 0.03]], np.float32)
+    M = np.array([[True, True, True, True, False]])                 # 4e : rendement inconnu ; 5e : hors univers
+    top = SM.top_target(Y, M, n_top=2)
+    assert top[0].tolist() == [0.5, 0.0, 0.5, 0.0, 0.0]
+    rank = SM.rank_target(Y, M)
+    assert rank[0, 0] == pytest.approx(0.5) and rank[0, 1] == pytest.approx(1 / 3 - 0.5) and rank[0, 3] == 0 and rank[0, 4] == 0
