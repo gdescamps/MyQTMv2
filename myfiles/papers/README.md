@@ -235,3 +235,36 @@ arXiv 2603.21473, NTU/NUS (groupe Cambria, comme FIN-FORCE).
   - **EODHD**, environ 20 $ pour un mois : sociétés radiées complètes après 2018, prix quotidiens seulement avant. Vérifier la licence de conservation des données.
 - **Au-dessus** : Sharadar (depuis 1998, + fondamentaux), Norgate Platinum ou Diamond (environ 630 à 790 $/an, avec la composition historique des indices).
 - Pour la stratégie QQQ actuelle, aucune de ces sources n'est nécessaire.
+
+---
+
+## Ajout du 2026-11-13 : rotation sectorielle et séries temporelles
+
+| Fichier | Papier | Verdict |
+|---|---|---|
+| `Regime-Aware-Interpretable-Ranking-for-Sector-Rotation.pdf` | Koa et al. (NUS + Manulife), *RegimeRank*, ICAIF 2026 | ⭐⭐⭐ Seul papier sur notre question ; repère d'IC atteignable |
+| `Quantum-Reinforcement-Learning-…-Taiwan-….pdf` | Chen, Zhang, Chen, 2025 | ⭐ Leçon négative : récompense d'entraînement ≠ rendement réel |
+| `A-Learnable-Wavelet-Transformer-…-Long-Short-….pdf` | WaveLSFormer, 2026 | ❌ Intraday horaire, 6 industries, Sharpe « brut », pas de frais crédibles |
+| `Double-Path-Adaptive-correlation-…-Inverted-Transformer-….pdf` | DPA-STIFormer, 2024 | ❌ Précision de prévision seulement, pas de portefeuille |
+| `Volatility-Clustering-Adaptation-….pdf` | VCA, 2026 | Hors sujet (prévision de volatilité, modèles de fondation) |
+| `1e9b33f4-…pdf` | Brugière & Turinici, *Transformer for Time Series: an Application to the S&P500*, 2024 | Hors sujet (volatilité de l'indice) |
+| `4e0744fa-…pdf` | Zhang et al., *From attention to profit*, 2024 (Chine, 2010-2019) | ❌ Facteur transformer en Chine, protocole peu contrôlé |
+
+### RegimeRank — *Regime-Aware Interpretable Ranking for Sector Rotation* (arXiv 2610.26456)
+- **Tâche** : classer les 11 secteurs du S&P 500 chaque semaine selon leur Sharpe relatif à l'indice sur les **52 semaines suivantes** (pas la semaine suivante).
+- **Données** : Bloomberg 2002-2024, 49 variables par secteur (fondamentaux point-in-time + techniques), 156 variables macro.
+- **Modèle** : transformations temporelles « expertes » des signaux, conditionnées par des états macro latents (attention croisée), attention entre secteurs, perte listwise.
+- **Validation** : validation croisée combinatoire purgée (6 blocs, 15 combinaisons, purge et embargo de 52 semaines). Elle entraîne aussi sur des périodes postérieures au test : ce n'est pas un walk-forward.
+- **Résultats** (corrélation de rang moyenne, 5 graines) : RegimeRank **0,100**, contre 0,01 au hasard, −0,05 pour le momentum 12 mois, 0,04 XGBoost, 0,048 LTR long-short. Beaucoup de modèles publiés (graphes, hypergraphes) sont au niveau du hasard.
+- **Pas de rendement de portefeuille** : l'évaluation économique nette de frais est annoncée comme travail futur.
+- **Limite avouée** : environ 23 périodes annuelles indépendantes sur 2002-2024, moins de 8 par bloc de test.
+- **Enseignements** : les signaux techniques (volume OBV, ATR 52 semaines, semi-volatilité) pèsent plus que les fondamentaux ; l'attention entre secteurs est la brique qui compte le plus ; le momentum 12 mois des secteurs se retourne.
+
+### Papiers vus en ligne sur la rotation sectorielle (pas de PDF local)
+- **Miao & Polak, *Online Ensemble Learning for Sector Rotation*** (arXiv 2304.09947) : 50 secteurs SIC, top 5 prévu chaque mois, 1987-2021 hors échantillon. 14,2 %/an (13,2 % avec 0,10 % de frais par point de rotation) contre 8,9 % pour le S&P 500 ; Sharpe 0,66 contre 0,59 ; pire repli −52 % dans les deux cas.
+- **Karatas & Hirsa** (arXiv 2108.02838) : 4 ETF sectoriels sur 8, réseau Echo State, 2000-2019. 15 à 17,6 %/an contre 13,6 % pour les 8 secteurs à poids égaux, sans frais.
+- ***Forecasting Sector Stock Market Returns*** (Stirling, 2021) : meilleur secteur prévu chaque mois, 1,5 à 1,8 %/mois contre 0,65 % pour le S&P 500 dans les meilleurs modèles, sans frais.
+- **Stangl, Jacobsen & Visaltanachoti ; Molchanov & Stangl (2024)** : même en connaissant parfaitement le cycle, la rotation classique ne rapporte que +2,3 %/an brut et disparaît après frais.
+- **Moskowitz & Grinblatt (1999)** : momentum des industries à un mois ; **Hong, Torous & Valkanov (2007)** : certaines industries précèdent le marché ; **Guo** : news d'une industrie qui en concernent d'autres, plus de 10 % d'alpha annuel.
+
+**Repère issu de nos tests (src/portefolio_strategy/sector_oracle.py)** : sur 11 secteurs du S&P 500, une corrélation de rang d'environ 0,10 entre le score et le rendement suivant est le seuil pour égaler l'indice ; « 2 erreurs sur 5 » dans le top 5 hebdomadaire donne encore +15 pts/an, « 3 erreurs » tombe sous l'indice.
