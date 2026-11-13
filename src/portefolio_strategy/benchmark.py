@@ -99,8 +99,8 @@ def walk_forward(curves, bench, fee=C.FEE):
 
 
 def frequency_table(grid):
-    """Compromis de fréquence : par pondération et période de rééquilibrage, sur les configurations de la grille."""
-    g = grid.groupby(["weighting", "every"])
+    """Compromis de fréquence : par nombre de lignes et période de rééquilibrage, sur les configurations de la grille."""
+    g = grid.groupby(["n_top", "every"] if len(C.GRID_WEIGHTING) == 1 else ["weighting", "n_top", "every"])
     return pd.DataFrame({"excès net médian (pts/an)": g["excess_cagr_pct"].median(),
                          "excès net max (pts/an)": g["excess_cagr_pct"].max(),
                          "excès brut médian (pts/an)": g.apply(lambda d: (d["gross_cagr_pct"] - d["cagr_pct"]
@@ -132,14 +132,13 @@ def plot(strategy, best, bench, ew, cw, grid, m, path, title):
     ax[1].set_ylabel("Drawdown (%)")
     ax[1].sharex(ax[0])
     med = grid.groupby(["weighting", "n_top", "every"])[["excess_cagr_pct", "gross_cagr_pct", "cagr_pct"]].median()
-    for wt, ls in (("cap", "-"), ("equal", ":")):
-        for n, c in zip(C.GRID_TOP, ("tab:green", "tab:red", "tab:purple")):
+    for wt, ls in zip(C.GRID_WEIGHTING, ("-", ":")):
+        for n, c in zip(C.GRID_TOP, ("tab:green", "tab:red", "tab:purple", "tab:brown", "tab:pink")):
             x = med.loc[(wt, n)]
-            ax[2].plot(range(len(x)), x["excess_cagr_pct"], color=c, ls=ls, marker="o", ms=4,
-                       label=f"{n} titres, {'capi' if wt == 'cap' else 'égaux'}, net")
-            if wt == "cap":
-                ax[2].plot(range(len(x)), x["excess_cagr_pct"] + x["gross_cagr_pct"] - x["cagr_pct"], color=c, ls="--",
-                           lw=0.8, alpha=0.6, label=f"{n} titres, capi, brut")
+            name = f"{n} lignes" + ("" if len(C.GRID_WEIGHTING) == 1 else f", {'capi' if wt == 'cap' else 'égaux'}")
+            ax[2].plot(range(len(x)), x["excess_cagr_pct"], color=c, ls=ls, marker="o", ms=4, label=f"{name}, net")
+            ax[2].plot(range(len(x)), x["excess_cagr_pct"] + x["gross_cagr_pct"] - x["cagr_pct"], color=c, ls="--",
+                       lw=0.8, alpha=0.6, label=f"{name}, brut")
     ax[2].axhline(0, color="k", lw=0.8)
     ax[2].set_xticks(range(len(C.GRID_EVERY)), [f"{e} j" for e in C.GRID_EVERY])
     ax[2].set_xlabel("Fréquence de rééquilibrage (jours de bourse)")

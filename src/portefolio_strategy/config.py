@@ -80,9 +80,9 @@ INITIAL_CAPITAL = 10000.0
 FEE = 0.001                    # frais par sens, sur le montant échangé à chaque rééquilibrage (0,1 %)
 FEE_SENSITIVITY = (0.0, 0.0005, 0.001, 0.0025, 0.005)
 GRID_EVERY = (5, 10, 21, 42, 63)   # fréquence de rééquilibrage (jours de bourse)
-GRID_TOP = (10, 20, 30)            # nombre de titres retenus (poids égaux)
+GRID_TOP = (5, 10, 15, 20)         # nombre de lignes du portefeuille
 GRID_BUFFER = (1.0, 2.0)           # un titre détenu est gardé tant que son rang <= n_top × buffer
-GRID_WEIGHTING = ("equal", "cap")   # poids égaux, ou proportionnels à la capitalisation (comme l'indice)
+GRID_WEIGHTING = ("equal",)        # poids égaux ("cap" = proportionnels à la capitalisation, disponible)
 MAX_OFFSETS = 4                    # portefeuilles décalés (jour de départ) moyennés par configuration
-DEFAULT_CONFIG = dict(horizon=21, every=21, n_top=20, buffer=1.0, weighting="cap")
+DEFAULT_CONFIG = dict(horizon=21, every=21, n_top=10, buffer=1.0, weighting="equal")
 PARAM_MIN_MONTHS = 12          # historique hors échantillon exigé avant de choisir la configuration

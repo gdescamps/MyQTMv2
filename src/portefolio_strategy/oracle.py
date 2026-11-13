@@ -7,6 +7,8 @@ période que le backtest (portfolio.simulate) : ce n'est PAS une stratégie, seu
 Oracle bruité : score = ρ · rang du rendement futur + √(1 − ρ²) · bruit. ρ est la corrélation visée entre le
 score et le rendement futur (l'« IC » du modèle) : il montre combien de prévision il faut pour battre l'indice.
 
+Poids égaux, nombre de lignes de 5 à 20 (N_TOPS).
+
 Sorties : outputs/portefolio_strategy/oracle/oracle.md, oracle.csv, oracle.png, noisy_oracle.csv.
 
     python -m src.portefolio_strategy.oracle
@@ -27,9 +29,9 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 OUT = C.OUT / "oracle"
 PERIODS = {"chaque semaine (5 j)": 5, "chaque mois (21 j)": 21}
-N_TOP = 10
+N_TOPS = (5, 10, 15, 20)       # nombre de lignes, à poids égaux
 RHOS = (0.0, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0)
-SEEDS = 5
+SEEDS = 10
 
 
 def load():
@@ -53,65 +55,74 @@ def noisy(fwd, rho, seed):
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
-    fwd, opens, caps, bench = load()
+    fwd, opens, _, bench = load()
     mb = PF.metrics(bench)
+    years = (bench.index[-1] - bench.index[0]).days / 365.25
     rows, curves = [], {}
     for label, h in PERIODS.items():
-        for wt, size in (("poids égaux", None), ("capitalisation", caps)):
-            for fee in (C.FEE, 0.0):
-                r = PF.simulate(fwd[h], opens, N_TOP, h, fee=fee, size=size)
-                m = PF.metrics(r["values"])
-                years = (bench.index[-1] - bench.index[0]).days / 365.25
-                if fee:
-                    curves[f"Oracle {N_TOP} titres, {label}, {wt}"] = r["values"]
-                rows.append({"renouvellement": label, "pondération": wt, "frais par sens": f"{100 * fee:.1f} %",
-                             "CAGR %": round(m["cagr_pct"], 1), "valeur finale (base 1)": round(float(r["values"].iloc[-1]), 1),
-                             "écart indice (pts/an)": round(m["cagr_pct"] - mb["cagr_pct"], 1),
-                             "maxDD %": round(m["max_drawdown_pct"], 1), "Sharpe": round(m["sharpe"], 2),
-                             "rotation (×/an)": round(float(r["turnover"].sum() / years), 1)})
+        for n in N_TOPS:
+            r = PF.simulate(fwd[h], opens, n, h)
+            m, g = PF.metrics(r["values"]), PF.metrics(PF.simulate(fwd[h], opens, n, h, fee=0.0)["values"])
+            curves[(label, n)] = r["values"]
+            rows.append({"renouvellement": label, "lignes": n, "CAGR net %": round(m["cagr_pct"]),
+                         "CAGR brut %": round(g["cagr_pct"]), "écart indice (pts/an)": round(m["cagr_pct"] - mb["cagr_pct"]),
+                         "valeur finale (base 1)": f"{r['values'].iloc[-1]:.3g}", "maxDD %": round(m["max_drawdown_pct"], 1),
+                         "Sharpe": round(m["sharpe"], 1), "rotation (×/an)": round(float(r["turnover"].sum() / years))})
     table = pd.DataFrame(rows)
     table.to_csv(OUT / "oracle.csv", index=False)
     nrows = []
-    for rho in RHOS:
-        for wt, size in (("poids égaux", None), ("capitalisation", caps)):
-            ex = [PF.metrics(PF.simulate(noisy(fwd[21], rho, s), opens, N_TOP, 21, size=size)["values"])["cagr_pct"]
-                  - mb["cagr_pct"] for s in range(1 if rho == 1.0 else SEEDS)]
-            nrows.append({"corrélation score / rendement futur": rho, "pondération": wt,
-                          "écart indice moyen (pts/an)": round(float(np.mean(ex)), 1),
-                          "min": round(float(np.min(ex)), 1), "max": round(float(np.max(ex)), 1)})
+    for label, h in PERIODS.items():
+        for rho in RHOS:
+            scores = [noisy(fwd[h], rho, s) for s in range(1 if rho == 1.0 else SEEDS)]
+            for n in N_TOPS:
+                ex = [PF.metrics(PF.simulate(s, opens, n, h)["values"])["cagr_pct"] - mb["cagr_pct"] for s in scores]
+                nrows.append({"renouvellement": label, "corrélation": rho, "lignes": n, "moyen": round(float(np.mean(ex)), 1),
+                              "min": round(float(np.min(ex)), 1), "max": round(float(np.max(ex)), 1),
+                              "tirages > indice": f"{sum(e > 0 for e in ex)}/{len(ex)}"})
     ntable = pd.DataFrame(nrows)
     ntable.to_csv(OUT / "noisy_oracle.csv", index=False)
-    md = ["# Oracle : gain maximum d'une sous-sélection de l'univers Nasdaq", "",
-          f"Période {bench.index[0]:%Y-%m-%d} → {bench.index[-1]:%Y-%m-%d}. L'oracle retient à chaque rééquilibrage les "
-          f"{N_TOP} membres de l'univers qui auront le meilleur rendement jusqu'au rééquilibrage suivant (achat à "
-          "l'ouverture du lendemain). Borne supérieure, pas une stratégie.", "",
+
+    def pivot(label):
+        d = ntable[ntable["renouvellement"] == label]
+        cell = d["moyen"].map("{:+.1f}".format) + " (" + d["min"].map("{:+.0f}".format) + " à " + d["max"].map("{:+.0f}".format) + ")"
+        return d.assign(cell=cell).pivot(index="corrélation", columns="lignes", values="cell").rename(
+            columns=lambda n: f"{n} lignes")
+
+    md = ["# Oracle : gain maximum d'une sous-sélection de l'univers Nasdaq (poids égaux)", "",
+          f"Période {bench.index[0]:%Y-%m-%d} → {bench.index[-1]:%Y-%m-%d}, frais {100 * C.FEE:.1f} % par sens. L'oracle "
+          "retient à chaque rééquilibrage les n membres de l'univers qui auront le meilleur rendement jusqu'au "
+          "rééquilibrage suivant (achat à l'ouverture du lendemain), à poids égaux. Borne supérieure, pas une stratégie.", "",
           f"Indice de l'univers : CAGR {mb['cagr_pct']:.1f} %, valeur finale {bench.iloc[-1]:.2f}, maxDD "
-          f"{mb['max_drawdown_pct']:.1f} %.", "", table.to_markdown(index=False), "",
-          f"## Oracle bruité ({N_TOP} titres, renouvelés chaque mois, frais {100 * C.FEE:.1f} % par sens)", "",
-          "Le score ne connaît le rendement futur qu'en partie ; la corrélation de rang visée est celle qu'on mesure "
-          f"sur le modèle (« IC »). Moyenne, minimum et maximum sur {SEEDS} tirages du bruit.", "",
-          ntable.to_markdown(index=False), ""]
+          f"{mb['max_drawdown_pct']:.1f} %.", "", table.to_markdown(index=False), ""]
+    for label in PERIODS:
+        md += [f"## Oracle bruité, renouvelé {label} : écart de CAGR avec l'indice (pts/an)", "",
+               "Le score ne connaît le rendement futur qu'en partie ; la corrélation de rang visée est celle qu'on mesure "
+               f"sur le modèle (« IC »). Moyenne (minimum à maximum) sur {SEEDS} tirages du bruit, nets de frais.", "",
+               pivot(label).to_markdown(), ""]
     (OUT / "oracle.md").write_text("\n".join(md))
-    fig, ax = plt.subplots(1, 2, figsize=(15, 6))
-    for (name, v), c in zip(curves.items(), ("tab:red", "tab:orange", "tab:purple", "tab:green")):
-        ax[0].plot(v.index, v, lw=1.4, color=c, label=f"{name} (CAGR {PF.metrics(v)['cagr_pct']:.0f} %)")
+    colors = dict(zip(N_TOPS, ("tab:red", "tab:orange", "tab:green", "tab:purple")))
+    fig, ax = plt.subplots(1, 3, figsize=(21, 6.5))
+    for (label, n), v in curves.items():
+        ax[0].plot(v.index, v, lw=1.3, color=colors[n], ls="-" if PERIODS[label] == 21 else ":",
+                   label=f"{n} lignes, {label} (CAGR {PF.metrics(v)['cagr_pct']:.0f} %)")
     ax[0].plot(bench.index, bench, lw=2, color="tab:blue", label=f"Indice de l'univers (CAGR {mb['cagr_pct']:.0f} %)")
     ax[0].set_yscale("log")
     ax[0].set_ylabel("Valeur (base 1, log)")
-    ax[0].set_title(f"Oracle : les {N_TOP} meilleurs titres de la période suivante, nets de frais")
-    ax[0].legend(fontsize=8)
-    for wt, c in (("poids égaux", "tab:orange"), ("capitalisation", "tab:green")):
-        d = ntable[ntable["pondération"] == wt]
-        x = range(len(d))
-        ax[1].plot(x, d["écart indice moyen (pts/an)"], marker="o", color=c, label=wt)
-        ax[1].fill_between(x, d["min"], d["max"], color=c, alpha=0.2)
-    ax[1].axhline(0, color="k", lw=0.8)
-    ax[1].set_yscale("symlog", linthresh=10)
-    ax[1].set_xticks(range(len(RHOS)), [str(r) for r in RHOS])
-    ax[1].set_xlabel("Corrélation de rang entre le score et le rendement futur à 21 j (1 = oracle parfait)")
-    ax[1].set_ylabel("Écart de CAGR avec l'indice (pts/an)")
-    ax[1].set_title(f"Oracle bruité : {N_TOP} titres renouvelés chaque mois, nets de frais")
-    ax[1].legend()
+    ax[0].set_title("Oracle parfait, poids égaux, net de frais")
+    ax[0].legend(fontsize=7)
+    for a, (label, h) in zip(ax[1:], PERIODS.items()):
+        for n in N_TOPS:
+            d = ntable[(ntable["renouvellement"] == label) & (ntable["lignes"] == n)]
+            x = range(len(d))
+            a.plot(x, d["moyen"], marker="o", ms=4, color=colors[n], label=f"{n} lignes")
+            a.fill_between(x, d["min"], d["max"], color=colors[n], alpha=0.12)
+        a.axhline(0, color="k", lw=0.8)
+        a.set_yscale("symlog", linthresh=20)
+        a.set_xticks(range(len(RHOS)), [str(r) for r in RHOS])
+        a.set_xlabel(f"Corrélation de rang entre le score et le rendement futur à {h} j (1 = oracle parfait)")
+        a.set_ylabel("Écart de CAGR avec l'indice (pts/an)")
+        a.set_title(f"Oracle bruité, renouvelé {label}")
+        a.legend()
     for a in ax:
         a.grid(alpha=0.3)
     fig.tight_layout()
