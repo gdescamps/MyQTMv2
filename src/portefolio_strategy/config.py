@@ -3,7 +3,7 @@
 Différences voulues avec ref/MyQTM/src/config.py :
 - univers = liste Nasdaq dynamique point-in-time (universe.py), pas TRADE_STOCKS ;
 - sentiment = Diamegs/PIT-4B-FT-201912 (coupure 2019-12), donc tout commence au 2020-01-01 ;
-- entraînement et seuils en walk-forward (pas d'intervalles A/B entrelacés sur toute la période).
+- modèle de classement des titres (long seulement) en walk-forward, au lieu de seuils d'ouverture / fermeture.
 """
 from pathlib import Path
 
@@ -67,29 +67,22 @@ NEWS_TYPES = {"earnings": "the financial results or earnings of the company",
 SENT_CATEGORIES = ("company", "competitors", "global")
 NEWS_TS_SIZE = 10
 
-# --- Features (comme ref/MyQTM) -------------------------------------------
-TS_SIZE = 6
-TREND = dict(ma_short=1, ma_mid=3, ma_long=10, min_days=14, avg_daily_percent_thr=0.15)
+# --- Modèle de classement -------------------------------------------------
+# Cible : rang du jour, parmi les membres, du rendement futur (ouverture J+1 → ouverture J+1+h).
+HORIZONS = (5, 21, 63)         # jours de bourse ; un modèle par horizon
+XGB_PARAMS = dict(objective="reg:squarederror", tree_method="hist", max_depth=4, learning_rate=0.03,
+                  subsample=0.7, colsample_bytree=0.5, min_child_weight=100, reg_lambda=10,
+                  max_bin=64, nthread=WORKERS, seed=42, verbosity=0, device="cpu")
+XGB_ROUNDS = 300               # fixe : pas d'arrêt anticipé (il faudrait une validation dans le futur)
 
-# --- XGBoost ---------------------------------------------------------------
-XGB_PARAMS = dict(objective="multi:softprob", num_class=3, tree_method="hist", max_depth=7,
-                  learning_rate=0.05, subsample=0.6, colsample_bytree=0.7, gamma=4, min_child_weight=5,
-                  reg_alpha=0.4, reg_lambda=4, nthread=WORKERS, seed=42, verbosity=0)
-XGB_ROUNDS = 600
-XGB_PATIENCE = 40
-MEAN_STD_POWER = 1.71
-TOP_FEATURES = [60, 80]
-INTERVAL_DAYS = 90             # blocs entrelacés A/B à l'intérieur de la fenêtre d'apprentissage
-
-# --- Trading (comme ref/MyQTM) --------------------------------------------
+# --- Portefeuille (positions longues seulement) ---------------------------
 INITIAL_CAPITAL = 10000.0
-MAX_POSITIONS = 12
-FEE = 0.0005                   # par sens (ref/MyQTM : 0)
-DEFAULT_PARAMS = dict(long_open=0.60, long_close=0.37, short_open=0.60, short_close=0.37, increase=0.70)
-CMA_ITERS = 30
-CMA_POP = 10
-CMA_STD = 0.2
-CMA_DROPOUT_ROUNDS = 3
-CMA_DROPOUT = 5
-MC_RUNS = 20                   # Monte-Carlo final (retrait aléatoire de CMA_DROPOUT titres)
-PARAM_MIN_MONTHS = 12          # historique hors échantillon exigé avant d'optimiser les seuils
+FEE = 0.001                    # frais par sens, sur le montant échangé à chaque rééquilibrage (0,1 %)
+FEE_SENSITIVITY = (0.0, 0.0005, 0.001, 0.0025, 0.005)
+GRID_EVERY = (5, 10, 21, 42, 63)   # fréquence de rééquilibrage (jours de bourse)
+GRID_TOP = (10, 20, 30)            # nombre de titres retenus (poids égaux)
+GRID_BUFFER = (1.0, 2.0)           # un titre détenu est gardé tant que son rang <= n_top × buffer
+GRID_WEIGHTING = ("equal", "cap")   # poids égaux, ou proportionnels à la capitalisation (comme l'indice)
+MAX_OFFSETS = 4                    # portefeuilles décalés (jour de départ) moyennés par configuration
+DEFAULT_CONFIG = dict(horizon=21, every=21, n_top=20, buffer=1.0, weighting="cap")
+PARAM_MIN_MONTHS = 12          # historique hors échantillon exigé avant de choisir la configuration

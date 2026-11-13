@@ -1,13 +1,15 @@
-"""Features par (titre, jour) — portage de ref/MyQTM/src/data_transform_*.py sur data/eodhd.
+"""Features par (titre, jour) pour classer les titres de l'univers Nasdaq dynamique.
 
 Tout est point-in-time : une ligne datée J n'utilise que ce qui est connu à la clôture de J.
-Fuites de ref/MyQTM corrigées ici :
-- fondamentaux datés de leur dépôt (filing_date + 1 j), pas de la fin de trimestre ;
-- indicateurs macro datés de leur publication (calendrier économique), pas de la période mesurée ;
-- recommandations d'analystes et « ratings » FMP abandonnés (EODHD n'en a qu'un instantané d'aujourd'hui),
-  remplacés par l'historique des surprises de résultats (daté de la publication + 1 j) ;
-- VIX (absent de data/eodhd) remplacé par la volatilité réalisée 20 j de l'indice de l'univers ;
-- colonnes « open » (cours brut) et « stock » (identifiant du titre) retirées des features.
+- cours : rendements passés, volatilité, distance aux extrêmes, volume, bêta (rien de normalisé par titre :
+  le modèle compare des titres entre eux le même jour) ;
+- fondamentaux datés de leur dépôt (filing_date + 1 j) : endettement, rendement bénéficiaire, croissance, marges ;
+- surprises de résultats datées de la publication + 1 j ; indicateurs macro datés de leur publication ;
+- capitalisation = nombre d'actions connu (fin de trimestre + délai) × cours du jour ;
+- sentiment PIT : directement P(Yes) aux questions « bonne nouvelle ? » / « mauvaise nouvelle ? » (pit_*) ;
+- types de news Qwen (qt_*), sentiment Qwen (qs_*, NON point-in-time : comparaison seulement), sentiment
+  fournisseur (vs_*) ;
+- rangs du jour parmi les membres (xs_*) des variables principales.
 
     python -m src.portefolio_strategy.features
 """
@@ -23,16 +25,18 @@ from . import universe as U
 FEATURES = C.DATA / "features.parquet"
 INDEX = C.DATA / "index.parquet"
 SENTIMENTS = C.PIT_DIR / "sentiment.parquet"      # notes du LLM PIT (sentiment.py)
+QWEN_SENTIMENTS = C.QWEN_DIR / "sentiment.parquet"
+QWEN_TYPES = C.QWEN_DIR / "categories.parquet"
 ROWS_START = "2019-06-01"
 META = ["date", "symbol", "member", "o", "c"]
 EPS = 1e-9
+# Variables dont on ajoute le rang du jour parmi les membres (xs_<nom>, entre 0 et 1).
+XS_COLS = ["ret_5", "ret_21", "ret_63", "ret_126", "mom_12_1", "vol_20", "vol_60", "dist_high_252", "beta_126",
+           "dvol_ratio", "log_cap", "earnings_yield", "sales_yield", "fcf_yield", "sales_growth", "op_margin",
+           "ts_es_surprise_0", "pit_pos_company_5", "pit_neg_company_5"]
 
 
 # --------------------------------------------------------------------------- prix
-def _norm(x, mn, mx):
-    return (100.0 * (x - mn) / (mx - mn + EPS)).round(2)
-
-
 def rsi14(c):
     d = c.diff()
     g = d.clip(lower=0).rolling(14).mean()
@@ -42,27 +46,31 @@ def rsi14(c):
     return r.where(g.notna(), 50.0).round(2)
 
 
-def price_features(px):
-    """px : cours ajustés (o, c, v) indexés par date croissante. Normalisation min/max sur l'historique passé."""
+def price_features(px, index_ret=None):
+    """px : cours ajustés (o, c, v) indexés par date croissante ; index_ret : rendement quotidien de l'indice."""
     c, v = px["c"], px["v"].astype(float)
-    mn, mx = c.expanding().min(), c.expanding().max()
+    r = c.pct_change()
     f = {"rsi_14": rsi14(c)}
-    for n in (4, 8, 30, 50, 200):
-        f[f"ema_{n}"] = _norm(c.rolling(n, min_periods=1).mean(), mn, mx)
-    for k in range(C.TS_SIZE):
-        f[f"ts_d_close_{k}"] = _norm(c.shift(k), mn, mx)
-        f[f"ts_w_close_{k}"] = _norm(c.shift(7 * k), mn, mx)
-    vmn, vmx = v.expanding().min(), v.expanding().max()
-    vw = v.rolling(7).mean()
-    for k in range(C.TS_SIZE):
-        f[f"ts_d_volume_{k}"] = _norm(v.shift(k), vmn, vmx)
-        f[f"ts_w_volume_{k}"] = _norm(vw.shift(7 * k), vmn, vmx)
-    for col in ("rsi_14", "ema_4", "ema_8", "ema_30", "ema_50", "ema_200"):
-        for k in range(C.TS_SIZE + 1):
-            f[f"ts_{col}_{k}"] = f[col].shift(k)
+    for n in (1, 5, 10, 21, 63, 126, 252):
+        f[f"ret_{n}"] = c / c.shift(n) - 1
+    f["mom_12_1"] = c.shift(21) / c.shift(252) - 1
+    f["vol_20"] = r.rolling(20).std() * np.sqrt(252)
+    f["vol_60"] = r.rolling(60).std() * np.sqrt(252)
+    f["max_ret_21"] = r.rolling(21).max()
+    f["dist_high_252"] = c / c.rolling(252, min_periods=120).max() - 1
+    f["dist_low_252"] = c / c.rolling(252, min_periods=120).min() - 1
+    f["gap_sma_50"] = c / c.rolling(50).mean() - 1
+    f["gap_sma_200"] = c / c.rolling(200).mean() - 1
+    dv = (c * v)
+    f["log_dvol_20"] = np.log(dv.rolling(20).mean().where(lambda x: x > 0))
+    f["dvol_ratio"] = dv.rolling(5).mean() / dv.rolling(60).mean()
+    if index_ret is not None:
+        m = index_ret.reindex(px.index)
+        f["beta_126"] = r.rolling(126).cov(m) / m.rolling(126).var()
+        f["rel_ret_21"] = f["ret_21"] - (np.exp(np.log1p(m).rolling(21).sum()) - 1)
     out = pd.DataFrame(f, index=px.index)
     out["month"] = px.index.month
-    return out.iloc[200:]          # séries incomplètes (EMA 200)
+    return out.iloc[200:].round(5)          # historique incomplet (moyenne 200 j)
 
 
 # --------------------------------------------------------------------------- indice de l'univers
@@ -83,13 +91,11 @@ def build_index(u, caps, closes):
 
 
 def market_features(index):
-    """Remplace le VIX : volatilité réalisée 20 j annualisée de l'indice (en %)."""
-    vol = (index["ret"].rolling(20).std() * np.sqrt(252) * 100).dropna()
-    mn, mx = vol.expanding().min(), vol.expanding().max()
-    f = {"vixp_ema_50": _norm(vol.rolling(50, min_periods=1).mean(), mn, mx)}
-    for k in range(C.TS_SIZE):
-        f[f"ts_vixp_w_close_{k}"] = _norm(vol.shift(7 * k), mn, mx)
-    return pd.DataFrame(f, index=vol.index).iloc[60:]
+    """État du marché (identique pour tous les titres du jour) : rendement, volatilité, repli de l'indice."""
+    lvl, ret = index["level"], index["ret"]
+    f = {"idx_ret_21": lvl / lvl.shift(21) - 1, "idx_ret_63": lvl / lvl.shift(63) - 1,
+         "idx_vol_20": ret.rolling(20).std() * np.sqrt(252), "idx_dd_252": lvl / lvl.rolling(252, min_periods=60).max() - 1}
+    return pd.DataFrame(f, index=index.index).iloc[63:].round(5)
 
 
 # --------------------------------------------------------------------------- blocs datés (fusion « dernier connu »)
@@ -181,13 +187,61 @@ def econ_blocks():
     return blocks
 
 
-def sentiment_block(sent):
-    """sent : notes d'un titre (day, company, competitors, global) → séries des 10 derniers jours de news."""
+def fundamentals_ttm(fund):
+    """Sommes sur 4 trimestres (chiffre d'affaires, résultat net, flux de trésorerie disponible) et ratios,
+    disponibles le lendemain du dépôt du dernier trimestre (filing_date ; à défaut fin de trimestre + 46 j)."""
+    fin = fund.get("Financials") or {}
+    inc = (fin.get("Income_Statement") or {}).get("quarterly") or {}
+    cf = (fin.get("Cash_Flow") or {}).get("quarterly") or {}
+    rows = []
+    for period, r in inc.items():
+        fd = r.get("filing_date")
+        avail = pd.Timestamp(fd) + pd.Timedelta(days=1) if fd else pd.Timestamp(period) + pd.Timedelta(days=46)
+        rows.append((pd.Timestamp(period), avail, _num(r.get("totalRevenue")), _num(r.get("netIncome")),
+                     _num(r.get("operatingIncome")), _num(r.get("grossProfit")),
+                     _num((cf.get(period) or {}).get("freeCashFlow"))))
+    if len(rows) < 4:
+        return None
+    d = pd.DataFrame(rows, columns=["period", "avail", "rev", "ni", "op", "gp", "fcf"]).sort_values("period")
+    t = d[["rev", "ni", "op", "gp", "fcf"]].rolling(4, min_periods=4).sum()
+    out = pd.DataFrame({"avail": d["avail"].cummax(), "f_rev_ttm": t["rev"], "f_ni_ttm": t["ni"], "f_fcf_ttm": t["fcf"],
+                        "sales_growth": (t["rev"] / t["rev"].shift(4).where(lambda x: x > 0) - 1).clip(-1, 5),
+                        "op_margin": (t["op"] / t["rev"].where(lambda x: x > 0)).clip(-2, 1),
+                        "gross_margin": (t["gp"] / t["rev"].where(lambda x: x > 0)).clip(-1, 1)})
+    return out.dropna(subset=["f_rev_ttm"]).drop_duplicates("avail", keep="last").set_index("avail").sort_index()
+
+
+def prob_block(sent, prefix):
+    """sent : notes d'un titre (une ligne par jour de news : p_pos_<cat>, p_neg_<cat>) → pour chaque catégorie,
+    les probabilités P(Yes) brutes du dernier jour de news et leur moyenne sur les 5 et 20 derniers jours de
+    news (rubriques vides ignorées), plus le nombre de jours calendaires couverts par ces 5 jours de news."""
     if sent is None or sent.empty:
         return None
     d = sent.set_index("day").sort_index()
-    d = d.rename(columns={c: f"sentiment_{c}" for c in C.SENT_CATEGORIES})
-    return _ts_block(d, [f"sentiment_{c}" for c in C.SENT_CATEGORIES], "ts_news_", C.NEWS_TS_SIZE)
+    out = pd.DataFrame(index=d.index)
+    for cat in C.SENT_CATEGORIES:
+        for pol in ("pos", "neg"):
+            x = d[f"p_{pol}_{cat}"].astype(float)
+            out[f"{prefix}{pol}_{cat}"] = x
+            out[f"{prefix}{pol}_{cat}_5"] = x.rolling(5, min_periods=1).mean()
+            out[f"{prefix}{pol}_{cat}_20"] = x.rolling(20, min_periods=1).mean()
+    days = pd.Series(d.index, index=d.index)
+    out[f"{prefix}span_5"] = (days - days.shift(4)).dt.days
+    return out.round(4)
+
+
+def types_block(types):
+    """types : P(type de news) d'un titre par jour de news (qwen.py) → dernier jour de news et somme sur les
+    5 derniers jours de news (≈ nombre de news récentes de ce type)."""
+    if types is None or types.empty:
+        return None
+    d = types.set_index("day").sort_index()
+    out = pd.DataFrame(index=d.index)
+    for t in C.NEWS_TYPES:
+        x = d[f"p_{t}"].astype(float)
+        out[f"qt_{t}"] = x
+        out[f"qt_{t}_5"] = x.rolling(5, min_periods=1).sum()
+    return out.round(4)
 
 
 def vendor_block(vs):
@@ -213,89 +267,105 @@ def vendor_block(vs):
     return out.round(4)
 
 
-def _div(a, b):
-    return np.where((b != 0) & ~np.isnan(b), a / np.where(b == 0, np.nan, b), np.nan)
-
-
-def add_ratios(f):
-    def get(col):
-        return f[col].to_numpy(float) if col in f else np.full(len(f), np.nan)
-    pairs = {"momentum_1w": ("ts_w_close_0", "ts_w_close_1"), "rsi_over_price": ("rsi_14", "ts_d_close_0"),
-             "sentiment_vs_rate": ("ts_news_sentiment_global_0", "ts_ei_federalFunds_0"),
-             "ratio_ts_rsi_14_0_over_ts_rsi_14_1": ("ts_rsi_14_0", "ts_rsi_14_1"),
-             "ratio_ts_d_volume_1_over_ts_d_volume_2": ("ts_d_volume_1", "ts_d_volume_2"),
-             "ratio_ts_d_close_0_over_ts_d_close_2": ("ts_d_close_0", "ts_d_close_2")}
-    for name, (a, b) in pairs.items():
-        f[name] = _div(get(a), get(b))
-    return f
-
-
-def stock_features(symbol, px, fund, market, econ, sent, member, vendor=None):
+def stock_features(symbol, px, fund, market, econ, sent, member, vendor=None, index_ret=None, qsent=None,
+                   types=None, sector=-1):
     """Assemble toutes les features d'un titre. `px` : cours ajustés depuis PRICE_START."""
-    f = price_features(px)
+    f = price_features(px, index_ret)
     dates = f.index
-    parts = [f, asof_join(dates, market.rename_axis(None), "vix_days"),
+    parts = [f, asof_join(dates, market.rename_axis(None)),
              asof_join(dates, key_metrics(fund) if fund else None, "km_days")]
     parts += [asof_join(dates, b) for b in econ.values()]
     parts.append(asof_join(dates, earnings_surprises(fund, today=dates[-1]) if fund else None, "es_days"))
-    sb = sentiment_block(sent)
-    if sb is None:
-        sb = pd.DataFrame(columns=[f"ts_news_sentiment_{c}_{k}" for c in C.SENT_CATEGORIES
-                                   for k in range(C.NEWS_TS_SIZE)], dtype=float)
-    parts.append(asof_join(dates, sb, "news_days"))
+    parts.append(asof_join(dates, fundamentals_ttm(fund) if fund else None))
+    parts.append(asof_join(dates, prob_block(sent, "pit_"), "news_days"))
+    parts.append(asof_join(dates, prob_block(qsent, "qs_")))
+    parts.append(asof_join(dates, types_block(types)))
     vb = vendor_block(vendor)
     if vb is not None:
         parts.append(asof_join(dates, vb, "vs_days"))
     out = pd.concat([p.reindex(dates) for p in parts], axis=1)
-    for col in ("km_days", "es_days", "news_days", "vix_days", "vs_days"):
-        if col not in out:
-            if col == "vs_days":
-                continue
-            out[col] = -1
-        out[col] = out[col].fillna(-1).astype(int)
-    for c in C.SENT_CATEGORIES:                       # colonnes toujours présentes (NaN tant que non notées)
-        for k in range(C.NEWS_TS_SIZE):
-            if f"ts_news_sentiment_{c}_{k}" not in out:
-                out[f"ts_news_sentiment_{c}_{k}"] = np.nan
-    out = add_ratios(out)
+    for col in ("km_days", "es_days", "news_days", "vs_days"):
+        if col in out or col != "vs_days":
+            out[col] = (out[col] if col in out else pd.Series(-1, index=dates)).fillna(-1).astype(int)
+    # capitalisation et ratios de valorisation (nombre d'actions connu × cours du jour)
+    sh = eod.shares_series(fund) if fund else None
+    cap = (sh.reindex(sh.index.union(dates)).ffill().reindex(dates) * px["split_close"].reindex(dates)
+           if sh is not None else pd.Series(np.nan, index=dates))
+    cap = cap.where(cap > 0)
+    out["log_cap"] = np.log(cap).round(4)
+    for name, col in (("earnings_yield", "f_ni_ttm"), ("sales_yield", "f_rev_ttm"), ("fcf_yield", "f_fcf_ttm")):
+        out[name] = (out[col] / cap).clip(-1, 5).round(5) if col in out else np.nan
+    out = out.drop(columns=[c for c in ("f_rev_ttm", "f_ni_ttm", "f_fcf_ttm") if c in out])
+    for c in ("sales_growth", "op_margin", "gross_margin"):
+        if c not in out:
+            out[c] = np.nan
+    for p, src in (("pit_", sent), ("qs_", qsent)):   # colonnes toujours présentes (NaN tant que non notées)
+        if src is None or src.empty:
+            for cat in C.SENT_CATEGORIES:
+                for pol in ("pos", "neg"):
+                    for suf in ("", "_5", "_20"):
+                        out[f"{p}{pol}_{cat}{suf}"] = np.nan
+            out[f"{p}span_5"] = np.nan
+    if types is None or types.empty:
+        for t in C.NEWS_TYPES:
+            out[f"qt_{t}"], out[f"qt_{t}_5"] = np.nan, np.nan
+    out["sector_id"] = sector
     out.insert(0, "c", px["c"].reindex(dates))
     out.insert(0, "o", px["o"].reindex(dates))
     out.insert(0, "member", member(dates))
     out.insert(0, "symbol", symbol)
-    return out.rename_axis("date").reset_index()
+    return out.copy().rename_axis("date").reset_index()
 
 
-def is_pit_col(c):
-    return c.startswith("ts_news_") or c in ("news_days", "sentiment_vs_rate")
+def add_cross_section(df):
+    """Rang du jour parmi les membres (0 = plus bas, 1 = plus haut ; NaN hors univers) des variables XS_COLS."""
+    m = df["member"].to_numpy()
+    g = df.loc[m].groupby("date")
+    new = {}
+    for c in XS_COLS:
+        if c in df:
+            new[f"xs_{c}"] = g[c].rank(pct=True).reindex(df.index).round(4)
+    return pd.concat([df, pd.DataFrame(new, index=df.index)], axis=1)
 
 
-def is_vendor_col(c):
-    return c.startswith(("vs_", "ts_vs_"))
+# Familles de features de sentiment / news, et variantes d'évaluation (quelles familles entrent dans le modèle).
+FAMILIES = {"pit": lambda c: c.startswith(("pit_", "xs_pit_")) or c == "news_days",
+            "types": lambda c: c.startswith("qt_"),
+            "qsent": lambda c: c.startswith("qs_"),
+            "vendor": lambda c: c.startswith(("vs_", "ts_vs_"))}
+VARIANTS = {"base": ((), "données structurées seules (cours, fondamentaux, macro)"),
+            "pit": (("pit",), "structurées + sentiment PIT (probabilités brutes)"),
+            "pit_types": (("pit", "types"), "structurées + sentiment PIT + types de news Qwen"),
+            "all": (("pit", "types", "vendor"), "structurées + PIT + types Qwen + sentiment fournisseur"),
+            "vendor": (("vendor",), "structurées + sentiment fournisseur EODHD"),
+            "qsent": (("qsent", "types"), "structurées + sentiment et types Qwen (NON point-in-time)")}
 
 
-# Variantes d'évaluation : quelles familles de sentiment entrent dans le modèle.
-VARIANTS = {"base": "sans sentiment", "vendor": "sentiment fournisseur EODHD + catégories de news",
-            "pit": "sentiment LLM PIT-4B-FT-201912", "all": "sentiment PIT + fournisseur"}
+def family_of(col):
+    return next((k for k, f in FAMILIES.items() if f(col)), None)
 
 
 def feature_columns(df, variant="all"):
-    cols = [c for c in df.columns if c not in META]
-    if variant in ("base", "vendor"):
-        cols = [c for c in cols if not is_pit_col(c)]
-    if variant in ("base", "pit"):
-        cols = [c for c in cols if not is_vendor_col(c)]
-    return cols
+    keep = VARIANTS[variant][0]
+    return [c for c in df.columns if c not in META and family_of(c) in (None, *keep)]
 
 
 # --------------------------------------------------------------------------- construction
 def _one(args):
-    symbol, market, econ, sent, u, vendor = args
+    symbol, market, econ, u, index_ret, sector, blocks = args
     px = eod.load_eod(symbol)
     if px is None or len(px) < 260:
         return None
-    f = stock_features(symbol, px, eod.load_fund(symbol), market, econ, sent,
-                       lambda dates: U.member_mask(u, symbol, dates), vendor)
+    f = stock_features(symbol, px, eod.load_fund(symbol), market, econ, blocks.get("pit"),
+                       lambda dates: U.member_mask(u, symbol, dates), blocks.get("vendor"), index_ret,
+                       blocks.get("qsent"), blocks.get("types"), sector)
     return f[f["date"] >= ROWS_START]
+
+
+def _by_symbol(path):
+    if not path.exists():
+        return {}
+    return dict(tuple(pd.read_parquet(path).groupby("symbol")))
 
 
 def load_sentiments():
@@ -311,24 +381,29 @@ def main():
     index = build_index(u, caps[caps["symbol"].isin(symbols)], closes)
     index.to_parquet(INDEX)
     market, econ = market_features(index), econ_blocks()
-    sent = load_sentiments()
-    by_sym = dict(tuple(sent.groupby("symbol"))) if sent is not None else {}
-    from .vendor_sentiment import load_vendor
-    vend = load_vendor()
-    v_sym = dict(tuple(vend.groupby("symbol"))) if vend is not None else {}
+    from .vendor_sentiment import VENDOR
+    src = {"pit": _by_symbol(SENTIMENTS), "qsent": _by_symbol(QWEN_SENTIMENTS), "types": _by_symbol(QWEN_TYPES),
+           "vendor": _by_symbol(VENDOR)}
+    sectors = caps.drop_duplicates("symbol", keep="last").set_index("symbol")["sector"]
+    sector_id = {s: i for i, s in enumerate(sorted(sectors.dropna().unique()))}
+    jobs = [(s, market, econ, u, index["ret"], sector_id.get(sectors.get(s), -1),
+             {k: v.get(s) for k, v in src.items()}) for s in symbols]
     with ProcessPoolExecutor(C.WORKERS) as ex:
-        parts = [p for p in ex.map(_one, [(s, market, econ, by_sym.get(s), u, v_sym.get(s)) for s in symbols])
-                 if p is not None]
+        parts = [p for p in ex.map(_one, jobs) if p is not None]
     df = pd.concat(parts, ignore_index=True)
     if "vs_days" in df:
         df["vs_days"] = df["vs_days"].fillna(-1).astype(int)
+    df = add_cross_section(df)
     df.to_parquet(FEATURES, index=False)
-    m = df[df["member"]]
-    cov = m["ts_news_sentiment_company_0"].notna().mean()
+    m = df[df["member"] & (df["date"] >= C.START_DATE)]
     print(f"features : {len(df)} lignes, {df['symbol'].nunique()} titres, {len(feature_columns(df))} colonnes, "
           f"{df['date'].min():%Y-%m-%d} → {df['date'].max():%Y-%m-%d}")
-    vcov = m["ts_vs_polarity_0"].notna().mean() if "ts_vs_polarity_0" in m else 0.0
-    print(f"lignes membres : {len(m)} ; couverture du sentiment PIT : {cov:.1%} ; du sentiment fournisseur : {vcov:.1%}")
+    cov = {k: f"{m[c].notna().mean():.0%}" for k, c in (("PIT", "pit_pos_company"), ("types Qwen", "qt_earnings"),
+                                                        ("sentiment Qwen", "qs_pos_company"),
+                                                        ("fournisseur", "ts_vs_polarity_0")) if c in m}
+    last = {k: f"{pd.read_parquet(p, columns=['day'])['day'].max():%Y-%m-%d}" for k, p in
+            (("PIT", SENTIMENTS), ("Qwen", QWEN_SENTIMENTS)) if p.exists()}
+    print(f"lignes membres depuis {C.START_DATE} : {len(m)} ; couverture {cov} ; dernier jour de news noté {last}")
     return df
 
 

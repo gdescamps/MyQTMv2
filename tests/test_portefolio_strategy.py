@@ -1,11 +1,11 @@
-"""Smoke tests du portage de ref/MyQTM sur data/eodhd (src/portefolio_strategy).
+"""Smoke tests de src/portefolio_strategy (sélection longue dans l'univers Nasdaq dynamique, data/eodhd).
 
 Deux familles :
 - **hors données** (toujours exécutés) : logique pure sur données synthétiques — règle de reconstitution de
-  l'univers, datation des news, analyse du condensé Haiku, P(Yes) depuis des logits, labels de tendance et
-  features invariants quand on tronque l'avenir, fusion « dernier connu », moteur de trading ;
+  l'univers, datation des news, analyse du condensé Haiku, P(Yes) depuis des logits, features invariantes
+  quand on tronque l'avenir, fusion « dernier connu », labels purgés, portefeuille et frais ;
 - **sur données** (ignorés si data/portefolio_strategy n'est pas construit) : univers, absence de fuite
-  temporelle sur un vrai titre, prédictions toutes postérieures à leur date de coupe.
+  temporelle sur un vrai titre, scores tous postérieurs à leur date de coupe.
 
 Aucun appel payant ni GPU ici (Haiku : marqueur ``llm`` ; modèle PIT : marqueur ``pit``).
 
@@ -23,9 +23,9 @@ from src.portefolio_strategy import digest as D
 from src.portefolio_strategy import features as F
 from src.portefolio_strategy import news as N
 from src.portefolio_strategy import sentiment as S
-from src.portefolio_strategy import trade as T
+from src.portefolio_strategy import labels as L
+from src.portefolio_strategy import portfolio as PF
 from src.portefolio_strategy import universe as U
-from src.portefolio_strategy.trends import trend_labels
 
 
 def synthetic_prices(n=900, seed=1):
@@ -111,15 +111,33 @@ def test_pit_prompt_is_single_closed_question():
 
 
 # --------------------------------------------------------------------------- pas de fuite temporelle
-def test_trend_labels_are_final_before_final_until():
-    px = synthetic_prices()["c"]
-    full, _ = trend_labels(px, **C.TREND)
-    assert set(full.unique()) == {0, 1, 2}
-    for cut in (300, 500, 777):
-        part, final_until = trend_labels(px.iloc[:cut], **C.TREND)
-        ok = part.index < final_until
-        assert ok.sum() > cut - 60                          # on ne perd que les derniers jours
-        assert (part[ok] == full.reindex(part.index)[ok]).all()
+def test_forward_returns_and_purged_labels():
+    dates = pd.bdate_range("2021-01-04", periods=8)
+    o = pd.DataFrame({"A": [10, 10, 11, 12, 13, 14, 15, 16], "B": [5, 5, 5, 5, 5, np.nan, np.nan, np.nan],
+                      "C": [20.0] * 8}, index=dates)
+    f = L.forward_returns(o, 2)
+    assert f["A"].iloc[0] == pytest.approx(12 / 10 - 1)            # ouverture J+1 → ouverture J+3
+    assert f["A"].iloc[-3:].isna().all()                           # fenêtre au-delà des données : inconnu
+    assert f["B"].iloc[2] == pytest.approx(0.0) and f["B"].iloc[3] == pytest.approx(0.0)   # radié : dernier cours
+    assert np.isnan(f["B"].iloc[4])                                # plus coté le lendemain : pas de label
+    df = o.stack().rename("o").rename_axis(["date", "symbol"]).reset_index().assign(member=True)
+    lab = L.add_labels(df, [2])
+    day0 = lab[lab["date"] == dates[0]].set_index("symbol")["y_2"]
+    assert day0["A"] == pytest.approx(0.5) and day0.max() == day0["A"] and (lab["y_2"].dropna().abs() <= 0.5).all()
+    # label du jour de rang pos connu à l'ouverture de pos+1+h : utilisable seulement si cette date est < coupe
+    assert L.label_known(pd.Series([0, 1, 2]), 2, cutoff_pos=4).tolist() == [True, False, False]
+
+
+def test_train_split_never_uses_labels_overlapping_the_cutoff():
+    from src.portefolio_strategy import train as TR
+    dates = pd.bdate_range("2021-01-04", periods=40)
+    df = pd.DataFrame({"date": np.repeat(dates, 2), "symbol": ["A", "B"] * 40, "member": True,
+                       "o": np.tile([10.0, 5.0], 40) + np.repeat(np.arange(40), 2)})
+    df = L.add_labels(df, [5])
+    cut, nxt = dates[30], dates[35]
+    tr, te = TR.split(df, 5, cut, nxt)
+    assert df.loc[tr, "date"].max() == dates[30 - 1 - 5 - 1]       # dernier label connu avant la coupe
+    assert df.loc[te, "date"].min() == cut and df.loc[te, "date"].max() == dates[34]
 
 
 def test_price_features_do_not_depend_on_future():
@@ -158,61 +176,72 @@ def test_earnings_surprise_available_day_after_report():
     assert list(es.index) == [pd.Timestamp("2020-05-01")] and es["ts_es_surprise_0"].iloc[0] == 10.0
 
 
-# --------------------------------------------------------------------------- moteur de trading
-def _preds(rows):
-    return pd.DataFrame(rows, columns=["date", "symbol", "o", "ybear", "yrange", "ybull"]).assign(
-        date=lambda d: pd.to_datetime(d["date"]))
+# --------------------------------------------------------------------------- portefeuille
+def _frames(scores, opens):
+    d = pd.bdate_range("2021-01-04", periods=len(opens))
+    return pd.DataFrame(scores, index=d, columns=list("ABC")), pd.DataFrame(opens, index=d, columns=list("ABC"))
 
 
-PRM = dict(long_open=0.6, long_close=0.4, short_open=0.6, short_close=0.4, increase=0.7)
+def test_select_top_n_with_buffer_and_eligibility():
+    score = np.array([0.9, 0.5, 0.4, np.nan, 0.1])
+    none = np.zeros(5, bool)
+    assert PF.select(score, none, 2).tolist() == [0, 1]
+    held = np.array([False, False, True, True, False])              # C détenu (rang 3), D détenu mais non éligible
+    assert PF.select(score, held, 2, buffer=1.0).tolist() == [0, 1]
+    assert PF.select(score, held, 2, buffer=2.0).tolist() == [2, 0]     # C gardé grâce au buffer, complété par A
+    assert len(PF.select(score, none, None)) == 4                   # n_top None : tous les éligibles
 
 
-def test_build_trade_data_index_long():
-    p = _preds([("2021-01-04", "A", 10, .2, .6, .2), ("2021-01-05", "A", 10, .1, .2, .7),
-                ("2021-01-06", "A", 11, .1, .2, .7), ("2021-01-07", "A", 12, .2, .6, .2)])
-    td = T.build_trade_data(p)
-    assert [td[d]["A"]["index_long"] for d in td] == [-1, 0, 1, 2]
+def test_simulate_trades_next_open_with_fee_on_traded_amount():
+    s, o = _frames([[3, 2, 1]] * 2 + [[1, 2, 3]] * 3, [[10, 10, 10], [10, 10, 10], [11, 10, 10], [12.1, 10, 9], [12.1, 10, 9]])
+    r = PF.simulate(s, o, n_top=1, every=2, fee=0.01)
+    v = r["values"]
+    assert v.iloc[0] == 1.0 and v.iloc[1] == pytest.approx(0.99)        # achat de A à l'ouverture de J+1, 1 % de frais
+    assert v.iloc[2] == pytest.approx(0.99 * 1.1)                       # A : 10 → 11
+    # le soir de J2 le classement s'inverse (C en tête) : vente de A et achat de C à l'ouverture de J3
+    assert v.iloc[3] == pytest.approx(0.99 * 1.1 * 1.1 * (1 - 0.02), rel=1e-9)
+    assert r["turnover"].iloc[1] == pytest.approx(1.0) and r["turnover"].iloc[3] == pytest.approx(2.0)
+    assert r["n"].tolist() == [0, 1, 1, 1, 1]
+    free = PF.simulate(s, o, n_top=1, every=2, fee=0.0)["values"]
+    assert free.iloc[-1] == pytest.approx(1.1 * 1.1) and (free >= v).all()
 
 
-def test_simulate_opens_next_open_and_closes_on_signal():
-    p = _preds([("2021-01-04", "A", 10, .2, .6, .2), ("2021-01-05", "A", 10, .1, .2, .7),   # signal le 05 au soir
-                ("2021-01-06", "A", 11, .1, .2, .7),                                        # achat à 11
-                ("2021-01-07", "A", 12, .1, .6, .3),                                        # 0.3 < 0.4 → vente demain
-                ("2021-01-08", "A", 13.2, .1, .6, .3), ("2021-01-11", "A", 14, .1, .6, .3)])
-    r = T.simulate(T.build_trade_data(p), lambda d: PRM, capital=1200.0, max_positions=12, fee=0.0)
-    h = r["history"]
-    assert len(h) == 1 and h[0]["start"] == "2021-01-06" and h[0]["open_price"] == 11
-    assert h[0]["end"] == "2021-01-08" and h[0]["close_price"] == 13.2 and h[0]["gain"] == pytest.approx(20.0)
-    size = 0.5 * (1 - 0.7) * 12 * (1200 / 12)                 # facteur 1.8 × 100 $
-    assert h[0]["size"] == pytest.approx(size)
-    assert r["values"][-1] == pytest.approx(1200 + size * 0.2)
-    assert r["values"][1] == 1200.0                            # rien n'est ouvert le jour du signal
+def test_simulate_keeps_last_price_of_unquoted_stock_and_equal_weights():
+    s, o = _frames([[3, 2, 1]] * 4, [[10, 10, 10], [10, 10, 10], [np.nan, 12, 10], [np.nan, 12, 10]])
+    r = PF.simulate(s, o, n_top=2, every=10, fee=0.0, record=True)
+    assert r["weights"][0].to_dict() == {"A": 0.5, "B": 0.5}
+    assert r["values"].iloc[-1] == pytest.approx(0.5 + 0.5 * 1.2)       # A figé à son dernier cours
 
 
-def test_simulate_fee_and_missing_ticker_forces_close():
-    p = _preds([("2021-01-04", "A", 10, .2, .6, .2), ("2021-01-05", "A", 10, .1, .2, .7),
-                ("2021-01-06", "A", 10, .1, .2, .7), ("2021-01-04", "B", 5, .2, .6, .2),
-                ("2021-01-05", "B", 5, .2, .6, .2), ("2021-01-06", "B", 5, .2, .6, .2),
-                ("2021-01-07", "B", 5, .2, .6, .2), ("2021-01-08", "B", 5, .2, .6, .2)])   # A disparaît le 07
-    r = T.simulate(T.build_trade_data(p), lambda d: PRM, capital=1200.0, fee=0.001)
-    assert len(r["history"]) == 1 and r["history"][0]["end"] == "2021-01-08"
-    assert r["history"][0]["close_price"] == 10               # dernier cours connu
-    assert r["values"][-1] == pytest.approx(1200 - 180 * 0.001 - 180 * 0.999 * 0.001)   # deux frais, prix plat
+def test_simulate_cap_weights_follow_size():
+    s, o = _frames([[3, 2, 1]] * 3, [[10, 10, 10]] * 3)
+    size = pd.DataFrame([[300.0, 100.0, 50.0]] * 3, index=s.index, columns=s.columns)
+    r = PF.simulate(s, o, n_top=2, every=10, fee=0.0, record=True, size=size)
+    assert r["weights"][0].to_dict() == pytest.approx({"A": 0.75, "B": 0.25})
 
 
-def test_short_position_gains_when_price_falls():
-    p = _preds([("2021-01-04", "A", 10, .2, .6, .2), ("2021-01-05", "A", 10, .7, .2, .1),
-                ("2021-01-06", "A", 10, .7, .2, .1), ("2021-01-07", "A", 8, .1, .8, .1),
-                ("2021-01-08", "A", 8, .1, .8, .1)])
-    r = T.simulate(T.build_trade_data(p), lambda d: PRM, capital=1200.0, fee=0.0)
-    assert r["history"][0]["type"] == "short" and r["history"][0]["gain"] == pytest.approx(20.0)
-
-
-def test_metrics():
+def test_metrics_and_active():
     d = pd.to_datetime(["2021-01-01", "2021-07-01", "2022-01-01"])
-    m = T.metrics(d, [100, 80, 121])
+    m = PF.metrics(pd.Series([100.0, 80.0, 121.0], index=d))
     assert m["return_pct"] == pytest.approx(21.0) and m["max_drawdown_pct"] == pytest.approx(-20.0)
     assert m["cagr_pct"] == pytest.approx(21.0, abs=0.1)          # exactement un an
+    a = PF.active(pd.Series([100.0, 80.0, 121.0], index=d), pd.Series([100.0, 100.0, 110.0], index=d))
+    assert a["excess_cagr_pct"] == pytest.approx(11.0, abs=0.1)
+
+
+def test_walk_forward_choice_uses_only_past_years():
+    from src.portefolio_strategy import benchmark as B
+    d = pd.bdate_range("2021-01-04", "2023-12-29")
+    bench = pd.Series(1.0, index=d)
+    up = pd.Series(np.cumprod(np.r_[1.0, np.full(len(d) - 1, 1.001)]), index=d)
+    default = tuple(C.DEFAULT_CONFIG[k] for k in B.KEYS)
+    late = (5, 5, 10, 1.0, "equal")                                   # ne gagne qu'à partir de 2023
+    lv = pd.Series(np.where(d.year < 2023, 1.0, 0.0), index=d)
+    late_curve = pd.Series(np.cumprod(1 + 0.01 * lv.to_numpy() + np.where(d.year < 2023, -0.0005, 0)), index=d)
+    strat, by_year = B.walk_forward({default: up, late: late_curve}, bench, fee=0.0)
+    assert by_year[2021]["source"].startswith("défaut")
+    assert tuple(by_year[2023][k] for k in B.KEYS) == default           # 2023 choisi sur 2021-2022 seulement
+    assert strat.iloc[-1] == pytest.approx(up.iloc[-1], rel=1e-6)
 
 
 # --------------------------------------------------------------------------- sur données réelles
@@ -262,19 +291,28 @@ def test_features_only_news_after_pit_cutoff():
 
 @needs_data
 def test_predictions_are_out_of_sample():
-    from src.portefolio_strategy.train import PREDICTIONS
-    rep = C.OUT / "train_report.json"
-    if not PREDICTIONS.exists() or not rep.exists():
+    from src.portefolio_strategy.train import out_dir, predictions_path
+    variant = next((v for v in F.VARIANTS if predictions_path(v).exists() and (out_dir(v) / "train_report.json").exists()), None)
+    if variant is None:
         pytest.skip("entraînement non lancé")
-    p = pd.read_parquet(PREDICTIONS)
+    p = pd.read_parquet(predictions_path(variant))
     assert p["date"].min() >= pd.Timestamp(C.FIRST_OOS_DATE)
     assert not p.duplicated(["date", "symbol"]).any()
-    assert np.allclose(p[["ybear", "yrange", "ybull"]].sum(axis=1), 1.0, atol=1e-4)
-    for c in json.loads(rep.read_text())["cutoffs"]:
-        assert c["train_until"] < c["cutoff"]
-    u = U.load_universe()                                    # on ne prédit que des membres de l'univers du jour
+    assert p[[f"s_{h}" for h in C.HORIZONS]].notna().all().all()
+    for c in json.loads((out_dir(variant) / "train_report.json").read_text())["cutoffs"]:
+        assert all(c[f"h{h}"]["train_until"] < c["cutoff"] for h in C.HORIZONS)
+    u = U.load_universe()                                    # on ne note que des membres de l'univers du jour
     s = p.sample(200, random_state=0)
     assert all(sym in U.members_on(u, d) for d, sym in zip(s["date"], s["symbol"]))
+
+
+@needs_data
+def test_feature_table_has_no_label_and_ranks_only_members():
+    df = pd.read_parquet(F.FEATURES, columns=["member", "xs_ret_21"])
+    assert df.loc[~df["member"], "xs_ret_21"].isna().all() and df.loc[df["member"], "xs_ret_21"].between(0, 1).all()
+    import pyarrow.parquet as pq
+    names = pq.ParquetFile(F.FEATURES).schema.names
+    assert not [c for c in names if c.startswith(("fwd_", "y_", "s_"))]
 
 
 # --------------------------------------------------------------------------- sentiment fournisseur + catégories
@@ -309,13 +347,38 @@ def test_vendor_aggregate_and_block_use_only_past_news_days():
 
 
 def test_feature_variants_select_sentiment_families():
-    cols = ["date", "symbol", "member", "o", "c", "rsi_14", "ts_news_sentiment_company_0", "news_days",
-            "sentiment_vs_rate", "ts_vs_polarity_0", "vs_cat_earnings_n5", "vs_days"]
+    cols = ["date", "symbol", "member", "o", "c", "rsi_14", "pit_pos_company", "xs_pit_pos_company_5", "news_days",
+            "qt_earnings_5", "qs_pos_company", "ts_vs_polarity_0", "vs_cat_earnings_n5", "vs_days"]
     df = pd.DataFrame(columns=cols)
     assert F.feature_columns(df, "base") == ["rsi_14"]
     assert F.feature_columns(df, "vendor") == ["rsi_14", "ts_vs_polarity_0", "vs_cat_earnings_n5", "vs_days"]
-    assert F.feature_columns(df, "pit") == ["rsi_14", "ts_news_sentiment_company_0", "news_days", "sentiment_vs_rate"]
-    assert len(F.feature_columns(df, "all")) == 7
+    assert F.feature_columns(df, "pit") == ["rsi_14", "pit_pos_company", "xs_pit_pos_company_5", "news_days"]
+    assert F.feature_columns(df, "pit_types") == F.feature_columns(df, "pit") + ["qt_earnings_5"]
+    assert F.feature_columns(df, "qsent") == ["rsi_14", "qt_earnings_5", "qs_pos_company"]
+    assert len(F.feature_columns(df, "all")) == 8                       # tout sauf le sentiment Qwen (non point-in-time)
+
+
+def test_prob_block_uses_raw_probabilities_of_past_news_days_only():
+    sent = pd.DataFrame({"day": pd.to_datetime(["2021-01-04", "2021-01-06", "2021-01-11"]), "symbol": "A",
+                         **{f"p_{pol}_{cat}": [0.2, 0.6, 1.0] if cat == "company" else [np.nan] * 3
+                            for cat in C.SENT_CATEGORIES for pol in ("pos", "neg")}})
+    b = F.prob_block(sent, "pit_")
+    assert b["pit_pos_company"].tolist() == [0.2, 0.6, 1.0]                     # P(Yes) brute, pas de note 0-10
+    assert b["pit_pos_company_5"].tolist() == pytest.approx([0.2, 0.4, 0.6])
+    assert b["pit_pos_global_5"].isna().all()                                   # rubrique vide : pas de valeur inventée
+    pd.testing.assert_frame_equal(F.prob_block(sent.iloc[:2], "pit_"), b.iloc[:2])
+    j = F.asof_join(pd.to_datetime(["2021-01-05", "2021-01-06"]), b, "news_days")
+    assert j["pit_pos_company"].tolist() == [0.2, 0.6] and j["news_days"].tolist() == [1, 0]
+
+
+def test_fundamentals_ttm_dated_by_filing():
+    q = {f"20{y}-{m}": {"filing_date": f"20{y + (m == '12-31')}-{f}", "totalRevenue": "100", "netIncome": "10",
+                        "operatingIncome": "20", "grossProfit": "50"}
+         for y in (19, 20) for m, f in (("03-31", "05-01"), ("06-30", "08-01"), ("09-30", "11-01"), ("12-31", "02-01"))}
+    t = F.fundamentals_ttm({"Financials": {"Income_Statement": {"quarterly": q}}})
+    assert t.index[0] == pd.Timestamp("2020-02-02")                 # 4 trimestres connus le lendemain du 4e dépôt
+    assert t["f_rev_ttm"].iloc[0] == 400 and t["op_margin"].iloc[0] == pytest.approx(0.2)
+    assert np.isnan(t["sales_growth"].iloc[0]) and t["sales_growth"].iloc[-1] == pytest.approx(0.0)
 
 
 # --------------------------------------------------------------------------- stockage LLM commun (PIT, Qwen)
