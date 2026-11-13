@@ -433,3 +433,18 @@ def test_set_model_targets():
     assert top[0].tolist() == [0.5, 0.0, 0.5, 0.0, 0.0]
     rank = SM.rank_target(Y, M)
     assert rank[0, 0] == pytest.approx(0.5) and rank[0, 1] == pytest.approx(1 / 3 - 0.5) and rank[0, 3] == 0 and rank[0, 4] == 0
+
+
+def test_rules_filter_and_cash_when_fewer_eligible():
+    from src.portefolio_strategy import rules as R
+    d = pd.bdate_range("2021-01-04", periods=3)
+    f = lambda vals: pd.DataFrame([vals] * 3, index=d, columns=list("ABC"))  # noqa: E731
+    x = {c: f([1.0, 2.0, 3.0]) for c in R.COLS}
+    x["gap_sma_200"], x["gap_sma_50"] = f([0.1, -0.1, 0.2]), f([0.0, 0.0, 0.3])
+    rs = R.rule_scores(x)
+    assert rs["capitalisation"][0].iloc[0].tolist() == [1.0, 2.0, 3.0]
+    assert np.isnan(rs["capi + cours > MM200"][0].iloc[0]["B"])              # B sous sa MM200 : écarté
+    assert rs["capi + MM50 > MM200"][0].iloc[0].notna().tolist() == [True, False, False]
+    s, o = _frames([[1, np.nan, np.nan]] * 3, [[10, 10, 10]] * 3)
+    r = PF.simulate(s, o, n_top=2, every=10, fee=0.0, record=True, cash_if_short=True)
+    assert r["weights"][0].to_dict() == {"A": 0.5}                           # une seule ligne éligible : 50 % en liquidités
