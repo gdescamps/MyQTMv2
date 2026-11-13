@@ -2358,3 +2358,26 @@ le sentiment avec PIT, garder les embeddings
 garder les données de traitement 
 bien nommée et coherantes entre les classement de Haiku, Qwen2.5-7B, PIT 
 dans data/portefolio_strategy
+supprimer les poids de Qwen3 8B
+
+----------------
+
+Préparer la refonte du code de data/portefolio_strategy 
+Pour l'objectif suivant 
+À partir de l'évolution de la liste des actions dans le Nasdaq 
+Créez un modèle qui sélectionne une sous-liste du nasdaq 
+En position long
+Pour tenter de surperformer le Nasdaq 
+Tu peux faire les changements de fond nécessaires. 
+Pour optimiser les prediction du modèle et trouver la sous-liste des titres du Nasdaq qui permettrait de surperformer.
+Tu peux supprimer ou changer de méthode pour la détection des seuils, CMA-ES
+Puisque j'imagine qu'il n'y a plus de seuil, tu vas calculer l'ordre des actions a priviléger.
+Tu peux utiliser les catégories en cours d'extraction avec Qween.
+L'idée, pour l'instant, d'utiliser directement la probabilité des logics des reponses de PIT pour le sentiments.
+Tu es libre d'ajuster la fréquence de mise à jour des actions. 
+Mais ajoute un frais standard pour pénaliser le rééquilibrage du portefeuille. 
+Simplement pour trouver déjà le meilleur compromis de la fréquence de mise à jour du portefeuille 
+
+
+
+
