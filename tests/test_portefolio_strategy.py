@@ -414,3 +414,12 @@ def test_qwen_questions():
     assert [(k, key) for k, key, _ in glob] == [("sent", "pos"), ("sent", "neg")]
     assert [key for k, key, _ in comp if k == "type"] == list(C.NEWS_TYPES)       # types sur company seulement
     assert all(q.endswith("Yes or No.") for _, _, q in comp)
+
+
+def test_noisy_oracle_keeps_ranking_at_full_correlation():
+    from src.portefolio_strategy import oracle as O
+    fwd = pd.DataFrame(np.random.default_rng(0).normal(size=(30, 40)), index=pd.bdate_range("2021-01-04", periods=30))
+    perfect, blind = O.noisy(fwd, 1.0, 0), O.noisy(fwd, 0.0, 0)
+    ic = lambda s: np.mean([s.iloc[i].corr(fwd.iloc[i], method="spearman") for i in range(len(fwd))])  # noqa: E731
+    assert ic(perfect) == pytest.approx(1.0) and abs(ic(blind)) < 0.1
+    assert 0.3 < ic(O.noisy(fwd, 0.5, 1)) < 0.7
