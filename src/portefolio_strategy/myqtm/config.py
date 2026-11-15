@@ -44,6 +44,7 @@ F1_TREND_HEAD = 0.2
 INITIAL_CAPITAL = 10000.0
 MAX_POSITIONS = 12
 FEE = 0.0005                   # par sens (ref/MyQTM : 0)
+ALLOW_SHORT = False             # positions longues seulement (ref/MyQTM : long + short)
 DEFAULT_PARAMS = dict(long_open=0.60, long_close=0.37, short_open=0.60, short_close=0.37, increase=0.70)
 CMA_ITERS = 30
 CMA_POP = 10

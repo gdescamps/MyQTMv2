@@ -25,7 +25,8 @@ from .train import out_dir, predictions_path
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-KEYS = ("long_open", "long_close", "short_open", "short_close", "increase")
+KEYS = ("long_open", "long_close", "short_open", "short_close", "increase") if C.ALLOW_SHORT \
+    else ("long_open", "long_close", "increase")            # seuils optimisés par CMA-ES
 _TD = {}
 
 

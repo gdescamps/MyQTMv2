@@ -1,7 +1,7 @@
 """Tests de la méthode d'origine de ref/MyQTM (src/portefolio_strategy/myqtm), restaurée depuis 73c6534.
 
 Hors données : labels de tendance et features invariants quand on tronque l'avenir, fusion « dernier connu »,
-moteur de trading long / short. Sur données (ignorés si data/portefolio_strategy/myqtm n'est pas construit) :
+moteur de trading (long seulement par défaut, short en option). Sur données (ignorés si data/portefolio_strategy/myqtm n'est pas construit) :
 absence de fuite sur un vrai titre, prédictions toutes postérieures à leur date de coupe.
 
     pytest tests/test_portefolio_strategy_myqtm.py
@@ -121,7 +121,8 @@ def test_short_position_gains_when_price_falls():
     p = _preds([("2021-01-04", "A", 10, .2, .6, .2), ("2021-01-05", "A", 10, .7, .2, .1),
                 ("2021-01-06", "A", 10, .7, .2, .1), ("2021-01-07", "A", 8, .1, .8, .1),
                 ("2021-01-08", "A", 8, .1, .8, .1)])
-    r = T.simulate(T.build_trade_data(p), lambda d: PRM, capital=1200.0, fee=0.0)
+    assert T.simulate(T.build_trade_data(p), lambda d: PRM, capital=1200.0, fee=0.0)["history"] == []   # long seul
+    r = T.simulate(T.build_trade_data(p), lambda d: PRM, capital=1200.0, fee=0.0, allow_short=True)
     assert r["history"][0]["type"] == "short" and r["history"][0]["gain"] == pytest.approx(20.0)
 
 

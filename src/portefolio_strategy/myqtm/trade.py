@@ -2,8 +2,8 @@
 
 Même logique : le soir de J, on choisit les positions à ouvrir (titre qui vient de passer en classe
 haussière/baissière avec une probabilité >= seuil d'ouverture) et à fermer (probabilité < seuil de
-fermeture) ; elles sont exécutées à l'ouverture de J+1. Positions longues et courtes, taille fixée par
-`increase` comme dans ref/MyQTM.
+fermeture) ; elles sont exécutées à l'ouverture de J+1. Taille fixée par `increase` comme dans ref/MyQTM.
+Positions longues seulement par défaut (config.ALLOW_SHORT=False) ; ref/MyQTM ouvrait aussi des shorts.
 
 Écarts avec ref/MyQTM :
 - un seul jeu de seuils par période (plus de couple A/B : il n'y a plus de modèles entrelacés) ;
@@ -48,8 +48,8 @@ def _gain(pos, price):
 
 
 def simulate(trade_data, params_for, capital=C.INITIAL_CAPITAL, max_positions=C.MAX_POSITIONS,
-             remove_stocks=0, seed=0, fee=C.FEE, start=None, end=None):
-    """params_for(date_str) → dict(long_open, long_close, short_open, short_close, increase)."""
+             remove_stocks=0, seed=0, fee=C.FEE, start=None, end=None, allow_short=C.ALLOW_SHORT):
+    """params_for(date_str) → dict(long_open, long_close, increase[, short_open, short_close])."""
     rng = random.Random(seed)
     dates = [d for d in trade_data if (start is None or d >= start) and (end is None or d < end)]
     last_price, positions, history = {}, [], []
@@ -94,8 +94,10 @@ def simulate(trade_data, params_for, capital=C.INITIAL_CAPITAL, max_positions=C.
         held = {p["ticker"] for p in positions}
         allowed = set(allowed) | held
         prev_item = trade_data[prev]
-        for typ, key, idx, thr in (("long", "ybull", "index_long", prm["long_open"]),
-                                   ("short", "ybear", "index_short", prm["short_open"])):
+        sides = [("long", "ybull", "index_long", prm["long_open"])]
+        if allow_short:
+            sides.append(("short", "ybear", "index_short", prm["short_open"]))
+        for typ, key, idx, thr in sides:
             for ticker, v in sorted(item.items(), key=lambda kv: kv[1][key], reverse=True):
                 if ticker not in allowed or ticker in held or ticker not in prev_item or v[idx] != 0:
                     continue
@@ -146,11 +148,14 @@ def perf_score(res, prm, capital=C.INITIAL_CAPITAL):
     """Fonction objectif de ref/MyQTM (benchmark.run_benchmark → perf), sans les termes A/B."""
     m = metrics(res["dates"], res["values"], capital)
     allpos = res["history"] + res["open_positions"]
-    long_share = sum(p["type"] == "long" for p in allpos) / (len(allpos) + 1)
     if m["annual_roi_mean"] <= 5.0 or m["longest_drawdown_days"] <= 5:
         return 0.0
-    gauss = float(np.exp(-((long_share - 0.7) ** 2) / (2 * 0.2 ** 2)))
-    safety = prm["long_open"] * prm["long_close"] * prm["short_open"] * prm["short_close"] * prm["increase"]
+    safety = prm["long_open"] * prm["long_close"] * prm["increase"]
+    gauss = 1.0
+    if "short_open" in prm:                    # long + short (ref/MyQTM) : vise ~70 % de positions longues
+        long_share = sum(p["type"] == "long" for p in allpos) / (len(allpos) + 1)
+        gauss = float(np.exp(-((long_share - 0.7) ** 2) / (2 * 0.2 ** 2)))
+        safety *= prm["short_open"] * prm["short_close"]
     return safety * gauss * m["return_pct"] ** 3 / ((1 + m["longest_drawdown_days"] / 100)
                                                     * (0.2 + m["annual_roi_std"] / 10)
                                                     * (1 + abs(m["max_drawdown_pct"]) / 10))
