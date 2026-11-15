@@ -8,6 +8,9 @@ le label (tendance ex post) déborde d'un bloc sur l'autre. Ici :
 - la mécanique de ref/MyQTM est conservée À L'INTÉRIEUR de cette fenêtre : blocs A/B entrelacés de 90 j,
   6 modèles pour la stabilité de l'importance (moyenne / écart-type^puissance), sélection des meilleures
   features, modèle A arrêté sur le F1 macro des blocs B et inversement ;
+- ce F1 (et le diagnostic hors échantillon) ne compte que le début des tendances : un jour haussier ou
+  baissier n'entre dans le F1 que s'il est dans les C.F1_TREND_HEAD (20 %) premiers jours de son segment,
+  les jours de range comptent tous ; l'apprentissage, lui, utilise toutes les lignes ;
 - les dates T ≤ date < T suivant sont prédites par la moyenne des modèles A et B → prédictions 100 % hors
   échantillon, écrites dans data/portefolio_strategy/myqtm/predictions.parquet.
 
@@ -46,13 +49,19 @@ def cutoffs(first, last):
 
 
 def labels_before(df, cutoff):
-    """Labels définitifs connus avec les cours < cutoff. → Series alignée sur df (NaN = pas de label)."""
+    """Labels définitifs connus avec les cours < cutoff → (y, f1_keep) alignés sur df.
+
+    y : classe 0/1/2 (NaN = pas de label) ; f1_keep : la ligne compte dans le F1 (range, ou début de tendance :
+    phase < C.F1_TREND_HEAD)."""
     y = pd.Series(np.nan, index=df.index)
+    keep = pd.Series(False, index=df.index)
     for _, g in df[df["date"] < cutoff].groupby("symbol", sort=False):
-        lab, final_until = trend_labels(g.set_index("date")["c"], **C.TREND)
+        lab, phase, final_until = trend_labels(g.set_index("date")["c"], with_phase=True, **C.TREND)
         ok = g["date"].to_numpy() < np.datetime64(final_until)
         y.loc[g.index[ok]] = lab.to_numpy()[ok]
-    return y
+        ph = phase.to_numpy()[ok]
+        keep.loc[g.index[ok]] = np.isnan(ph) | (ph < C.F1_TREND_HEAD)
+    return y, keep
 
 
 def interval_index(dates, start):
@@ -81,9 +90,10 @@ def fit(X, y, Xv, yv, rounds=C.XGB_ROUNDS):
     return m, m.best_iteration + 1, m.best_score
 
 
-def select_features(X, y, idx, cols):
-    """6 modèles (3 sous-blocs A, 3 sous-blocs B) → importance stable = moyenne / écart-type^puissance."""
-    a, b = idx % 2 == 0, idx % 2 == 1
+def select_features(X, y, idx, cols, keep):
+    """6 modèles (3 sous-blocs A, 3 sous-blocs B) → importance stable = moyenne / écart-type^puissance.
+    keep : lignes comptées dans le F1 d'arrêt (début de tendance ou range)."""
+    a, b = (idx % 2 == 0) & keep, (idx % 2 == 1) & keep
     imp = {}
     for k in range(6):
         part = idx % 6 == k
@@ -101,7 +111,7 @@ def select_features(X, y, idx, cols):
     return d.sort_values("score", ascending=False)
 
 
-def train_cutoff(df, cols, y, cutoff, nxt):
+def train_cutoff(df, cols, y, cutoff, nxt, keep):
     tr = (df["member"] & (df["date"] >= C.START_DATE) & (df["date"] < cutoff) & y.notna()).to_numpy()
     te = (df["member"] & (df["date"] >= cutoff) & (df["date"] < nxt)).to_numpy()
     if not te.any():
@@ -109,12 +119,14 @@ def train_cutoff(df, cols, y, cutoff, nxt):
     X, yy = df.loc[tr, cols].to_numpy(np.float32), y[tr].to_numpy(int)
     idx = interval_index(df.loc[tr, "date"], C.START_DATE)
     a, b = idx % 2 == 0, idx % 2 == 1
-    rank = select_features(X, yy, idx, cols)
+    kk = keep[tr].to_numpy()
+    va, vb = a & kk, b & kk                      # jeux d'évaluation du F1 : début de tendance ou range
+    rank = select_features(X, yy, idx, cols, kk)
     best = None
     for top in C.TOP_FEATURES:
         sel = [cols.index(c) for c in rank.index[:top]]
-        ma, na, f1a = fit(X[a][:, sel], yy[a], X[b][:, sel], yy[b])
-        mb, nb, f1b = fit(X[b][:, sel], yy[b], X[a][:, sel], yy[a])
+        ma, na, f1a = fit(X[a][:, sel], yy[a], X[vb][:, sel], yy[vb])
+        mb, nb, f1b = fit(X[b][:, sel], yy[b], X[va][:, sel], yy[va])
         f1 = (f1a + f1b) / 2
         if best is None or f1 > best["f1"]:
             best = dict(f1=f1, f1a=f1a, f1b=f1b, sel=sel, ma=ma, mb=mb, na=na, nb=nb, top=len(sel))
@@ -140,7 +152,8 @@ def main(df=None, variant="all"):
     preds, infos, ranks, t0 = [], [], [], time.time()
     for i, cut in enumerate(cuts):
         nxt = cuts[i + 1] if i + 1 < len(cuts) else last + pd.Timedelta(days=1)
-        r = train_cutoff(df, cols, labels_before(df, cut), cut, nxt)
+        y, keep = labels_before(df, cut)
+        r = train_cutoff(df, cols, y, cut, nxt, keep)
         if r is None:
             continue
         preds.append(r[0])
@@ -149,12 +162,15 @@ def main(df=None, variant="all"):
         print(f"  {r[1]}  [{time.time() - t0:.0f} s]", flush=True)
     p = pd.concat(preds, ignore_index=True)
     # Diagnostic seulement (jamais utilisé pour décider) : F1 hors échantillon contre les labels définitifs.
-    y_full = labels_before(df, last + pd.Timedelta(days=1))
-    p = p.merge(pd.DataFrame({"date": df["date"], "symbol": df["symbol"], "y": y_full}), on=["date", "symbol"])
+    y_full, keep_full = labels_before(df, last + pd.Timedelta(days=1))
+    p = p.merge(pd.DataFrame({"date": df["date"], "symbol": df["symbol"], "y": y_full, "f1_keep": keep_full}),
+                on=["date", "symbol"])
     p["cls"] = p[["ybear", "yrange", "ybull"]].to_numpy().argmax(axis=1)
-    ok = p["y"].notna()
+    lab = p["y"].notna()
+    ok = lab & p["f1_keep"]                      # F1 de référence : début de tendance ou range
     f1 = f1_score(p.loc[ok, "y"].astype(int), p.loc[ok, "cls"], average="macro")
     acc = float((p.loc[ok, "y"].astype(int) == p.loc[ok, "cls"]).mean())
+    f1_all = f1_score(p.loc[lab, "y"].astype(int), p.loc[lab, "cls"], average="macro")
     p.to_parquet(predictions_path(variant), index=False)
     out.mkdir(parents=True, exist_ok=True)
     imp = pd.concat(ranks, axis=1)
@@ -163,12 +179,14 @@ def main(df=None, variant="all"):
     sent_cov = float(df.loc[df["member"] & (df["date"] >= C.START_DATE), "ts_news_sentiment_company_0"].notna().mean())
     vend_cov = float(df.loc[df["member"] & (df["date"] >= C.START_DATE), "vs_n5"].notna().mean()) \
         if "vs_n5" in df else 0.0
-    rep = dict(variant=variant, vendor_sentiment_coverage=round(vend_cov, 4), oos_macro_f1=round(float(f1), 4), oos_accuracy=round(acc, 4), n_predictions=len(p),
+    rep = dict(variant=variant, vendor_sentiment_coverage=round(vend_cov, 4), oos_macro_f1=round(float(f1), 4), oos_accuracy=round(acc, 4),
+               oos_macro_f1_all_days=round(float(f1_all), 4), f1_trend_head=C.F1_TREND_HEAD, n_predictions=len(p),
                first=f"{p['date'].min():%Y-%m-%d}", last=f"{p['date'].max():%Y-%m-%d}", n_features=len(cols),
                sentiment_coverage=round(sent_cov, 4), cutoffs=infos)
     (out / "train_report.json").write_text(json.dumps(rep, indent=2))
     print(f"prédictions hors échantillon : {len(p)} lignes {rep['first']} → {rep['last']} ; "
-          f"F1 macro {f1:.3f}, exactitude {acc:.3f} ; couverture sentiment {sent_cov:.1%}")
+          f"F1 macro début de tendance {f1:.3f} (tous les jours {f1_all:.3f}), exactitude {acc:.3f} ; "
+          f"couverture sentiment {sent_cov:.1%}")
     return p
 
 

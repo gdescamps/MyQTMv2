@@ -195,3 +195,13 @@ def test_vendor_block_has_no_vader_sentiment():
     assert not [c for c in out.columns if any(k in c for k in ("polarity", "pos", "neg", "neu", "pol5"))]
     assert out["vs_n5"].tolist() == [2, 3, 6] and out["ts_vs_n_1"].tolist()[1:] == [2, 1]
     assert out["vs_cat_earnings_n5"].tolist() == [1, 1, 3]
+
+
+def test_trend_phase_marks_head_of_segments():
+    px = synthetic_prices()["c"]
+    y, phase, _ = trend_labels(px, with_phase=True, **C.TREND)
+    assert phase[y == 1].isna().all() and phase[y != 1].between(0, 1, inclusive="left").all()
+    starts = phase[phase == 0]
+    assert len(starts) > 5 and (y[starts.index] != 1).all()
+    head = phase < C.F1_TREND_HEAD
+    assert 0.1 < head[y != 1].mean() < 0.3                  # ≈ 20 % des jours de tendance gardés pour le F1

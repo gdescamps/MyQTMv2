@@ -34,6 +34,11 @@ XGB_PATIENCE = 40
 MEAN_STD_POWER = 1.71
 TOP_FEATURES = [60, 80]
 INTERVAL_DAYS = 90             # blocs entrelacés A/B à l'intérieur de la fenêtre d'apprentissage
+# F1 mesuré seulement sur le début des tendances : un jour haussier / baissier ne compte que s'il est dans
+# les F1_TREND_HEAD premiers de son segment (les 80 % de fin sont exclus) ; les jours de range comptent tous.
+# S'applique au F1 qui décide (arrêt anticipé, choix 60/80 features) et au diagnostic hors échantillon ;
+# l'apprentissage utilise toujours toutes les lignes.
+F1_TREND_HEAD = 0.2
 
 # --- Trading (comme ref/MyQTM) --------------------------------------------
 INITIAL_CAPITAL = 10000.0

@@ -55,10 +55,16 @@ def detect_trends(close, ma_short=4, ma_mid=8, ma_long=30, min_days=8, avg_daily
     return trends, final_until
 
 
-def trend_labels(close, **kw):
-    """→ (Series de classes 0/1/2 par date, final_until)."""
+def trend_labels(close, with_phase=False, **kw):
+    """→ (Series de classes 0/1/2 par date, final_until).
+
+    with_phase=True → (y, phase, final_until) : phase = position du jour dans sa tendance haussière ou
+    baissière, i / n pour le i-ème jour de bourse (0 = premier jour) d'un segment de n jours ; NaN en range."""
     segs, final_until = detect_trends(close, **kw)
     y = pd.Series(1, index=close.index, dtype="int8")
+    phase = pd.Series(np.nan, index=close.index)
     for s in segs:
-        y[(y.index >= s["start"]) & (y.index <= s["end"])] = 2 if s["trend"] == "bullish" else 0
-    return y, final_until
+        m = (y.index >= s["start"]) & (y.index <= s["end"])
+        y[m] = 2 if s["trend"] == "bullish" else 0
+        phase[m] = np.arange(m.sum()) / m.sum()
+    return (y, phase, final_until) if with_phase else (y, final_until)
