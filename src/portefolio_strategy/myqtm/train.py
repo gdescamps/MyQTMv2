@@ -19,6 +19,7 @@ le label (tendance ex post) déborde d'un bloc sur l'autre. Ici :
     python -m src.portefolio_strategy.myqtm.train all --severe  # filtrage A/B sévère : 20 ou 30 features
     python -m src.portefolio_strategy.myqtm.train all --no-ab --first=2024-01-01   # walk-forward dès 2024
     python -m src.portefolio_strategy.myqtm.train all --top=40 --first=2024-01-01  # filtrage A/B : 40 features
+    python -m src.portefolio_strategy.myqtm.train all --head-only --first=2024-01-01  # sans les fins de tendance
 """
 import json
 import time
@@ -46,19 +47,22 @@ def _top_sfx(tops):
     return f"_top{'-'.join(map(str, tops))}" if tops else ""
 
 
-def predictions_path(variant="all", ab=True, severe=False, first=None, tops=None):
+def predictions_path(variant="all", ab=True, severe=False, first=None, tops=None, head=False):
     """Variante « all » (tout le sentiment disponible) = fichiers historiques ; les autres ont un suffixe.
     ab=False (sans blocs A/B) → suffixe _noab ; severe=True (filtrage A/B sévère) → _severe ;
-    tops=[n, …] (filtrage A/B à n features, choix par F1 entre les valeurs) → _top{n-…}."""
-    sfx = ("" if ab else "_noab") + ("_severe" if severe else "") + _top_sfx(tops) + _first_sfx(first)
+    tops=[n, …] (filtrage A/B à n features, choix par F1 entre les valeurs) → _top{n-…} ;
+    head=True (apprentissage sans les jours de tendance évidents, après les C.F1_TREND_HEAD premiers) → _head."""
+    sfx = ("" if ab else "_noab") + ("_severe" if severe else "") + _top_sfx(tops) + ("_head" if head else "") \
+        + _first_sfx(first)
     return C.DATA / f"predictions{sfx}.parquet" if variant == "all" else C.DATA / f"predictions_{variant}{sfx}.parquet"
 
 
-def out_dir(variant="all", ab=True, severe=False, first=None, tops=None):
+def out_dir(variant="all", ab=True, severe=False, first=None, tops=None, head=False):
     base = C.OUT if variant == "all" else C.OUT / variant
     base = base if ab else base / "noab"
     base = base / "severe" if severe else base
     base = base / _top_sfx(tops).lstrip("_") if tops else base
+    base = base / "head" if head else base
     return base / _first_sfx(first).lstrip("_") if _first_sfx(first) else base
 
 
@@ -133,8 +137,12 @@ def select_features(X, y, idx, cols, keep):
     return d.sort_values("score", ascending=False)
 
 
-def train_cutoff(df, cols, y, cutoff, nxt, keep, tops=None):
+def train_cutoff(df, cols, y, cutoff, nxt, keep, tops=None, head=False):
+    """head=True : les jours de tendance au-delà des C.F1_TREND_HEAD premiers (zones évidentes) sont retirés de
+    l'apprentissage, de la sélection des features et de l'arrêt anticipé ; restent le range et les débuts."""
     tr = (df["member"] & (df["date"] >= C.START_DATE) & (df["date"] < cutoff) & y.notna()).to_numpy()
+    if head:
+        tr &= keep.to_numpy()
     te = (df["member"] & (df["date"] >= cutoff) & (df["date"] < nxt)).to_numpy()
     if not te.any():
         return None
@@ -189,16 +197,17 @@ def train_cutoff_noab(df, cols, y, cutoff, nxt):
     return out, info, rank, None
 
 
-def main(df=None, variant="all", ab=True, severe=False, first=None, tops=None):
+def main(df=None, variant="all", ab=True, severe=False, first=None, tops=None, head=False):
     df = pd.read_parquet(F.FEATURES) if df is None else df
     df = df.sort_values(["symbol", "date"]).reset_index(drop=True)
     cols = F.feature_columns(df, variant)
-    out = out_dir(variant, ab, severe, first, tops)
-    path = predictions_path(variant, ab, severe, first, tops)
+    out = out_dir(variant, ab, severe, first, tops, head)
+    path = predictions_path(variant, ab, severe, first, tops, head)
     custom = bool(tops)
     tops = tops or (C.TOP_FEATURES_SEVERE if severe else C.TOP_FEATURES)
     print(f"variante « {variant} » ({F.VARIANTS[variant]}) : {len(cols)} features"
-          + ("" if ab else " — sans blocs A/B") + (f" — filtrage A/B {tops} features" if severe or custom else ""),
+          + ("" if ab else " — sans blocs A/B") + (f" — filtrage A/B {tops} features" if severe or custom else "")
+          + (" — sans les fins de tendance" if head else ""),
           flush=True)
     last = df["date"].max()
     cuts = cutoffs(first or C.FIRST_OOS_DATE, last)
@@ -206,7 +215,7 @@ def main(df=None, variant="all", ab=True, severe=False, first=None, tops=None):
     for i, cut in enumerate(cuts):
         nxt = cuts[i + 1] if i + 1 < len(cuts) else last + pd.Timedelta(days=1)
         y, keep = labels_before(df, cut)
-        r = train_cutoff(df, cols, y, cut, nxt, keep, tops) if ab else train_cutoff_noab(df, cols, y, cut, nxt)
+        r = train_cutoff(df, cols, y, cut, nxt, keep, tops, head) if ab else train_cutoff_noab(df, cols, y, cut, nxt)
         if r is None:
             continue
         preds.append(r[0])
@@ -226,7 +235,7 @@ def main(df=None, variant="all", ab=True, severe=False, first=None, tops=None):
     acc = float((p.loc[ok, "y"].astype(int) == p.loc[ok, "cls"]).mean())
     f1_all = f1_score(p.loc[lab, "y"].astype(int), p.loc[lab, "cls"], average="macro")
     p.to_parquet(path, index=False)
-    if variant == "all" and ab and not severe and not custom and not _first_sfx(first):
+    if variant == "all" and ab and not severe and not custom and not head and not _first_sfx(first):
         pd.concat(vals, ignore_index=True).to_parquet(VAL_PREDICTIONS, index=False)
     out.mkdir(parents=True, exist_ok=True)
     imp = pd.concat(ranks, axis=1)
@@ -252,4 +261,4 @@ if __name__ == "__main__":
     first = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--first=")), None)
     top = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--top=")), None)
     main(variant=args[0] if args else "all", ab="--no-ab" not in sys.argv, severe="--severe" in sys.argv, first=first,
-         tops=[int(t) for t in top.split(",")] if top else None)
+         tops=[int(t) for t in top.split(",")] if top else None, head="--head-only" in sys.argv)

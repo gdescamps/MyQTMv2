@@ -8,7 +8,7 @@
   rééquilibrage quotidien). Valorisation quotidienne aux cours d'ouverture.
 - Mesures en plus : nombre moyen / max de positions, part des jours en cash, rotation annuelle.
 
-    PYTHONPATH=.:myfiles python myfiles/myqtm_topk_dynamic.py [--no-ab] [--severe] [--first=2024-01-01]
+    PYTHONPATH=.:myfiles python myfiles/myqtm_topk_dynamic.py [--no-ab] [--severe] [--first=2024-01-01] [--head-only]
 """
 import sys
 
@@ -53,8 +53,9 @@ def simulate(cand, opens, fee=C.FEE):
 def main():
     noab, severe = "--no-ab" in sys.argv, "--severe" in sys.argv
     first = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--first=")), None)
-    if noab or severe or first:
-        T.PREDICTIONS = T.predictions_path("all", ab=not noab, severe=severe, first=first)
+    head = "--head-only" in sys.argv
+    if noab or severe or first or head:
+        T.PREDICTIONS = T.predictions_path("all", ab=not noab, severe=severe, first=first, head=head)
     p = B.load()
     p["x_ema"] = p.groupby("symbol")["c"].transform(ema_exit).astype(bool)
     allf = pd.read_parquet(F.FEATURES, columns=["date", "symbol", "o"])
@@ -73,7 +74,7 @@ def main():
     idx = pd.read_parquet(F.INDEX)["level"].loc[start:end]
     rows.append(dict(regle="indice de l'univers", **stats(idx)))
     out = pd.DataFrame(rows)
-    name = "myfiles/myqtm_topk_dynamic" + ("_noab" if noab else "") + ("_severe" if severe else "") + T._first_sfx(first)
+    name = "myfiles/myqtm_topk_dynamic" + ("_noab" if noab else "") + ("_severe" if severe else "") + ("_head" if head else "") + T._first_sfx(first)
     out.to_csv(name + ".csv", index=False)
     pd.set_option("display.width", 200, "display.float_format", "{:.2f}".format)
     print(f"{'sans blocs A/B — ' if noab else ''}{'filtrage A/B sévère — ' if severe else ''}"
