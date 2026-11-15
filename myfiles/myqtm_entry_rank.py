@@ -5,7 +5,7 @@ Option 1 — classement du jour : entrée quand un titre entre dans le top k des
 (L'option 2, seuil = quantile des prédictions de validation de chaque modèle, a été retirée : les modèles sont
 plus confiants en validation qu'en test, les seuils obtenus étaient trop hauts.)
 
-Pour chaque règle : trades déclenchés, gain moyen brut et net (0,05 % par sens), gain total = (1 + gain moyen
+Pour chaque règle : trades déclenchés, gain moyen net de frais (0,05 % par sens), gain total = (1 + gain moyen
 net)^trades (tout le capital sur chaque trade, sans notion de calendrier, irréaliste), part de gagnants, et
 nombre de modèles (coupes trimestrielles) sans aucun trade. Entrées 2021-01 → 2026-11.
 Colonnes « 1 à la fois » : masquage temporel, une seule position à la fois sur tout l'univers ; tant qu'un
@@ -62,7 +62,7 @@ def crossing(p, flag):
 def summary(name, tr, cuts):
     net = tr["ret"] - 2 * C.FEE
     model = pd.cut(tr["signal"], list(cuts) + [pd.Timestamp("2100-01-01")], right=False)
-    return dict(regle=name, trades=len(tr), gain_moy_brut_pct=100 * tr["ret"].mean(),
+    return dict(regle=name, trades=len(tr),
                 gain_moy_net_pct=100 * net.mean(), total_net_x=(1 + net.mean()) ** len(tr),
                 gagnants_pct=100 * (tr["ret"] > 0).mean(),
                 modeles_sans_trade=int(len(cuts) - model.nunique()),
