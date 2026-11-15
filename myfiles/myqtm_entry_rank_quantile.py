@@ -9,6 +9,9 @@ Option 2 — seuil relatif par modèle : seuil = quantile q des P(haussier) de v
 Pour chaque règle : trades déclenchés, gain moyen brut et net (0,05 % par sens), gain total = (1 + gain moyen
 net)^trades (tout le capital sur chaque trade, sans notion de calendrier, irréaliste), part de gagnants, et
 nombre de modèles (coupes trimestrielles) sans aucun trade. Entrées 2021-01 → 2026-11.
+Colonnes « 1 à la fois » : masquage temporel, une seule position à la fois sur tout l'univers ; tant qu'un
+trade est ouvert, aucun autre signal n'est pris (signaux du même jour : la plus forte P(haussier) d'abord ;
+un signal le jour du signal de sortie est pris, achat à l'ouverture où l'on vend).
 
     PYTHONPATH=.:myfiles python myfiles/myqtm_entry_rank_quantile.py
 """
@@ -40,9 +43,20 @@ def trades_from_entries(p, entry):
         if j >= n or sym[j] != sym[i]:
             i = j
             continue
-        rows.append((p["date"].iat[i], p["o_next"].iat[j] / p["o_next"].iat[i] - 1))
+        rows.append((p["date"].iat[i], p["date"].iat[j], p["ybull"].iat[i],
+                     p["o_next"].iat[j] / p["o_next"].iat[i] - 1))
         i = j + 1
-    return pd.DataFrame(rows, columns=["signal", "ret"]).dropna()
+    return pd.DataFrame(rows, columns=["signal", "exit_signal", "prob", "ret"]).dropna()
+
+
+def one_at_a_time(tr):
+    """Masquage temporel : un trade n'est pris que si aucune position n'est ouverte."""
+    taken, free_from = [], pd.Timestamp.min
+    for r in tr.sort_values(["signal", "prob"], ascending=[True, False]).itertuples():
+        if r.signal >= free_from:
+            taken.append(r.ret)
+            free_from = r.exit_signal
+    return pd.Series(taken, dtype=float)
 
 
 def crossing(p, flag):
@@ -55,7 +69,15 @@ def summary(name, tr, cuts):
     return dict(regle=name, trades=len(tr), gain_moy_brut_pct=100 * tr["ret"].mean(),
                 gain_moy_net_pct=100 * net.mean(), total_net_x=(1 + net.mean()) ** len(tr),
                 gagnants_pct=100 * (tr["ret"] > 0).mean(),
-                modeles_sans_trade=int(len(cuts) - model.nunique()))
+                modeles_sans_trade=int(len(cuts) - model.nunique()),
+                **one_summary(one_at_a_time(tr)))
+
+
+def one_summary(r):
+    net = r - 2 * C.FEE
+    return {"1_a_la_fois_trades": len(r), "1_a_la_fois_gain_net_pct": 100 * net.mean() if len(r) else np.nan,
+            "1_a_la_fois_total_x": (1 + net.mean()) ** len(r) if len(r) else 1.0,
+            "1_a_la_fois_reel_x": float(np.prod(1 + net))}
 
 
 def main():
