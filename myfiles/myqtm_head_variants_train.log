@@ -1,0 +1,4 @@
+variante « all » (sentiment PIT + volume de news EODHD par catégorie) : 156 features — sans les fins de tendance (début = 15% premiers)
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.303 (tous les jours 0.168), exactitude 0.724 ; couverture sentiment 95.2%
+variante « all » (sentiment PIT + volume de news EODHD par catégorie) : 156 features — sans les fins de tendance (début = 25% premiers)
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.396 (tous les jours 0.333), exactitude 0.642 ; couverture sentiment 95.2%

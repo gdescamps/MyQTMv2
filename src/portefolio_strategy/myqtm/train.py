@@ -20,6 +20,7 @@ le label (tendance ex post) déborde d'un bloc sur l'autre. Ici :
     python -m src.portefolio_strategy.myqtm.train all --no-ab --first=2024-01-01   # walk-forward dès 2024
     python -m src.portefolio_strategy.myqtm.train all --top=40 --first=2024-01-01  # filtrage A/B : 40 features
     python -m src.portefolio_strategy.myqtm.train all --head-only --first=2024-01-01  # sans les fins de tendance
+    python -m src.portefolio_strategy.myqtm.train all --head-only=0.15 --first=2024-01-01  # début = 15 % premiers
 """
 import json
 import time
@@ -43,6 +44,13 @@ def _first_sfx(first):
     return "" if first in (None, C.FIRST_OOS_DATE) else f"_from{first[:4]}"
 
 
+def _head_sfx(head):
+    """head : False, True (= C.F1_TREND_HEAD par défaut, 0,2) ou fraction de début de tendance gardée."""
+    if not head:
+        return ""
+    return "_head" if head is True or abs(head - 0.2) < 1e-9 else f"_head{round(100 * head)}"
+
+
 def _top_sfx(tops):
     return f"_top{'-'.join(map(str, tops))}" if tops else ""
 
@@ -52,7 +60,7 @@ def predictions_path(variant="all", ab=True, severe=False, first=None, tops=None
     ab=False (sans blocs A/B) → suffixe _noab ; severe=True (filtrage A/B sévère) → _severe ;
     tops=[n, …] (filtrage A/B à n features, choix par F1 entre les valeurs) → _top{n-…} ;
     head=True (apprentissage sans les jours de tendance évidents, après les C.F1_TREND_HEAD premiers) → _head."""
-    sfx = ("" if ab else "_noab") + ("_severe" if severe else "") + _top_sfx(tops) + ("_head" if head else "") \
+    sfx = ("" if ab else "_noab") + ("_severe" if severe else "") + _top_sfx(tops) + _head_sfx(head) \
         + _first_sfx(first)
     return C.DATA / f"predictions{sfx}.parquet" if variant == "all" else C.DATA / f"predictions_{variant}{sfx}.parquet"
 
@@ -62,7 +70,7 @@ def out_dir(variant="all", ab=True, severe=False, first=None, tops=None, head=Fa
     base = base if ab else base / "noab"
     base = base / "severe" if severe else base
     base = base / _top_sfx(tops).lstrip("_") if tops else base
-    base = base / "head" if head else base
+    base = base / _head_sfx(head).lstrip("_") if head else base
     return base / _first_sfx(first).lstrip("_") if _first_sfx(first) else base
 
 
@@ -207,7 +215,7 @@ def main(df=None, variant="all", ab=True, severe=False, first=None, tops=None, h
     tops = tops or (C.TOP_FEATURES_SEVERE if severe else C.TOP_FEATURES)
     print(f"variante « {variant} » ({F.VARIANTS[variant]}) : {len(cols)} features"
           + ("" if ab else " — sans blocs A/B") + (f" — filtrage A/B {tops} features" if severe or custom else "")
-          + (" — sans les fins de tendance" if head else ""),
+          + (f" — sans les fins de tendance (début = {C.F1_TREND_HEAD:.0%} premiers)" if head else ""),
           flush=True)
     last = df["date"].max()
     cuts = cutoffs(first or C.FIRST_OOS_DATE, last)
@@ -260,5 +268,8 @@ if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     first = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--first=")), None)
     top = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--top=")), None)
+    head = next((float(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--head-only=")), "--head-only" in sys.argv)
+    if head and head is not True:
+        C.F1_TREND_HEAD = head                   # la même fraction sert à l'apprentissage et au F1 d'arrêt
     main(variant=args[0] if args else "all", ab="--no-ab" not in sys.argv, severe="--severe" in sys.argv, first=first,
-         tops=[int(t) for t in top.split(",")] if top else None, head="--head-only" in sys.argv)
+         tops=[int(t) for t in top.split(",")] if top else None, head=head)
