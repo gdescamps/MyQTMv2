@@ -177,9 +177,21 @@ def test_predictions_are_out_of_sample():
 
 def test_feature_variants_select_sentiment_families():
     cols = ["date", "symbol", "member", "o", "c", "rsi_14", "ts_news_sentiment_company_0", "news_days",
-            "sentiment_vs_rate", "ts_vs_polarity_0", "vs_cat_earnings_n5", "vs_days"]
+            "sentiment_vs_rate", "ts_vs_n_0", "vs_cat_earnings_n5", "vs_days"]
     df = pd.DataFrame(columns=cols)
     assert F.feature_columns(df, "base") == ["rsi_14"]
-    assert F.feature_columns(df, "vendor") == ["rsi_14", "ts_vs_polarity_0", "vs_cat_earnings_n5", "vs_days"]
+    assert F.feature_columns(df, "vendor") == ["rsi_14", "ts_vs_n_0", "vs_cat_earnings_n5", "vs_days"]
     assert F.feature_columns(df, "pit") == ["rsi_14", "ts_news_sentiment_company_0", "news_days", "sentiment_vs_rate"]
     assert len(F.feature_columns(df, "all")) == 7
+
+
+def test_vendor_block_has_no_vader_sentiment():
+    from src.portefolio_strategy.vendor_sentiment import CATEGORIES
+    days = pd.to_datetime(["2021-01-04", "2021-01-06", "2021-01-11"])
+    vs = pd.DataFrame({"day": days, "n": [2, 1, 3], "polarity": [0.5, -0.2, 0.1], "pos": 0.3, "neg": 0.1, "neu": 0.6,
+                       "polarity_min": -0.2, "polarity_max": 0.5,
+                       **{f"cat_{c}_n": [1, 0, 2] for c in CATEGORIES}, **{f"cat_{c}_pol": 0.1 for c in CATEGORIES}})
+    out = F.vendor_block(vs)
+    assert not [c for c in out.columns if any(k in c for k in ("polarity", "pos", "neg", "neu", "pol5"))]
+    assert out["vs_n5"].tolist() == [2, 3, 6] and out["ts_vs_n_1"].tolist()[1:] == [2, 1]
+    assert out["vs_cat_earnings_n5"].tolist() == [1, 1, 3]

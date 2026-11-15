@@ -191,25 +191,19 @@ def sentiment_block(sent):
 
 
 def vendor_block(vs):
-    """vs : sentiment fournisseur d'un titre (vendor_sentiment.py), une ligne par jour de news → features :
-    séries des derniers jours de news (polarité : 10 ; n, pos, neg : 3), extrêmes du dernier jour, et sur une
-    fenêtre glissante de 5 jours de news : polarité pondérée, nombre d'articles, et par catégorie de news le
-    nombre d'articles et leur polarité moyenne. Tout est calculé sur des jours de news passés."""
+    """vs : news EODHD d'un titre (vendor_sentiment.py), une ligne par jour de news → features de volume de news :
+    nombre d'articles des 3 derniers jours de news, et sur une fenêtre glissante de 5 jours de news le nombre
+    d'articles, au total et par catégorie (mots-clés des tags et du titre). Le score de sentiment fourni par
+    EODHD (polarity / pos / neg / neu, méthode lexicale de type VADER) n'est volontairement pas utilisé.
+    Tout est calculé sur des jours de news passés."""
     if vs is None or vs.empty:
         return None
     from ..vendor_sentiment import CATEGORIES
     d = vs.set_index("day").sort_index()
-    out = pd.concat([_ts_block(d, ["polarity"], "ts_vs_", C.NEWS_TS_SIZE), _ts_block(d, ["n", "pos", "neg"], "ts_vs_", 3)],
-                    axis=1)
-    out["vs_polarity_min"], out["vs_polarity_max"] = d["polarity_min"], d["polarity_max"]
-    n5 = d["n"].rolling(5, min_periods=1).sum()
-    out["vs_n5"] = n5
-    out["vs_pol5"] = (d["polarity"] * d["n"]).rolling(5, min_periods=1).sum() / n5
+    out = _ts_block(d, ["n"], "ts_vs_", 3)
+    out["vs_n5"] = d["n"].rolling(5, min_periods=1).sum()
     for c in CATEGORIES:
-        cn = d[f"cat_{c}_n"].rolling(5, min_periods=1).sum()
-        out[f"vs_cat_{c}_n5"] = cn
-        out[f"vs_cat_{c}_pol5"] = ((d[f"cat_{c}_pol"] * d[f"cat_{c}_n"]).fillna(0).rolling(5, min_periods=1).sum()
-                                   / cn.where(cn > 0))
+        out[f"vs_cat_{c}_n5"] = d[f"cat_{c}_n"].rolling(5, min_periods=1).sum()
     return out.round(4)
 
 
@@ -274,8 +268,8 @@ def is_vendor_col(c):
 
 
 # Variantes d'évaluation : quelles familles de sentiment entrent dans le modèle.
-VARIANTS = {"base": "sans sentiment", "vendor": "sentiment fournisseur EODHD + catégories de news",
-            "pit": "sentiment LLM PIT-4B-FT-201912", "all": "sentiment PIT + fournisseur"}
+VARIANTS = {"base": "sans sentiment", "vendor": "volume de news EODHD par catégorie (sans sentiment VADER)",
+            "pit": "sentiment LLM PIT-4B-FT-201912", "all": "sentiment PIT + volume de news EODHD par catégorie"}
 
 
 def feature_columns(df, variant="all"):
@@ -328,8 +322,8 @@ def main():
     cov = m["ts_news_sentiment_company_0"].notna().mean()
     print(f"features : {len(df)} lignes, {df['symbol'].nunique()} titres, {len(feature_columns(df))} colonnes, "
           f"{df['date'].min():%Y-%m-%d} → {df['date'].max():%Y-%m-%d}")
-    vcov = m["ts_vs_polarity_0"].notna().mean() if "ts_vs_polarity_0" in m else 0.0
-    print(f"lignes membres : {len(m)} ; couverture du sentiment PIT : {cov:.1%} ; du sentiment fournisseur : {vcov:.1%}")
+    vcov = m["vs_n5"].notna().mean() if "vs_n5" in m else 0.0
+    print(f"lignes membres : {len(m)} ; couverture du sentiment PIT : {cov:.1%} ; des news EODHD : {vcov:.1%}")
     return df
 
 

@@ -152,7 +152,7 @@ def main(variant="all"):
         pos.sort_values("start").to_csv(OUT / "positions.csv", index=False)
     note = F.VARIANTS[variant] if variant != "all" else (
         "sans sentiment PIT (corpus non traité)" if sent_cov < 0.05 else f"sentiment PIT sur {sent_cov:.0%} des lignes"
-        + (" + sentiment fournisseur" if train_rep.get("vendor_sentiment_coverage", 0) > 0.05 else ""))
+        + (" + volume de news EODHD" if train_rep.get("vendor_sentiment_coverage", 0) > 0.05 else ""))
     plot(res, bench, mc, m, mb, OUT / "backtest.png",
          f"portefolio_strategy — XGBoost walk-forward sur l'univers Nasdaq dynamique, {note}")
     print(f"période {out['period'][0]} → {out['period'][1]}")

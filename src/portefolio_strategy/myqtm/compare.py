@@ -43,9 +43,7 @@ def raw_signal_ic(df):
     d = df[df["member"] & (df["date"] >= C.FIRST_OOS_DATE)]
     fwd = forward_returns(df).loc[d.index]
     out = {}
-    specs = {"fournisseur : polarité du jour": ("ts_vs_polarity_0", "vs_days"),
-             "fournisseur : polarité 5 jours de news": ("vs_pol5", "vs_days"),
-             "PIT : entreprise": ("ts_news_sentiment_company_0", "news_days"),
+    specs = {"PIT : entreprise": ("ts_news_sentiment_company_0", "news_days"),
              "PIT : concurrents": ("ts_news_sentiment_competitors_0", "news_days"),
              "PIT : global": ("ts_news_sentiment_global_0", "news_days")}
     for name, (col, days) in specs.items():

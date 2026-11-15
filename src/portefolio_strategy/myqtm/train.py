@@ -161,8 +161,8 @@ def main(df=None, variant="all"):
     imp["mean_rank_score"] = imp.mean(axis=1)
     imp.sort_values("mean_rank_score", ascending=False).to_csv(out / "feature_importance.csv")
     sent_cov = float(df.loc[df["member"] & (df["date"] >= C.START_DATE), "ts_news_sentiment_company_0"].notna().mean())
-    vend_cov = float(df.loc[df["member"] & (df["date"] >= C.START_DATE), "ts_vs_polarity_0"].notna().mean()) \
-        if "ts_vs_polarity_0" in df else 0.0
+    vend_cov = float(df.loc[df["member"] & (df["date"] >= C.START_DATE), "vs_n5"].notna().mean()) \
+        if "vs_n5" in df else 0.0
     rep = dict(variant=variant, vendor_sentiment_coverage=round(vend_cov, 4), oos_macro_f1=round(float(f1), 4), oos_accuracy=round(acc, 4), n_predictions=len(p),
                first=f"{p['date'].min():%Y-%m-%d}", last=f"{p['date'].max():%Y-%m-%d}", n_features=len(cols),
                sentiment_coverage=round(sent_cov, 4), cutoffs=infos)
