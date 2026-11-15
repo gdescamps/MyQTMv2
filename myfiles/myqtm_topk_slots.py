@@ -96,9 +96,9 @@ def stats(v):
 
 
 def main():
-    noab = "--no-ab" in sys.argv
-    if noab:
-        T.PREDICTIONS = T.predictions_path("all", ab=False)
+    noab, severe = "--no-ab" in sys.argv, "--severe" in sys.argv
+    if noab or severe:
+        T.PREDICTIONS = T.predictions_path("all", ab=not noab, severe=severe)
     p = B.load()
     p["x_ema"] = p.groupby("symbol")["c"].transform(ema_exit).astype(bool)
     allf = pd.read_parquet(F.FEATURES, columns=["date", "symbol", "o"])
@@ -119,10 +119,10 @@ def main():
     idx = pd.read_parquet(F.INDEX)["level"].loc[start:end]
     rows.append(dict(regle="indice de l'univers", **stats(idx)))
     out = pd.DataFrame(rows)
-    name = ("myfiles/myqtm_topk_slots" if fixed else "myfiles/myqtm_topk_slots_k") + ("_noab" if noab else "")
+    name = ("myfiles/myqtm_topk_slots" if fixed else "myfiles/myqtm_topk_slots_k") + ("_noab" if noab else "") + ("_severe" if severe else "")
     out.to_csv(name + ".csv", index=False)
     pd.set_option("display.width", 200, "display.float_format", "{:.2f}".format)
-    print(f"{'sans blocs A/B — ' if noab else ''}{'%d lots' % N_SLOTS if fixed else 'k lots pour le top k'}, {start:%Y-%m-%d} → {end:%Y-%m-%d}, frais {C.FEE:.2%} par sens")
+    print(f"{'sans blocs A/B — ' if noab else ''}{'filtrage A/B sévère — ' if severe else ''}{'%d lots' % N_SLOTS if fixed else 'k lots pour le top k'}, {start:%Y-%m-%d} → {end:%Y-%m-%d}, frais {C.FEE:.2%} par sens")
     print(out.to_string(index=False))
 
 

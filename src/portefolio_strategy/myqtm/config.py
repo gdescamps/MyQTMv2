@@ -33,6 +33,7 @@ XGB_ROUNDS = 600
 XGB_PATIENCE = 40
 MEAN_STD_POWER = 1.71
 TOP_FEATURES = [60, 80]
+TOP_FEATURES_SEVERE = [20, 30]  # filtrage A/B sévère (train.py --severe)
 INTERVAL_DAYS = 90             # blocs entrelacés A/B à l'intérieur de la fenêtre d'apprentissage
 # F1 mesuré seulement sur le début des tendances : un jour haussier / baissier ne compte que s'il est dans
 # les F1_TREND_HEAD premiers de son segment (les 80 % de fin sont exclus) ; les jours de range comptent tous.

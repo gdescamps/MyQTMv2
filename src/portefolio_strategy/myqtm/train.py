@@ -16,6 +16,7 @@ le label (tendance ex post) déborde d'un bloc sur l'autre. Ici :
 
     python -m src.portefolio_strategy.myqtm.train
     python -m src.portefolio_strategy.myqtm.train all --no-ab   # un modèle par coupe, sans blocs A/B
+    python -m src.portefolio_strategy.myqtm.train all --severe  # filtrage A/B sévère : 20 ou 30 features
 """
 import json
 import time
@@ -35,16 +36,17 @@ PREDICTIONS = C.DATA / "predictions.parquet"
 VAL_PREDICTIONS = C.DATA / "val_predictions.parquet"
 
 
-def predictions_path(variant="all", ab=True):
+def predictions_path(variant="all", ab=True, severe=False):
     """Variante « all » (tout le sentiment disponible) = fichiers historiques ; les autres ont un suffixe.
-    ab=False (sans blocs A/B) → suffixe _noab."""
-    sfx = "" if ab else "_noab"
+    ab=False (sans blocs A/B) → suffixe _noab ; severe=True (filtrage A/B sévère) → _severe."""
+    sfx = ("" if ab else "_noab") + ("_severe" if severe else "")
     return C.DATA / f"predictions{sfx}.parquet" if variant == "all" else C.DATA / f"predictions_{variant}{sfx}.parquet"
 
 
-def out_dir(variant="all", ab=True):
+def out_dir(variant="all", ab=True, severe=False):
     base = C.OUT if variant == "all" else C.OUT / variant
-    return base if ab else base / "noab"
+    base = base if ab else base / "noab"
+    return base / "severe" if severe else base
 
 
 def cutoffs(first, last):
@@ -118,7 +120,7 @@ def select_features(X, y, idx, cols, keep):
     return d.sort_values("score", ascending=False)
 
 
-def train_cutoff(df, cols, y, cutoff, nxt, keep):
+def train_cutoff(df, cols, y, cutoff, nxt, keep, tops=None):
     tr = (df["member"] & (df["date"] >= C.START_DATE) & (df["date"] < cutoff) & y.notna()).to_numpy()
     te = (df["member"] & (df["date"] >= cutoff) & (df["date"] < nxt)).to_numpy()
     if not te.any():
@@ -130,7 +132,7 @@ def train_cutoff(df, cols, y, cutoff, nxt, keep):
     va, vb = a & kk, b & kk                      # jeux d'évaluation du F1 : début de tendance ou range
     rank = select_features(X, yy, idx, cols, kk)
     best = None
-    for top in C.TOP_FEATURES:
+    for top in (tops or C.TOP_FEATURES):
         sel = [cols.index(c) for c in rank.index[:top]]
         ma, na, f1a = fit(X[a][:, sel], yy[a], X[vb][:, sel], yy[vb])
         mb, nb, f1b = fit(X[b][:, sel], yy[b], X[va][:, sel], yy[va])
@@ -174,20 +176,21 @@ def train_cutoff_noab(df, cols, y, cutoff, nxt):
     return out, info, rank, None
 
 
-def main(df=None, variant="all", ab=True):
+def main(df=None, variant="all", ab=True, severe=False):
     df = pd.read_parquet(F.FEATURES) if df is None else df
     df = df.sort_values(["symbol", "date"]).reset_index(drop=True)
     cols = F.feature_columns(df, variant)
-    out = out_dir(variant, ab)
+    out = out_dir(variant, ab, severe)
+    tops = C.TOP_FEATURES_SEVERE if severe else C.TOP_FEATURES
     print(f"variante « {variant} » ({F.VARIANTS[variant]}) : {len(cols)} features"
-          + ("" if ab else " — sans blocs A/B"), flush=True)
+          + ("" if ab else " — sans blocs A/B") + (f" — filtrage sévère {tops}" if severe else ""), flush=True)
     last = df["date"].max()
     cuts = cutoffs(C.FIRST_OOS_DATE, last)
     preds, infos, ranks, vals, t0 = [], [], [], [], time.time()
     for i, cut in enumerate(cuts):
         nxt = cuts[i + 1] if i + 1 < len(cuts) else last + pd.Timedelta(days=1)
         y, keep = labels_before(df, cut)
-        r = train_cutoff(df, cols, y, cut, nxt, keep) if ab else train_cutoff_noab(df, cols, y, cut, nxt)
+        r = train_cutoff(df, cols, y, cut, nxt, keep, tops) if ab else train_cutoff_noab(df, cols, y, cut, nxt)
         if r is None:
             continue
         preds.append(r[0])
@@ -206,8 +209,8 @@ def main(df=None, variant="all", ab=True):
     f1 = f1_score(p.loc[ok, "y"].astype(int), p.loc[ok, "cls"], average="macro")
     acc = float((p.loc[ok, "y"].astype(int) == p.loc[ok, "cls"]).mean())
     f1_all = f1_score(p.loc[lab, "y"].astype(int), p.loc[lab, "cls"], average="macro")
-    p.to_parquet(predictions_path(variant, ab), index=False)
-    if variant == "all" and ab:
+    p.to_parquet(predictions_path(variant, ab, severe), index=False)
+    if variant == "all" and ab and not severe:
         pd.concat(vals, ignore_index=True).to_parquet(VAL_PREDICTIONS, index=False)
     out.mkdir(parents=True, exist_ok=True)
     imp = pd.concat(ranks, axis=1)
@@ -230,4 +233,4 @@ def main(df=None, variant="all", ab=True):
 if __name__ == "__main__":
     import sys
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    main(variant=args[0] if args else "all", ab="--no-ab" not in sys.argv)
+    main(variant=args[0] if args else "all", ab="--no-ab" not in sys.argv, severe="--severe" in sys.argv)
