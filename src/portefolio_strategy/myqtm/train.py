@@ -29,6 +29,9 @@ from . import features as F
 from .trends import trend_labels
 
 PREDICTIONS = C.DATA / "predictions.parquet"
+# Prédictions de validation de chaque coupe (blocs B prédits par le modèle A, blocs A par le modèle B, toutes
+# antérieures à la coupe) : distribution de sortie propre à chaque modèle, pour des seuils relatifs causaux.
+VAL_PREDICTIONS = C.DATA / "val_predictions.parquet"
 
 
 def predictions_path(variant="all"):
@@ -134,11 +137,18 @@ def train_cutoff(df, cols, y, cutoff, nxt, keep):
     p = (best["ma"].predict(Xt, iteration_range=(0, best["na"])) + best["mb"].predict(Xt, iteration_range=(0, best["nb"]))) / 2
     out = df.loc[te, ["date", "symbol", "o", "c"]].copy()
     out["ybear"], out["yrange"], out["ybull"] = p[:, 0], p[:, 1], p[:, 2]
+    sel = best["sel"]
+    pv = np.empty((len(yy), 3), dtype=np.float32)
+    pv[b] = best["ma"].predict(xgb.DMatrix(X[b][:, sel]), iteration_range=(0, best["na"]))
+    pv[a] = best["mb"].predict(xgb.DMatrix(X[a][:, sel]), iteration_range=(0, best["nb"]))
+    val = df.loc[tr, ["date", "symbol"]].copy()
+    val["cutoff"] = cutoff
+    val["ybear"], val["yrange"], val["ybull"], val["y"] = pv[:, 0], pv[:, 1], pv[:, 2], yy
     info = dict(cutoff=f"{cutoff:%Y-%m-%d}", train_rows=int(tr.sum()), test_rows=int(te.sum()),
                 train_until=f"{df.loc[tr, 'date'].max():%Y-%m-%d}", f1_cv=round(best["f1"], 4),
                 top_features=best["top"], rounds=[best["na"], best["nb"]],
                 class_share=[round(float((yy == k).mean()), 3) for k in range(3)])
-    return out, info, rank
+    return out, info, rank, val
 
 
 def main(df=None, variant="all"):
@@ -149,7 +159,7 @@ def main(df=None, variant="all"):
     print(f"variante « {variant} » ({F.VARIANTS[variant]}) : {len(cols)} features", flush=True)
     last = df["date"].max()
     cuts = cutoffs(C.FIRST_OOS_DATE, last)
-    preds, infos, ranks, t0 = [], [], [], time.time()
+    preds, infos, ranks, vals, t0 = [], [], [], [], time.time()
     for i, cut in enumerate(cuts):
         nxt = cuts[i + 1] if i + 1 < len(cuts) else last + pd.Timedelta(days=1)
         y, keep = labels_before(df, cut)
@@ -158,6 +168,7 @@ def main(df=None, variant="all"):
             continue
         preds.append(r[0])
         infos.append(r[1])
+        vals.append(r[3])
         ranks.append(r[2]["score"].rename(r[1]["cutoff"]))
         print(f"  {r[1]}  [{time.time() - t0:.0f} s]", flush=True)
     p = pd.concat(preds, ignore_index=True)
@@ -172,6 +183,8 @@ def main(df=None, variant="all"):
     acc = float((p.loc[ok, "y"].astype(int) == p.loc[ok, "cls"]).mean())
     f1_all = f1_score(p.loc[lab, "y"].astype(int), p.loc[lab, "cls"], average="macro")
     p.to_parquet(predictions_path(variant), index=False)
+    if variant == "all":
+        pd.concat(vals, ignore_index=True).to_parquet(VAL_PREDICTIONS, index=False)
     out.mkdir(parents=True, exist_ok=True)
     imp = pd.concat(ranks, axis=1)
     imp["mean_rank_score"] = imp.mean(axis=1)
