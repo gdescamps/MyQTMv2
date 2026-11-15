@@ -23,7 +23,7 @@ import myqtm_close_threshold as B
 from src.portefolio_strategy.myqtm import config as C
 from src.portefolio_strategy.myqtm.trade import ema_exit
 
-TOPS = (1, 2, 3, 5, 10, 20)
+TOPS = tuple(range(1, 16))
 
 
 def trades_from_entries(p, entry):
