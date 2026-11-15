@@ -1,6 +1,6 @@
 """Précision du classifieur myqtm sur le début des tendances, selon le seuil de confiance.
 
-Pour chaque palier H (5, 10, 15, 20 % premiers jours de chaque tendance haussière / baissière), le jeu
+Pour chaque palier H (5, 10, 15, 20, 25 % premiers jours de chaque tendance haussière / baissière), le jeu
 d'évaluation = jours de range + jours de tendance dont la phase < H (les fins de tendance sont exclues).
 Pour chaque seuil t sur P(classe) : précision = part des jours prédits (P ≥ t) qui sont bien un début de
 tendance de ce sens ; rappel = part des débuts de tendance de ce sens détectés ; base = précision du hasard.
@@ -15,7 +15,7 @@ from src.portefolio_strategy.myqtm import features as F
 from src.portefolio_strategy.myqtm import train as T
 from src.portefolio_strategy.myqtm.trends import trend_labels
 
-HEADS = (0.05, 0.10, 0.15, 0.20)
+HEADS = (0.05, 0.10, 0.15, 0.20, 0.25)
 THRESHOLDS = (0.33, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
 
 
