@@ -74,14 +74,16 @@ def tail_weight(phase, tw, start=None):
 
 
 def _ts_sfx(ts):
-    return "" if ts is None else f"_ts{round(100 * ts)}"
+    if ts is None:
+        return ""
+    return f"_ts{round(100 * ts)}" + ("" if C.TAIL_SAMPLE_SEED == 42 else f"s{C.TAIL_SAMPLE_SEED}")
 
 
-def tail_sample(phase, ts, seed=C.XGB_PARAMS["seed"]):
+def tail_sample(phase, ts, seed=None):
     """Sous-échantillonnage progressif des fins de tendance : chaque ligne est gardée avec la probabilité
     tail_weight(phase, ts) (1 en range et avant C.TAIL_RAMP_START). Tirage fixe (graine) → même tirage pour une
     ligne donnée à chaque coupe, tant que df garde le même ordre."""
-    u = np.random.default_rng(seed).random(len(phase))
+    u = np.random.default_rng(C.TAIL_SAMPLE_SEED if seed is None else seed).random(len(phase))
     return u < tail_weight(phase, ts)
 
 
@@ -333,5 +335,7 @@ if __name__ == "__main__":
         C.F1_TREND_HEAD = sel                    # même fraction pour le classement des features et le F1 d'arrêt
     tw = next((float(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--tail-weight=")), None)
     ts = next((float(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--tail-sample=")), None)
+    C.TAIL_SAMPLE_SEED = next((int(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--sample-seed=")),
+                              C.TAIL_SAMPLE_SEED)
     main(variant=args[0] if args else "all", ab="--no-ab" not in sys.argv, severe="--severe" in sys.argv, first=first,
          tops=[int(t) for t in top.split(",")] if top else None, head=head, sel=sel, tw=tw, ts=ts)

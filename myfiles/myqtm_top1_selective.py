@@ -58,6 +58,7 @@ def main():
     sel = next((float(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--select-head=")), None)
     tw = next((float(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--tail-weight=")), None)
     ts = next((float(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--tail-sample=")), None)
+    T.C.TAIL_SAMPLE_SEED = next((int(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--sample-seed=")), 42)
     T.PREDICTIONS = T.predictions_path(ab=not noab, first=FIRST, tops=tops, head=head, sel=sel, tw=tw, ts=ts)
     p = B.load()
     p = p.merge(pd.read_parquet(T.PREDICTIONS, columns=["date", "symbol", "ybear"]), on=["date", "symbol"])

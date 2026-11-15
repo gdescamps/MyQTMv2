@@ -43,6 +43,7 @@ F1_TREND_HEAD = 0.2
 # Variante « fins de tendance pondérées » (train.py --tail-weight=p) : poids 1 jusqu'à TAIL_RAMP_START de la
 # tendance, puis décroissance linéaire jusqu'à p au dernier jour (range : poids 1).
 TAIL_RAMP_START = 0.3
+TAIL_SAMPLE_SEED = 42          # graine du tirage de --tail-sample (train.py --sample-seed=N pour en changer)
 # Variante sans blocs A/B (train.py --no-ab) : un seul modèle par coupe sur toute la fenêtre, toutes les features,
 # sans débruitage ni arrêt anticipé ; nombre d'arbres fixe = médiane des arrêts anticipés de la version A/B.
 NOAB_ROUNDS = 110
