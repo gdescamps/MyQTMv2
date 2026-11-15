@@ -44,6 +44,7 @@ PREDICTIONS = C.DATA / "predictions.parquet"
 # Prédictions de validation de chaque coupe (blocs B prédits par le modèle A, blocs A par le modèle B, toutes
 # antérieures à la coupe) : distribution de sortie propre à chaque modèle, pour des seuils relatifs causaux.
 VAL_PREDICTIONS = C.DATA / "val_predictions.parquet"
+SAVE_MODELS = None             # dossier où écrire les modèles de chaque coupe (option --save-models)
 
 
 def _first_sfx(first):
@@ -236,6 +237,13 @@ def train_cutoff(df, cols, y, cutoff, nxt, keep, tops=None, head=False, sel=Fals
                 train_until=f"{df.loc[tr, 'date'].max():%Y-%m-%d}", f1_cv=round(best["f1"], 4),
                 top_features=best["top"], rounds=[best["na"], best["nb"]],
                 class_share=[round(float((yy == k).mean()), 3) for k in range(3)])
+    if SAVE_MODELS is not None:                  # modèles A/B + features + nb d'arbres, pour les SHAP par trade
+        d = SAVE_MODELS / f"{cutoff:%Y-%m-%d}"
+        d.mkdir(parents=True, exist_ok=True)
+        best["ma"].save_model(d / "A.json")
+        best["mb"].save_model(d / "B.json")
+        (d / "meta.json").write_text(json.dumps(dict(features=[cols[j] for j in best["sel"]], na=best["na"],
+                                                     nb=best["nb"])))
     return out, info, rank, val
 
 
@@ -259,11 +267,14 @@ def train_cutoff_noab(df, cols, y, cutoff, nxt):
 
 
 def main(df=None, variant="all", ab=True, severe=False, first=None, tops=None, head=False, sel=None, tw=None,
-         ts=None):
+         ts=None, save_models=False):
     df = pd.read_parquet(F.FEATURES) if df is None else df
     df = df.sort_values(["symbol", "date"]).reset_index(drop=True)
     cols = F.feature_columns(df, variant)
+    global SAVE_MODELS
     out = out_dir(variant, ab, severe, first, tops, head, sel, tw, ts)
+    if save_models:
+        SAVE_MODELS = out / "models"
     path = predictions_path(variant, ab, severe, first, tops, head, sel, tw, ts)
     custom = bool(tops)
     tops = tops or (C.TOP_FEATURES_SEVERE if severe else C.TOP_FEATURES)
@@ -338,4 +349,5 @@ if __name__ == "__main__":
     C.TAIL_SAMPLE_SEED = next((int(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--sample-seed=")),
                               C.TAIL_SAMPLE_SEED)
     main(variant=args[0] if args else "all", ab="--no-ab" not in sys.argv, severe="--severe" in sys.argv, first=first,
-         tops=[int(t) for t in top.split(",")] if top else None, head=head, sel=sel, tw=tw, ts=ts)
+         tops=[int(t) for t in top.split(",")] if top else None, head=head, sel=sel, tw=tw, ts=ts,
+         save_models="--save-models" in sys.argv)
