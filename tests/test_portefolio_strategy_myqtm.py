@@ -96,7 +96,8 @@ def test_simulate_opens_next_open_and_closes_on_signal():
                 ("2021-01-06", "A", 11, .1, .2, .7),                                        # achat à 11
                 ("2021-01-07", "A", 12, .1, .6, .3),                                        # 0.3 < 0.4 → vente demain
                 ("2021-01-08", "A", 13.2, .1, .6, .3), ("2021-01-11", "A", 14, .1, .6, .3)])
-    r = T.simulate(T.build_trade_data(p), lambda d: PRM, capital=1200.0, max_positions=12, fee=0.0)
+    r = T.simulate(T.build_trade_data(p), lambda d: PRM, capital=1200.0, max_positions=12, fee=0.0,
+                   close_rule="proba")
     h = r["history"]
     assert len(h) == 1 and h[0]["start"] == "2021-01-06" and h[0]["open_price"] == 11
     assert h[0]["end"] == "2021-01-08" and h[0]["close_price"] == 13.2 and h[0]["gain"] == pytest.approx(20.0)
@@ -111,7 +112,7 @@ def test_simulate_fee_and_missing_ticker_forces_close():
                 ("2021-01-06", "A", 10, .1, .2, .7), ("2021-01-04", "B", 5, .2, .6, .2),
                 ("2021-01-05", "B", 5, .2, .6, .2), ("2021-01-06", "B", 5, .2, .6, .2),
                 ("2021-01-07", "B", 5, .2, .6, .2), ("2021-01-08", "B", 5, .2, .6, .2)])   # A disparaît le 07
-    r = T.simulate(T.build_trade_data(p), lambda d: PRM, capital=1200.0, fee=0.001)
+    r = T.simulate(T.build_trade_data(p), lambda d: PRM, capital=1200.0, fee=0.001, close_rule="proba")
     assert len(r["history"]) == 1 and r["history"][0]["end"] == "2021-01-08"
     assert r["history"][0]["close_price"] == 10               # dernier cours connu
     assert r["values"][-1] == pytest.approx(1200 - 180 * 0.001 - 180 * 0.999 * 0.001)   # deux frais, prix plat
@@ -206,3 +207,17 @@ def test_trend_phase_marks_head_of_segments():
     assert len(starts) > 5 and (y[starts.index] != 1).all()
     head = phase < C.F1_TREND_HEAD
     assert 0.1 < head[y != 1].mean() < 0.3                  # ≈ 20 % des jours de tendance gardés pour le F1
+
+
+def test_long_closed_by_ema_rule_next_open():
+    c = [10, 11, 12, 13, 14, 15, 16, 15, 13, 11, 9, 8]
+    d = pd.bdate_range("2021-01-04", periods=len(c))
+    p = pd.DataFrame({"date": d, "symbol": "A", "o": c, "c": c, "ybear": .1, "yrange": .2, "ybull": .7})
+    p.loc[0, ["yrange", "ybull"]] = [.7, .2]                    # passe haussier le 2e jour
+    td = T.build_trade_data(p)
+    exit_days = [k for k, v in td.items() if v["A"]["ema_exit"]]
+    first = exit_days[0]
+    assert T.ema_exit(pd.Series(c, index=d)).loc[first] and pd.Timestamp(first) > d[6]
+    r = T.simulate(td, lambda d: PRM, capital=1200.0, fee=0.0, close_rule="ema")
+    h = r["history"][0]
+    assert h["end"] == list(td)[list(td).index(first) + 1]        # exécuté à l'ouverture suivante

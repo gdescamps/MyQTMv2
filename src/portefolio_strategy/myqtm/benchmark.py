@@ -27,6 +27,8 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 KEYS = ("long_open", "long_close", "short_open", "short_close", "increase") if C.ALLOW_SHORT \
     else ("long_open", "long_close", "increase")            # seuils optimisés par CMA-ES
+if C.LONG_CLOSE_RULE == "ema":                              # fermeture des longs par EMA 3 < EMA 10
+    KEYS = tuple(k for k in KEYS if k != "long_close")
 _TD = {}
 
 

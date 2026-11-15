@@ -4,6 +4,8 @@ Même logique : le soir de J, on choisit les positions à ouvrir (titre qui vien
 haussière/baissière avec une probabilité >= seuil d'ouverture) et à fermer (probabilité < seuil de
 fermeture) ; elles sont exécutées à l'ouverture de J+1. Taille fixée par `increase` comme dans ref/MyQTM.
 Positions longues seulement par défaut (config.ALLOW_SHORT=False) ; ref/MyQTM ouvrait aussi des shorts.
+Fermeture des longs : par défaut règle des moyennes mobiles EMA 3 < EMA 10 sur les clôtures
+(config.LONG_CLOSE_RULE="ema") ; "proba" = P(haussier) < long_close comme ref/MyQTM.
 
 Écarts avec ref/MyQTM :
 - un seul jeu de seuils par période (plus de couple A/B : il n'y a plus de modèles entrelacés) ;
@@ -21,21 +23,31 @@ from . import config as C
 LONG, SHORT = 2, 0
 
 
+def ema_exit(close):
+    """Règle experte de fin de hausse, causale : EMA(ma_mid) < EMA(ma_long) à la clôture du jour."""
+    mid = close.ewm(span=C.TREND["ma_mid"], adjust=False).mean()
+    long_ = close.ewm(span=C.TREND["ma_long"], adjust=False).mean()
+    return mid < long_
+
+
 def build_trade_data(preds):
-    """preds : (date, symbol, o, ybear, yrange, ybull) → {date: {titre: {...}}} avec index_long / index_short
-    (0 le jour où le titre entre dans la classe, puis nombre de jours depuis)."""
+    """preds : (date, symbol, o[, c], ybear, yrange, ybull) → {date: {titre: {...}}} avec index_long /
+    index_short (0 le jour où le titre entre dans la classe, puis nombre de jours depuis) et ema_exit
+    (règle EMA de fin de hausse, False si les clôtures « c » manquent)."""
     p = preds.sort_values(["symbol", "date"]).copy()
     p["cls"] = p[["ybear", "yrange", "ybull"]].to_numpy().argmax(axis=1)
+    p["ema_exit"] = p.groupby("symbol")["c"].transform(ema_exit).astype(bool) if "c" in p else False
     data = {}
     for sym, g in p.groupby("symbol", sort=False):
         pc, il, ish = None, -1, -1
-        for d, o, yb, yu, c in zip(g["date"], g["o"], g["ybear"], g["ybull"], g["cls"]):
+        for d, o, yb, yu, c, xe in zip(g["date"], g["o"], g["ybear"], g["ybull"], g["cls"], g["ema_exit"]):
             if pc is not None and c == LONG and pc != LONG:
                 il = 0
             elif pc is not None and c == SHORT and pc != SHORT:
                 ish = 0
             data.setdefault(f"{d:%Y-%m-%d}", {})[sym] = {"class": int(c), "ybear": float(yb), "ybull": float(yu),
-                                                         "open": float(o), "index_long": il, "index_short": ish}
+                                                         "open": float(o), "index_long": il, "index_short": ish,
+                                                         "ema_exit": bool(xe)}
             pc = c
             il += il >= 0
             ish += ish >= 0
@@ -48,7 +60,8 @@ def _gain(pos, price):
 
 
 def simulate(trade_data, params_for, capital=C.INITIAL_CAPITAL, max_positions=C.MAX_POSITIONS,
-             remove_stocks=0, seed=0, fee=C.FEE, start=None, end=None, allow_short=C.ALLOW_SHORT):
+             remove_stocks=0, seed=0, fee=C.FEE, start=None, end=None, allow_short=C.ALLOW_SHORT,
+             close_rule=C.LONG_CLOSE_RULE):
     """params_for(date_str) → dict(long_open, long_close, increase[, short_open, short_close])."""
     rng = random.Random(seed)
     dates = [d for d in trade_data if (start is None or d >= start) and (end is None or d < end)]
@@ -108,7 +121,8 @@ def simulate(trade_data, params_for, capital=C.INITIAL_CAPITAL, max_positions=C.
         keep = []
         for pos in positions:
             v = item.get(pos["ticker"])
-            if v is None or (pos["type"] == "long" and v["ybull"] < prm["long_close"]) or \
+            long_exit = v is not None and (v["ema_exit"] if close_rule == "ema" else v["ybull"] < prm["long_close"])
+            if v is None or (pos["type"] == "long" and long_exit) or \
                (pos["type"] == "short" and v["ybear"] < prm["short_close"]):
                 to_close.append(pos)
             else:
@@ -150,7 +164,7 @@ def perf_score(res, prm, capital=C.INITIAL_CAPITAL):
     allpos = res["history"] + res["open_positions"]
     if m["annual_roi_mean"] <= 5.0 or m["longest_drawdown_days"] <= 5:
         return 0.0
-    safety = prm["long_open"] * prm["long_close"] * prm["increase"]
+    safety = prm["long_open"] * prm.get("long_close", 1.0) * prm["increase"]
     gauss = 1.0
     if "short_open" in prm:                    # long + short (ref/MyQTM) : vise ~70 % de positions longues
         long_share = sum(p["type"] == "long" for p in allpos) / (len(allpos) + 1)

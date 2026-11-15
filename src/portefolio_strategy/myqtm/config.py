@@ -45,6 +45,10 @@ INITIAL_CAPITAL = 10000.0
 MAX_POSITIONS = 12
 FEE = 0.0005                   # par sens (ref/MyQTM : 0)
 ALLOW_SHORT = False             # positions longues seulement (ref/MyQTM : long + short)
+# Fermeture des positions longues : "ema" = règle experte causale, EMA(ma_mid) < EMA(ma_long) de TREND
+# (EMA 3 < EMA 10) constaté à la clôture, exécuté à l'ouverture suivante (myfiles/myqtm_close_rule.py) ;
+# "proba" = P(haussier) < long_close (ref/MyQTM).
+LONG_CLOSE_RULE = "ema"
 DEFAULT_PARAMS = dict(long_open=0.60, long_close=0.37, short_open=0.60, short_close=0.37, increase=0.70)
 CMA_ITERS = 30
 CMA_POP = 10
