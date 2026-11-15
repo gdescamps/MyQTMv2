@@ -13,6 +13,7 @@
 
     PYTHONPATH=.:myfiles python myfiles/myqtm_topk_slots.py            # k lots pour le top k
     PYTHONPATH=.:myfiles python myfiles/myqtm_topk_slots.py --fixed    # N_SLOTS = 10 lots
+    ... --no-ab                                                         # prédictions sans blocs A/B
 """
 import sys
 
@@ -22,6 +23,7 @@ import pandas as pd
 import myqtm_close_threshold as B
 from src.portefolio_strategy.myqtm import config as C
 from src.portefolio_strategy.myqtm import features as F
+from src.portefolio_strategy.myqtm import train as T
 from src.portefolio_strategy.myqtm.trade import ema_exit
 
 TOPS = tuple(range(1, 16))
@@ -94,6 +96,9 @@ def stats(v):
 
 
 def main():
+    noab = "--no-ab" in sys.argv
+    if noab:
+        T.PREDICTIONS = T.predictions_path("all", ab=False)
     p = B.load()
     p["x_ema"] = p.groupby("symbol")["c"].transform(ema_exit).astype(bool)
     allf = pd.read_parquet(F.FEATURES, columns=["date", "symbol", "o"])
@@ -114,9 +119,10 @@ def main():
     idx = pd.read_parquet(F.INDEX)["level"].loc[start:end]
     rows.append(dict(regle="indice de l'univers", **stats(idx)))
     out = pd.DataFrame(rows)
-    out.to_csv("myfiles/myqtm_topk_slots.csv" if fixed else "myfiles/myqtm_topk_slots_k.csv", index=False)
+    name = ("myfiles/myqtm_topk_slots" if fixed else "myfiles/myqtm_topk_slots_k") + ("_noab" if noab else "")
+    out.to_csv(name + ".csv", index=False)
     pd.set_option("display.width", 200, "display.float_format", "{:.2f}".format)
-    print(f"{'%d lots' % N_SLOTS if fixed else 'k lots pour le top k'}, {start:%Y-%m-%d} → {end:%Y-%m-%d}, frais {C.FEE:.2%} par sens")
+    print(f"{'sans blocs A/B — ' if noab else ''}{'%d lots' % N_SLOTS if fixed else 'k lots pour le top k'}, {start:%Y-%m-%d} → {end:%Y-%m-%d}, frais {C.FEE:.2%} par sens")
     print(out.to_string(index=False))
 
 
