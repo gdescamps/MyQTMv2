@@ -309,6 +309,7 @@ def main():
     closes = pd.DataFrame({s: p["c"] for s in symbols
                            if (p := eod.load_eod(s, start=f"{C.UNIVERSE_FIRST_YEAR - 1}-12-01")) is not None})
     index = build_index(u, caps[caps["symbol"].isin(symbols)], closes)
+    C.DATA.mkdir(parents=True, exist_ok=True)
     index.to_parquet(INDEX)
     market, econ = market_features(index), econ_blocks()
     sent = load_sentiments()

@@ -2381,3 +2381,5 @@ Simplement pour trouver déjà le meilleur compromis de la fréquence de mise à
 
 
 
+redonne moi les resultats de l'oracle en daily 
+pour le top 1 ou top10
