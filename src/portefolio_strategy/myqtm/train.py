@@ -15,6 +15,7 @@ le label (tendance ex post) déborde d'un bloc sur l'autre. Ici :
   échantillon, écrites dans data/portefolio_strategy/myqtm/predictions.parquet.
 
     python -m src.portefolio_strategy.myqtm.train
+    python -m src.portefolio_strategy.myqtm.train all --no-ab   # un modèle par coupe, sans blocs A/B
 """
 import json
 import time
@@ -34,13 +35,16 @@ PREDICTIONS = C.DATA / "predictions.parquet"
 VAL_PREDICTIONS = C.DATA / "val_predictions.parquet"
 
 
-def predictions_path(variant="all"):
-    """Variante « all » (tout le sentiment disponible) = fichiers historiques ; les autres ont un suffixe."""
-    return PREDICTIONS if variant == "all" else C.DATA / f"predictions_{variant}.parquet"
+def predictions_path(variant="all", ab=True):
+    """Variante « all » (tout le sentiment disponible) = fichiers historiques ; les autres ont un suffixe.
+    ab=False (sans blocs A/B) → suffixe _noab."""
+    sfx = "" if ab else "_noab"
+    return C.DATA / f"predictions{sfx}.parquet" if variant == "all" else C.DATA / f"predictions_{variant}{sfx}.parquet"
 
 
-def out_dir(variant="all"):
-    return C.OUT if variant == "all" else C.OUT / variant
+def out_dir(variant="all", ab=True):
+    base = C.OUT if variant == "all" else C.OUT / variant
+    return base if ab else base / "noab"
 
 
 def cutoffs(first, last):
@@ -151,19 +155,39 @@ def train_cutoff(df, cols, y, cutoff, nxt, keep):
     return out, info, rank, val
 
 
-def main(df=None, variant="all"):
+def train_cutoff_noab(df, cols, y, cutoff, nxt):
+    """Un seul modèle sur toute la fenêtre < cutoff, toutes les features, NOAB_ROUNDS arbres, sans validation."""
+    tr = (df["member"] & (df["date"] >= C.START_DATE) & (df["date"] < cutoff) & y.notna()).to_numpy()
+    te = (df["member"] & (df["date"] >= cutoff) & (df["date"] < nxt)).to_numpy()
+    if not te.any():
+        return None
+    X, yy = df.loc[tr, cols].to_numpy(np.float32), y[tr].to_numpy(int)
+    m = xgb.train(_params(), xgb.DMatrix(X, label=yy), num_boost_round=C.NOAB_ROUNDS)
+    p = m.predict(xgb.DMatrix(df.loc[te, cols].to_numpy(np.float32)))
+    out = df.loc[te, ["date", "symbol", "o", "c"]].copy()
+    out["ybear"], out["yrange"], out["ybull"] = p[:, 0], p[:, 1], p[:, 2]
+    s = m.get_score(importance_type="weight")
+    rank = pd.DataFrame({"score": [s.get(f"f{j}", 0) for j in range(len(cols))]}, index=cols)
+    info = dict(cutoff=f"{cutoff:%Y-%m-%d}", train_rows=int(tr.sum()), test_rows=int(te.sum()),
+                train_until=f"{df.loc[tr, 'date'].max():%Y-%m-%d}", top_features=len(cols), rounds=[C.NOAB_ROUNDS],
+                class_share=[round(float((yy == k).mean()), 3) for k in range(3)])
+    return out, info, rank, None
+
+
+def main(df=None, variant="all", ab=True):
     df = pd.read_parquet(F.FEATURES) if df is None else df
     df = df.sort_values(["symbol", "date"]).reset_index(drop=True)
     cols = F.feature_columns(df, variant)
-    out = out_dir(variant)
-    print(f"variante « {variant} » ({F.VARIANTS[variant]}) : {len(cols)} features", flush=True)
+    out = out_dir(variant, ab)
+    print(f"variante « {variant} » ({F.VARIANTS[variant]}) : {len(cols)} features"
+          + ("" if ab else " — sans blocs A/B"), flush=True)
     last = df["date"].max()
     cuts = cutoffs(C.FIRST_OOS_DATE, last)
     preds, infos, ranks, vals, t0 = [], [], [], [], time.time()
     for i, cut in enumerate(cuts):
         nxt = cuts[i + 1] if i + 1 < len(cuts) else last + pd.Timedelta(days=1)
         y, keep = labels_before(df, cut)
-        r = train_cutoff(df, cols, y, cut, nxt, keep)
+        r = train_cutoff(df, cols, y, cut, nxt, keep) if ab else train_cutoff_noab(df, cols, y, cut, nxt)
         if r is None:
             continue
         preds.append(r[0])
@@ -182,8 +206,8 @@ def main(df=None, variant="all"):
     f1 = f1_score(p.loc[ok, "y"].astype(int), p.loc[ok, "cls"], average="macro")
     acc = float((p.loc[ok, "y"].astype(int) == p.loc[ok, "cls"]).mean())
     f1_all = f1_score(p.loc[lab, "y"].astype(int), p.loc[lab, "cls"], average="macro")
-    p.to_parquet(predictions_path(variant), index=False)
-    if variant == "all":
+    p.to_parquet(predictions_path(variant, ab), index=False)
+    if variant == "all" and ab:
         pd.concat(vals, ignore_index=True).to_parquet(VAL_PREDICTIONS, index=False)
     out.mkdir(parents=True, exist_ok=True)
     imp = pd.concat(ranks, axis=1)
@@ -205,4 +229,5 @@ def main(df=None, variant="all"):
 
 if __name__ == "__main__":
     import sys
-    main(variant=sys.argv[1] if len(sys.argv) > 1 else "all")
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    main(variant=args[0] if args else "all", ab="--no-ab" not in sys.argv)

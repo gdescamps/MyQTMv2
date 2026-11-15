@@ -9,8 +9,11 @@
   niveau de la clôture de la veille (proxy de l'ouverture), les titres aux cours d'ouverture.
 - Mesures : rendement annualisé, max drawdown, Sharpe (quotidien, taux sans risque 0, √252).
 
-    PYTHONPATH=.:myfiles python myfiles/myqtm_topk_index_slots.py
+    PYTHONPATH=.:myfiles python myfiles/myqtm_topk_index_slots.py           # modèles A/B
+    PYTHONPATH=.:myfiles python myfiles/myqtm_topk_index_slots.py --no-ab   # un modèle par coupe, sans A/B
 """
+import sys
+
 import numpy as np
 import pandas as pd
 
@@ -18,6 +21,7 @@ import myqtm_close_threshold as B
 from myqtm_topk_slots import signals, stats
 from src.portefolio_strategy.myqtm import config as C
 from src.portefolio_strategy.myqtm import features as F
+from src.portefolio_strategy.myqtm import train as T
 from src.portefolio_strategy.myqtm.trade import ema_exit
 
 TOPS = (1, 2, 3, 4, 5)
@@ -58,6 +62,9 @@ def simulate(cand, opens, idx, n_slots=N_SLOTS, fee=C.FEE):
 
 
 def main():
+    noab = "--no-ab" in sys.argv
+    if noab:
+        T.PREDICTIONS = T.predictions_path("all", ab=False)
     p = B.load()
     p["x_ema"] = p.groupby("symbol")["c"].transform(ema_exit).astype(bool)
     allf = pd.read_parquet(F.FEATURES, columns=["date", "symbol", "o"])
@@ -77,9 +84,9 @@ def main():
                          lots_en_titres_pct=100 * occ, **stats(v)))
     rows.append(dict(regle="indice de l'univers seul", lots_en_titres_pct=0.0, **stats(idx_open)))
     out = pd.DataFrame(rows)
-    out.to_csv("myfiles/myqtm_topk_index_slots.csv", index=False)
+    out.to_csv(f"myfiles/myqtm_topk_index_slots{'_noab' if noab else ''}.csv", index=False)
     pd.set_option("display.width", 200, "display.float_format", "{:.2f}".format)
-    print(f"{N_SLOTS} lots en indice par défaut, {start:%Y-%m-%d} → {end:%Y-%m-%d}, frais {C.FEE:.2%} par sens")
+    print(f"{'sans blocs A/B — ' if noab else ''}{N_SLOTS} lots en indice par défaut, {start:%Y-%m-%d} → {end:%Y-%m-%d}, frais {C.FEE:.2%} par sens")
     print(out.to_string(index=False))
 
 

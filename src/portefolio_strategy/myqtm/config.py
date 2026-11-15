@@ -39,6 +39,9 @@ INTERVAL_DAYS = 90             # blocs entrelacés A/B à l'intérieur de la fen
 # S'applique au F1 qui décide (arrêt anticipé, choix 60/80 features) et au diagnostic hors échantillon ;
 # l'apprentissage utilise toujours toutes les lignes.
 F1_TREND_HEAD = 0.2
+# Variante sans blocs A/B (train.py --no-ab) : un seul modèle par coupe sur toute la fenêtre, toutes les features,
+# sans débruitage ni arrêt anticipé ; nombre d'arbres fixe = médiane des arrêts anticipés de la version A/B.
+NOAB_ROUNDS = 110
 
 # --- Trading (comme ref/MyQTM) --------------------------------------------
 INITIAL_CAPITAL = 10000.0
