@@ -18,6 +18,7 @@ le label (tendance ex post) déborde d'un bloc sur l'autre. Ici :
     python -m src.portefolio_strategy.myqtm.train all --no-ab   # un modèle par coupe, sans blocs A/B
     python -m src.portefolio_strategy.myqtm.train all --severe  # filtrage A/B sévère : 20 ou 30 features
     python -m src.portefolio_strategy.myqtm.train all --no-ab --first=2024-01-01   # walk-forward dès 2024
+    python -m src.portefolio_strategy.myqtm.train all --top=40 --first=2024-01-01  # filtrage A/B : 40 features
 """
 import json
 import time
@@ -41,17 +42,23 @@ def _first_sfx(first):
     return "" if first in (None, C.FIRST_OOS_DATE) else f"_from{first[:4]}"
 
 
-def predictions_path(variant="all", ab=True, severe=False, first=None):
+def _top_sfx(tops):
+    return f"_top{'-'.join(map(str, tops))}" if tops else ""
+
+
+def predictions_path(variant="all", ab=True, severe=False, first=None, tops=None):
     """Variante « all » (tout le sentiment disponible) = fichiers historiques ; les autres ont un suffixe.
-    ab=False (sans blocs A/B) → suffixe _noab ; severe=True (filtrage A/B sévère) → _severe."""
-    sfx = ("" if ab else "_noab") + ("_severe" if severe else "") + _first_sfx(first)
+    ab=False (sans blocs A/B) → suffixe _noab ; severe=True (filtrage A/B sévère) → _severe ;
+    tops=[n, …] (filtrage A/B à n features, choix par F1 entre les valeurs) → _top{n-…}."""
+    sfx = ("" if ab else "_noab") + ("_severe" if severe else "") + _top_sfx(tops) + _first_sfx(first)
     return C.DATA / f"predictions{sfx}.parquet" if variant == "all" else C.DATA / f"predictions_{variant}{sfx}.parquet"
 
 
-def out_dir(variant="all", ab=True, severe=False, first=None):
+def out_dir(variant="all", ab=True, severe=False, first=None, tops=None):
     base = C.OUT if variant == "all" else C.OUT / variant
     base = base if ab else base / "noab"
     base = base / "severe" if severe else base
+    base = base / _top_sfx(tops).lstrip("_") if tops else base
     return base / _first_sfx(first).lstrip("_") if _first_sfx(first) else base
 
 
@@ -182,14 +189,17 @@ def train_cutoff_noab(df, cols, y, cutoff, nxt):
     return out, info, rank, None
 
 
-def main(df=None, variant="all", ab=True, severe=False, first=None):
+def main(df=None, variant="all", ab=True, severe=False, first=None, tops=None):
     df = pd.read_parquet(F.FEATURES) if df is None else df
     df = df.sort_values(["symbol", "date"]).reset_index(drop=True)
     cols = F.feature_columns(df, variant)
-    out = out_dir(variant, ab, severe, first)
-    tops = C.TOP_FEATURES_SEVERE if severe else C.TOP_FEATURES
+    out = out_dir(variant, ab, severe, first, tops)
+    path = predictions_path(variant, ab, severe, first, tops)
+    custom = bool(tops)
+    tops = tops or (C.TOP_FEATURES_SEVERE if severe else C.TOP_FEATURES)
     print(f"variante « {variant} » ({F.VARIANTS[variant]}) : {len(cols)} features"
-          + ("" if ab else " — sans blocs A/B") + (f" — filtrage sévère {tops}" if severe else ""), flush=True)
+          + ("" if ab else " — sans blocs A/B") + (f" — filtrage A/B {tops} features" if severe or custom else ""),
+          flush=True)
     last = df["date"].max()
     cuts = cutoffs(first or C.FIRST_OOS_DATE, last)
     preds, infos, ranks, vals, t0 = [], [], [], [], time.time()
@@ -215,8 +225,8 @@ def main(df=None, variant="all", ab=True, severe=False, first=None):
     f1 = f1_score(p.loc[ok, "y"].astype(int), p.loc[ok, "cls"], average="macro")
     acc = float((p.loc[ok, "y"].astype(int) == p.loc[ok, "cls"]).mean())
     f1_all = f1_score(p.loc[lab, "y"].astype(int), p.loc[lab, "cls"], average="macro")
-    p.to_parquet(predictions_path(variant, ab, severe, first), index=False)
-    if variant == "all" and ab and not severe and not _first_sfx(first):
+    p.to_parquet(path, index=False)
+    if variant == "all" and ab and not severe and not custom and not _first_sfx(first):
         pd.concat(vals, ignore_index=True).to_parquet(VAL_PREDICTIONS, index=False)
     out.mkdir(parents=True, exist_ok=True)
     imp = pd.concat(ranks, axis=1)
@@ -240,4 +250,6 @@ if __name__ == "__main__":
     import sys
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     first = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--first=")), None)
-    main(variant=args[0] if args else "all", ab="--no-ab" not in sys.argv, severe="--severe" in sys.argv, first=first)
+    top = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--top=")), None)
+    main(variant=args[0] if args else "all", ab="--no-ab" not in sys.argv, severe="--severe" in sys.argv, first=first,
+         tops=[int(t) for t in top.split(",")] if top else None)

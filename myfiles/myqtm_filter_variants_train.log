@@ -1,0 +1,24 @@
+variante « all » (sentiment PIT + volume de news EODHD par catégorie) : 156 features — filtrage A/B [10] features
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:207: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  nxt = cuts[i + 1] if i + 1 < len(cuts) else last + pd.Timedelta(days=1)
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:219: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  y_full, keep_full = labels_before(df, last + pd.Timedelta(days=1))
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.395 (tous les jours 0.679), exactitude 0.487 ; couverture sentiment 95.2%
+variante « all » (sentiment PIT + volume de news EODHD par catégorie) : 156 features — filtrage A/B [40] features
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:207: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  nxt = cuts[i + 1] if i + 1 < len(cuts) else last + pd.Timedelta(days=1)
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:219: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  y_full, keep_full = labels_before(df, last + pd.Timedelta(days=1))
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.396 (tous les jours 0.695), exactitude 0.508 ; couverture sentiment 95.2%
+variante « all » (sentiment PIT + volume de news EODHD par catégorie) : 156 features — filtrage A/B [100, 120] features
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:207: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  nxt = cuts[i + 1] if i + 1 < len(cuts) else last + pd.Timedelta(days=1)
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:219: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  y_full, keep_full = labels_before(df, last + pd.Timedelta(days=1))
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.404 (tous les jours 0.697), exactitude 0.524 ; couverture sentiment 95.2%
+variante « all » (sentiment PIT + volume de news EODHD par catégorie) : 156 features — filtrage A/B [999] features
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:207: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  nxt = cuts[i + 1] if i + 1 < len(cuts) else last + pd.Timedelta(days=1)
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:219: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  y_full, keep_full = labels_before(df, last + pd.Timedelta(days=1))
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.401 (tous les jours 0.694), exactitude 0.524 ; couverture sentiment 95.2%
