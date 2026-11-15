@@ -1,6 +1,7 @@
-"""Portefeuille à 10 lots : chaque signal d'entrée « top k du jour » prend un lot libre, sortie EMA 3 < EMA 10.
+"""Portefeuille à lots : chaque signal d'entrée « top k du jour » prend un lot libre, sortie EMA 3 < EMA 10.
 
-- Capital initial partagé en N_SLOTS lots égaux ; chaque lot porte une position à la fois et réinvestit son propre
+- Nombre de lots = k (top k ↔ k lots) par défaut, ou N_SLOTS fixe avec --fixed.
+- Capital initial partagé en lots égaux ; chaque lot porte une position à la fois et réinvestit son propre
   capital (pas de rééquilibrage entre lots) ; un lot libre reste en cash (rémunération 0).
 - Signal à la clôture de J → achat à l'ouverture suivante du titre ; signal de sortie à la clôture → vente à
   l'ouverture suivante ; le lot est réutilisable pour un signal du jour du signal de sortie.
@@ -10,8 +11,11 @@
   trades pris / signaux, taux d'occupation des lots. Référence : indice de l'univers (pondéré par les
   capitalisations).
 
-    PYTHONPATH=.:myfiles python myfiles/myqtm_topk_slots.py
+    PYTHONPATH=.:myfiles python myfiles/myqtm_topk_slots.py            # k lots pour le top k
+    PYTHONPATH=.:myfiles python myfiles/myqtm_topk_slots.py --fixed    # N_SLOTS = 10 lots
 """
+import sys
+
 import numpy as np
 import pandas as pd
 
@@ -98,19 +102,21 @@ def main():
     p["next_date"] = p["date"].map(nd)                  # prochaine séance (exécution à l'ouverture)
     start, end = p["date"].min(), p["date"].max()
     opens = opens.loc[start:end]
+    fixed = "--fixed" in sys.argv
     rows = []
     for k in TOPS:
         cand = signals(p, k)
         cand = cand[cand["exit"] <= end]
-        v, n_taken, occ = simulate(cand, opens)
-        rows.append(dict(regle=f"top {k} du jour", signaux=len(cand), trades_pris=n_taken,
+        n_slots = N_SLOTS if fixed else k
+        v, n_taken, occ = simulate(cand, opens, n_slots=n_slots)
+        rows.append(dict(regle=f"top {k} du jour", lots=n_slots, signaux=len(cand), trades_pris=n_taken,
                          occupation_lots_pct=100 * occ, **stats(v)))
     idx = pd.read_parquet(F.INDEX)["level"].loc[start:end]
     rows.append(dict(regle="indice de l'univers", **stats(idx)))
     out = pd.DataFrame(rows)
-    out.to_csv("myfiles/myqtm_topk_slots.csv", index=False)
+    out.to_csv("myfiles/myqtm_topk_slots.csv" if fixed else "myfiles/myqtm_topk_slots_k.csv", index=False)
     pd.set_option("display.width", 200, "display.float_format", "{:.2f}".format)
-    print(f"{N_SLOTS} lots, {start:%Y-%m-%d} → {end:%Y-%m-%d}, frais {C.FEE:.2%} par sens")
+    print(f"{'%d lots' % N_SLOTS if fixed else 'k lots pour le top k'}, {start:%Y-%m-%d} → {end:%Y-%m-%d}, frais {C.FEE:.2%} par sens")
     print(out.to_string(index=False))
 
 
