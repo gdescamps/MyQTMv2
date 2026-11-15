@@ -1,0 +1,4 @@
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.404 (tous les jours 0.699), exactitude 0.515 ; couverture sentiment 95.2%
+eval normal ok
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.420 (tous les jours 0.682), exactitude 0.573 ; couverture sentiment 95.2%
+eval ts0 ok

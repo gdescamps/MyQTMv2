@@ -292,6 +292,57 @@ def _one(args):
     return f[f["date"] >= ROWS_START]
 
 
+EARN_AHEAD_DAYS = 30           # date des prochains résultats connue ~3-4 semaines avant : plafond, au-delà = « aucune »
+EARN_SINCE_DAYS = 90
+
+
+def _earnings_reactions(symbols):
+    """Séance de réaction aux résultats par titre (calendrier EODHD) : publication avant ouverture → le jour
+    même, après clôture → le lendemain."""
+    files = sorted((C.EODHD / "earnings").glob("*.parquet"))
+    e = pd.concat([pd.read_parquet(p, columns=["code", "report_date", "before_after_market"]) for p in files])
+    e = e[e["code"].str.endswith(".US")].assign(symbol=lambda x: x["code"].str[:-3])
+    e = e[e["symbol"].isin(symbols)]
+    e["react"] = pd.to_datetime(e["report_date"]) + pd.to_timedelta(
+        (e["before_after_market"] == "AfterMarket").astype(int), unit="D")
+    return {s: np.sort(g["react"].unique()) for s, g in e.groupby("symbol")}
+
+
+def add_context_features(df):
+    """Features de contexte, calculées en coupe transversale après la construction titre par titre :
+    - secteur (GICS, fichier des capitalisations) : rendement moyen équipondéré du secteur sur 5 / 21 séances
+      (membres de l'univers du jour) et rendement du titre relatif à son secteur et à l'univers ;
+    - calendrier de résultats : jours calendaires avant la prochaine réaction aux résultats (plafonnés à
+      EARN_AHEAD_DAYS, date supposée annoncée ~1 mois avant) et depuis la dernière (plafond EARN_SINCE_DAYS)."""
+    df = df.sort_values(["symbol", "date"]).reset_index(drop=True)
+    caps = pd.read_parquet(U.CAPS, columns=["symbol", "sector"]).drop_duplicates("symbol", keep="last")
+    sector = df["symbol"].map(caps.set_index("symbol")["sector"]).fillna("?")
+    g = df.groupby("symbol")["c"]
+    for h in (5, 21):
+        r = g.pct_change(h)
+        mem = r.where(df["member"])
+        sect = mem.groupby([df["date"], sector]).transform("mean")   # diffusé aussi aux non-membres
+        mkt = mem.groupby(df["date"]).transform("mean")
+        df[f"sect_r{h}"] = sect
+        df[f"rel_sect_r{h}"] = r - sect
+        df[f"rel_mkt_r{h}"] = r - mkt
+    reac = _earnings_reactions(set(df["symbol"]))
+    to_next = np.full(len(df), float(EARN_AHEAD_DAYS))
+    since = np.full(len(df), float(EARN_SINCE_DAYS))
+    for sym, idx in df.groupby("symbol").indices.items():
+        r = reac.get(sym)
+        if r is None or not len(r):
+            continue
+        d = df["date"].to_numpy()[idx]
+        k = np.searchsorted(r, d, side="right")           # prochaine réaction strictement après d
+        nxt = np.where(k < len(r), (r[np.minimum(k, len(r) - 1)] - d) / np.timedelta64(1, "D"), np.inf)
+        prv = np.where(k > 0, (d - r[np.maximum(k - 1, 0)]) / np.timedelta64(1, "D"), np.inf)
+        to_next[idx] = np.minimum(nxt, EARN_AHEAD_DAYS)
+        since[idx] = np.minimum(prv, EARN_SINCE_DAYS)
+    df["earn_days_to_next"], df["earn_days_since"] = to_next, since
+    return df
+
+
 def load_sentiments():
     return pd.read_parquet(SENTIMENTS) if SENTIMENTS.exists() else None
 
@@ -317,6 +368,7 @@ def main():
     df = pd.concat(parts, ignore_index=True)
     if "vs_days" in df:
         df["vs_days"] = df["vs_days"].fillna(-1).astype(int)
+    df = add_context_features(df)
     df.to_parquet(FEATURES, index=False)
     m = df[df["member"]]
     cov = m["ts_news_sentiment_company_0"].notna().mean()
@@ -328,4 +380,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    if "--augment" in sys.argv:                  # ajoute les features de contexte au fichier existant
+        d = pd.read_parquet(FEATURES)
+        d = add_context_features(d.drop(columns=[c for c in d.columns
+                                                 if c.startswith(("sect_r", "rel_sect_r", "rel_mkt_r", "earn_days_"))]))
+        d.to_parquet(FEATURES, index=False)
+        print(f"features de contexte ajoutées : {len(feature_columns(d))} colonnes")
+    else:
+        main()
