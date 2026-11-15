@@ -1,0 +1,9 @@
+variante « all » (sentiment PIT + volume de news EODHD par catégorie) : 156 features — fins de tendance sous-échantillonnées (1 → 0.3 après 30%)
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.411 (tous les jours 0.690), exactitude 0.551 ; couverture sentiment 95.2%
+eval 0.3 ok
+variante « all » (sentiment PIT + volume de news EODHD par catégorie) : 156 features — fins de tendance sous-échantillonnées (1 → 0.1 après 30%)
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.417 (tous les jours 0.685), exactitude 0.566 ; couverture sentiment 95.2%
+eval 0.1 ok
+variante « all » (sentiment PIT + volume de news EODHD par catégorie) : 156 features — fins de tendance sous-échantillonnées (1 → 0.0 après 30%)
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.418 (tous les jours 0.679), exactitude 0.573 ; couverture sentiment 95.2%
+eval 0.0 ok

@@ -23,6 +23,10 @@ le label (tendance ex post) déborde d'un bloc sur l'autre. Ici :
     python -m src.portefolio_strategy.myqtm.train all --head-only=0.15 --first=2024-01-01  # début = 15 % premiers
     python -m src.portefolio_strategy.myqtm.train all --select-head=0.2 --first=2024-01-01  # features choisies sur
                                                     # les débuts de tendance, modèle final appris sur tout
+    python -m src.portefolio_strategy.myqtm.train all --tail-weight=0.1 --first=2024-01-01  # fins de tendance
+                                                    # pondérées : 1 jusqu'à 30 %, puis linéaire jusqu'à 0,1
+    python -m src.portefolio_strategy.myqtm.train all --tail-sample=0.1 --first=2024-01-01  # fins de tendance
+                            # sous-échantillonnées : P(garder) = 1 jusqu'à 30 %, puis linéaire jusqu'à 0,1
 """
 import json
 import time
@@ -57,28 +61,57 @@ def _top_sfx(tops):
     return f"_top{'-'.join(map(str, tops))}" if tops else ""
 
 
+def _tw_sfx(tw):
+    return "" if tw is None else f"_tw{round(100 * tw)}"
+
+
+def tail_weight(phase, tw, start=None):
+    """Poids d'apprentissage selon la position dans la tendance : 1 en range et avant `start` (C.TAIL_RAMP_START),
+    puis décroissance linéaire jusqu'à `tw` au dernier jour de la tendance."""
+    start = C.TAIL_RAMP_START if start is None else start
+    ph = np.nan_to_num(np.asarray(phase, dtype=float), nan=0.0)
+    return np.where(ph < start, 1.0, 1.0 - (1.0 - tw) * (ph - start) / (1.0 - start))
+
+
+def _ts_sfx(ts):
+    return "" if ts is None else f"_ts{round(100 * ts)}"
+
+
+def tail_sample(phase, ts, seed=C.XGB_PARAMS["seed"]):
+    """Sous-échantillonnage progressif des fins de tendance : chaque ligne est gardée avec la probabilité
+    tail_weight(phase, ts) (1 en range et avant C.TAIL_RAMP_START). Tirage fixe (graine) → même tirage pour une
+    ligne donnée à chaque coupe, tant que df garde le même ordre."""
+    u = np.random.default_rng(seed).random(len(phase))
+    return u < tail_weight(phase, ts)
+
+
 def _sel_sfx(sel):
     return f"_sel{round(100 * sel)}" if sel else ""
 
 
-def predictions_path(variant="all", ab=True, severe=False, first=None, tops=None, head=False, sel=None):
+def predictions_path(variant="all", ab=True, severe=False, first=None, tops=None, head=False, sel=None, tw=None,
+                     ts=None):
     """Variante « all » (tout le sentiment disponible) = fichiers historiques ; les autres ont un suffixe.
     ab=False (sans blocs A/B) → suffixe _noab ; severe=True (filtrage A/B sévère) → _severe ;
     tops=[n, …] (filtrage A/B à n features, choix par F1 entre les valeurs) → _top{n-…} ;
     head=True (apprentissage sans les jours de tendance évidents, après les C.F1_TREND_HEAD premiers) → _head ;
-    sel=x (classement des features sur les x premiers % des tendances + range, modèle final sur tout) → _sel{x}."""
-    sfx = ("" if ab else "_noab") + ("_severe" if severe else "") + _top_sfx(tops) + _head_sfx(head) + _sel_sfx(sel) \
+    sel=x (classement des features sur les x premiers % des tendances + range, modèle final sur tout) → _sel{x} ;
+    tw=p (fins de tendance pondérées, poids 1 → p après C.TAIL_RAMP_START) → _tw{p} ;
+    ts=p (fins de tendance sous-échantillonnées, P(garder) 1 → p après C.TAIL_RAMP_START) → _ts{p}."""
+    sfx = ("" if ab else "_noab") + ("_severe" if severe else "") + _top_sfx(tops) + _head_sfx(head) + _sel_sfx(sel) + _tw_sfx(tw) + _ts_sfx(ts) \
         + _first_sfx(first)
     return C.DATA / f"predictions{sfx}.parquet" if variant == "all" else C.DATA / f"predictions_{variant}{sfx}.parquet"
 
 
-def out_dir(variant="all", ab=True, severe=False, first=None, tops=None, head=False, sel=None):
+def out_dir(variant="all", ab=True, severe=False, first=None, tops=None, head=False, sel=None, tw=None, ts=None):
     base = C.OUT if variant == "all" else C.OUT / variant
     base = base if ab else base / "noab"
     base = base / "severe" if severe else base
     base = base / _top_sfx(tops).lstrip("_") if tops else base
     base = base / _head_sfx(head).lstrip("_") if head else base
     base = base / _sel_sfx(sel).lstrip("_") if sel else base
+    base = base / _tw_sfx(tw).lstrip("_") if tw is not None else base
+    base = base / _ts_sfx(ts).lstrip("_") if ts is not None else base
     return base / _first_sfx(first).lstrip("_") if _first_sfx(first) else base
 
 
@@ -90,20 +123,22 @@ def cutoffs(first, last):
     return out
 
 
-def labels_before(df, cutoff):
+def labels_before(df, cutoff, with_phase=False):
     """Labels définitifs connus avec les cours < cutoff → (y, f1_keep) alignés sur df.
 
     y : classe 0/1/2 (NaN = pas de label) ; f1_keep : la ligne compte dans le F1 (range, ou début de tendance :
-    phase < C.F1_TREND_HEAD)."""
+    phase < C.F1_TREND_HEAD). with_phase=True → (y, f1_keep, phase), phase NaN en range ou sans label."""
     y = pd.Series(np.nan, index=df.index)
     keep = pd.Series(False, index=df.index)
+    phs = pd.Series(np.nan, index=df.index)
     for _, g in df[df["date"] < cutoff].groupby("symbol", sort=False):
         lab, phase, final_until = trend_labels(g.set_index("date")["c"], with_phase=True, **C.TREND)
         ok = g["date"].to_numpy() < np.datetime64(final_until)
         y.loc[g.index[ok]] = lab.to_numpy()[ok]
         ph = phase.to_numpy()[ok]
         keep.loc[g.index[ok]] = np.isnan(ph) | (ph < C.F1_TREND_HEAD)
-    return y, keep
+        phs.loc[g.index[ok]] = ph
+    return (y, keep, phs) if with_phase else (y, keep)
 
 
 def interval_index(dates, start):
@@ -125,14 +160,14 @@ def _params():
     return p
 
 
-def fit(X, y, Xv, yv, rounds=C.XGB_ROUNDS):
-    dtr, dva = xgb.DMatrix(X, label=y), xgb.DMatrix(Xv, label=yv)
+def fit(X, y, Xv, yv, rounds=C.XGB_ROUNDS, w=None):
+    dtr, dva = xgb.DMatrix(X, label=y, weight=w), xgb.DMatrix(Xv, label=yv)
     m = xgb.train(_params(), dtr, num_boost_round=rounds, evals=[(dva, "eval")], custom_metric=_f1,
                   maximize=True, early_stopping_rounds=C.XGB_PATIENCE, verbose_eval=False)
     return m, m.best_iteration + 1, m.best_score
 
 
-def select_features(X, y, idx, cols, keep):
+def select_features(X, y, idx, cols, keep, w=None):
     """6 modèles (3 sous-blocs A, 3 sous-blocs B) → importance stable = moyenne / écart-type^puissance.
     keep : lignes comptées dans le F1 d'arrêt (début de tendance ou range)."""
     a, b = (idx % 2 == 0) & keep, (idx % 2 == 1) & keep
@@ -142,7 +177,7 @@ def select_features(X, y, idx, cols, keep):
         if part.sum() < 200 or len(np.unique(y[part])) < 3:
             continue
         other = b if k % 2 == 0 else a
-        m, _, _ = fit(X[part], y[part], X[other], y[other], rounds=200)
+        m, _, _ = fit(X[part], y[part], X[other], y[other], rounds=200, w=None if w is None else w[part])
         s = m.get_score(importance_type="weight")
         imp[k] = [s.get(f"f{j}", 0) for j in range(len(cols))]
     d = pd.DataFrame(imp, index=cols)
@@ -153,14 +188,19 @@ def select_features(X, y, idx, cols, keep):
     return d.sort_values("score", ascending=False)
 
 
-def train_cutoff(df, cols, y, cutoff, nxt, keep, tops=None, head=False, sel=False):
+def train_cutoff(df, cols, y, cutoff, nxt, keep, tops=None, head=False, sel=False, w=None, sample=None):
     """head=True : les jours de tendance au-delà des C.F1_TREND_HEAD premiers (zones évidentes) sont retirés de
     l'apprentissage, de la sélection des features et de l'arrêt anticipé ; restent le range et les débuts.
     sel=True : seuls les 6 modèles de classement des features sont appris sur le range et les débuts ; les modèles
-    A/B finaux apprennent sur toutes les lignes (arrêt anticipé toujours sur le range et les débuts)."""
+    A/B finaux apprennent sur toutes les lignes (arrêt anticipé toujours sur le range et les débuts).
+    w : poids d'apprentissage alignés sur df (fins de tendance pondérées, tail_weight) ; le F1 d'arrêt n'est pas pondéré.
+    sample : masque booléen aligné sur df (tail_sample) ; les lignes écartées sortent de l'apprentissage, du
+    classement des features et des jeux d'arrêt anticipé."""
     tr = (df["member"] & (df["date"] >= C.START_DATE) & (df["date"] < cutoff) & y.notna()).to_numpy()
     if head:
         tr &= keep.to_numpy()
+    if sample is not None:
+        tr &= np.asarray(sample)
     te = (df["member"] & (df["date"] >= cutoff) & (df["date"] < nxt)).to_numpy()
     if not te.any():
         return None
@@ -169,12 +209,13 @@ def train_cutoff(df, cols, y, cutoff, nxt, keep, tops=None, head=False, sel=Fals
     a, b = idx % 2 == 0, idx % 2 == 1
     kk = keep[tr].to_numpy()
     va, vb = a & kk, b & kk                      # jeux d'évaluation du F1 : début de tendance ou range
-    rank = select_features(X[kk], yy[kk], idx[kk], cols, kk[kk]) if sel else select_features(X, yy, idx, cols, kk)
+    ww = None if w is None else np.asarray(w)[tr]
+    rank = select_features(X[kk], yy[kk], idx[kk], cols, kk[kk]) if sel else select_features(X, yy, idx, cols, kk, ww)
     best = None
     for top in (tops or C.TOP_FEATURES):
         sel = [cols.index(c) for c in rank.index[:top]]
-        ma, na, f1a = fit(X[a][:, sel], yy[a], X[vb][:, sel], yy[vb])
-        mb, nb, f1b = fit(X[b][:, sel], yy[b], X[va][:, sel], yy[va])
+        ma, na, f1a = fit(X[a][:, sel], yy[a], X[vb][:, sel], yy[vb], w=None if ww is None else ww[a])
+        mb, nb, f1b = fit(X[b][:, sel], yy[b], X[va][:, sel], yy[va], w=None if ww is None else ww[b])
         f1 = (f1a + f1b) / 2
         if best is None or f1 > best["f1"]:
             best = dict(f1=f1, f1a=f1a, f1b=f1b, sel=sel, ma=ma, mb=mb, na=na, nb=nb, top=len(sel))
@@ -215,26 +256,31 @@ def train_cutoff_noab(df, cols, y, cutoff, nxt):
     return out, info, rank, None
 
 
-def main(df=None, variant="all", ab=True, severe=False, first=None, tops=None, head=False, sel=None):
+def main(df=None, variant="all", ab=True, severe=False, first=None, tops=None, head=False, sel=None, tw=None,
+         ts=None):
     df = pd.read_parquet(F.FEATURES) if df is None else df
     df = df.sort_values(["symbol", "date"]).reset_index(drop=True)
     cols = F.feature_columns(df, variant)
-    out = out_dir(variant, ab, severe, first, tops, head, sel)
-    path = predictions_path(variant, ab, severe, first, tops, head, sel)
+    out = out_dir(variant, ab, severe, first, tops, head, sel, tw, ts)
+    path = predictions_path(variant, ab, severe, first, tops, head, sel, tw, ts)
     custom = bool(tops)
     tops = tops or (C.TOP_FEATURES_SEVERE if severe else C.TOP_FEATURES)
     print(f"variante « {variant} » ({F.VARIANTS[variant]}) : {len(cols)} features"
           + ("" if ab else " — sans blocs A/B") + (f" — filtrage A/B {tops} features" if severe or custom else "")
           + (f" — sans les fins de tendance (début = {C.F1_TREND_HEAD:.0%} premiers)" if head else "")
-          + (f" — features choisies sur les débuts de tendance ({C.F1_TREND_HEAD:.0%} premiers)" if sel else ""),
+          + (f" — features choisies sur les débuts de tendance ({C.F1_TREND_HEAD:.0%} premiers)" if sel else "")
+          + (f" — fins de tendance pondérées (1 → {tw} après {C.TAIL_RAMP_START:.0%})" if tw is not None else "")
+          + (f" — fins de tendance sous-échantillonnées (1 → {ts} après {C.TAIL_RAMP_START:.0%})" if ts is not None else ""),
           flush=True)
     last = df["date"].max()
     cuts = cutoffs(first or C.FIRST_OOS_DATE, last)
     preds, infos, ranks, vals, t0 = [], [], [], [], time.time()
     for i, cut in enumerate(cuts):
         nxt = cuts[i + 1] if i + 1 < len(cuts) else last + pd.Timedelta(days=1)
-        y, keep = labels_before(df, cut)
-        r = train_cutoff(df, cols, y, cut, nxt, keep, tops, head, bool(sel)) if ab else train_cutoff_noab(df, cols, y, cut, nxt)
+        y, keep, phase = labels_before(df, cut, with_phase=True)
+        w = None if tw is None else tail_weight(phase, tw)
+        smp = None if ts is None else tail_sample(phase.to_numpy(), ts)
+        r = train_cutoff(df, cols, y, cut, nxt, keep, tops, head, bool(sel), w, smp) if ab else train_cutoff_noab(df, cols, y, cut, nxt)
         if r is None:
             continue
         preds.append(r[0])
@@ -254,7 +300,7 @@ def main(df=None, variant="all", ab=True, severe=False, first=None, tops=None, h
     acc = float((p.loc[ok, "y"].astype(int) == p.loc[ok, "cls"]).mean())
     f1_all = f1_score(p.loc[lab, "y"].astype(int), p.loc[lab, "cls"], average="macro")
     p.to_parquet(path, index=False)
-    if variant == "all" and ab and not severe and not custom and not head and not sel and not _first_sfx(first):
+    if variant == "all" and ab and not severe and not custom and not head and not sel and tw is None and ts is None and not _first_sfx(first):
         pd.concat(vals, ignore_index=True).to_parquet(VAL_PREDICTIONS, index=False)
     out.mkdir(parents=True, exist_ok=True)
     imp = pd.concat(ranks, axis=1)
@@ -285,5 +331,7 @@ if __name__ == "__main__":
     sel = next((float(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--select-head=")), None)
     if sel:
         C.F1_TREND_HEAD = sel                    # même fraction pour le classement des features et le F1 d'arrêt
+    tw = next((float(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--tail-weight=")), None)
+    ts = next((float(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--tail-sample=")), None)
     main(variant=args[0] if args else "all", ab="--no-ab" not in sys.argv, severe="--severe" in sys.argv, first=first,
-         tops=[int(t) for t in top.split(",")] if top else None, head=head, sel=sel)
+         tops=[int(t) for t in top.split(",")] if top else None, head=head, sel=sel, tw=tw, ts=ts)

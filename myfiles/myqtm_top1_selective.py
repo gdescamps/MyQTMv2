@@ -9,7 +9,7 @@ Scores (tous connus à la clôture du jour du signal) :
 - rang_trim    : rang (0 → 1) de la P(haussier) du n° 1 du jour parmi les n° 1 des jours précédents du même
                  trimestre (même modèle → même calibration ; causal) ; pas d'entrée les 10 premiers jours.
 
-    PYTHONPATH=.:myfiles python myfiles/myqtm_top1_selective.py [--top=100,120] [--no-ab] [--head-only[=0.15]] [--select-head=0.2]
+    PYTHONPATH=.:myfiles python myfiles/myqtm_top1_selective.py [--top=100,120] [--no-ab] [--head-only[=0.15]] [--select-head=0.2] [--tail-weight=0.1] [--tail-sample=0.1]
 """
 import sys
 
@@ -56,7 +56,9 @@ def main():
     noab = "--no-ab" in sys.argv
     head = next((float(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--head-only=")), "--head-only" in sys.argv)
     sel = next((float(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--select-head=")), None)
-    T.PREDICTIONS = T.predictions_path(ab=not noab, first=FIRST, tops=tops, head=head, sel=sel)
+    tw = next((float(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--tail-weight=")), None)
+    ts = next((float(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--tail-sample=")), None)
+    T.PREDICTIONS = T.predictions_path(ab=not noab, first=FIRST, tops=tops, head=head, sel=sel, tw=tw, ts=ts)
     p = B.load()
     p = p.merge(pd.read_parquet(T.PREDICTIONS, columns=["date", "symbol", "ybear"]), on=["date", "symbol"])
     p = p[p["date"] >= FIRST].sort_values(["symbol", "date"]).reset_index(drop=True)
@@ -84,7 +86,7 @@ def main():
     idx = pd.read_parquet(F.INDEX)["level"].loc[start:end]
     rows.append(dict(score="indice de l'univers", **stats(idx)))
     out = pd.DataFrame(rows)
-    name = "myfiles/myqtm_top1_selective" + ("_noab" if noab else "") + T._top_sfx(tops) + T._head_sfx(head) + T._sel_sfx(sel)
+    name = "myfiles/myqtm_top1_selective" + ("_noab" if noab else "") + T._top_sfx(tops) + T._head_sfx(head) + T._sel_sfx(sel) + T._tw_sfx(tw) + T._ts_sfx(ts)
     out.to_csv(name + ".csv", index=False)
     pd.set_option("display.width", 220, "display.float_format", "{:.2f}".format)
     print(f"{T.PREDICTIONS.name} — top 1 sélectif, lots dynamiques, {start:%Y-%m-%d} → {end:%Y-%m-%d}")
