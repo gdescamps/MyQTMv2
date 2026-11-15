@@ -72,10 +72,11 @@ def main():
     tab = pd.DataFrame(index=pd.MultiIndex.from_tuples(allidx, names=["symbol", "entry"]))
     for k, v in tr.items():
         tab[k] = v["ret_pct"]
-    tab["ret_pct"] = tab.bfill(axis=1).iloc[:, 0]
+        tab.loc[v.index, "exit"] = v["exit"]
+    tab["ret_pct"] = tab[names].bfill(axis=1).iloc[:, 0]
     tab["n_graines"] = tab[seeds].notna().sum(axis=1)
     tab["normal_aussi"] = tab["normal"].notna()
-    out = tab.reset_index()[["symbol", "entry", "ret_pct", "n_graines", "normal_aussi"]]
+    out = tab.reset_index()[["symbol", "entry", "exit", "ret_pct", "n_graines", "normal_aussi"]]
     out.to_csv(f"myfiles/myqtm_compare_seed_trades_top{round(TOP * 10)}.csv", index=False)
     print("\n=== 15 plus gros gains (tous modèles) ===")
     print(out.sort_values("ret_pct", ascending=False).head(15).to_string(index=False))
