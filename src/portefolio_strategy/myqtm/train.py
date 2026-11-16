@@ -29,6 +29,7 @@ le label (tendance ex post) déborde d'un bloc sur l'autre. Ici :
                             # sous-échantillonnées : P(garder) = 1 jusqu'à 30 %, puis linéaire jusqu'à 0,1
     python -m src.portefolio_strategy.myqtm.train all --tail-sample=0 --xgb=4,100,0.02,100 --first=2024-01-01
                             # réglages XGBoost : profondeur, min_child_weight, learning_rate, patience
+    … --sp         # univers S&P 500 reconstitué (myqtm/sp.py : 500 titres, sans features LLM)
     … --hourly     # version horaire (myqtm/hourly.py : barres de 1 h, news horodatées, tendances en barres)
     … --stop=sharpe   # arrêt anticipé A/B au Sharpe max (seuils CMA-ES sur l'autre moitié, sharpe_stop.py)
     … --stop=sharpe-fixed   # idem avec les seuils par défaut, sans CMA-ES
@@ -416,6 +417,9 @@ if __name__ == "__main__":
         C.F1_TREND_HEAD = sel                    # même fraction pour le classement des features et le F1 d'arrêt
     tw = next((float(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--tail-weight=")), None)
     ts = next((float(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--tail-sample=")), None)
+    if "--sp" in sys.argv:                       # univers S&P 500 reconstitué (sp.py), sans features LLM
+        from .sp import use_sp
+        use_sp()
     if "--hourly" in sys.argv:                   # barres de 1 h (hourly.py) : features, étiquettes, dossiers
         from .hourly import use_hourly
         use_hourly()
