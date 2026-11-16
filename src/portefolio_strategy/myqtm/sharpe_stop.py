@@ -6,6 +6,8 @@ CMA-ES cherche les seuils du moteur ref/MyQTM (trade.simulate : long_open, incre
 qui maximisent le Sharpe des blocs B. Chaque bloc de 90 j est simulé seul (pas de position portée d'un bloc à
 l'autre) et le Sharpe est calculé sur les rendements quotidiens mis bout à bout. On garde le palier au meilleur
 Sharpe ; arrêt après PATIENCE paliers sans amélioration. Symétrique pour le modèle B sur les blocs A.
+FIXED (train.py --stop=sharpe-fixed) : pas de CMA-ES, le Sharpe de chaque palier est celui des seuils par défaut
+(C.DEFAULT_PARAMS), ceux avec lesquels on trade ensuite.
 """
 from multiprocessing import Pool
 
@@ -21,6 +23,7 @@ PATIENCE = 3
 CMA_ITERS = 15
 CMA_POP = 10
 KEYS = ("long_open", "increase")
+FIXED = False                  # True (train.py --stop=sharpe-fixed) : Sharpe aux seuils par défaut, sans CMA-ES
 _B = {}                        # données de trading, héritées par les processus du Pool (fork)
 
 
@@ -77,7 +80,12 @@ def fit_sharpe(params, X, y, Xt, rows, w=None):
     while n < C.XGB_ROUNDS:
         booster = xgb.train(params, dtr, num_boost_round=STEP, xgb_model=booster)
         n += STEP
-        sh, prm = best_thresholds(blocks_data(rows, booster.predict(dte)))
+        blocks = blocks_data(rows, booster.predict(dte))
+        if FIXED:                                           # seuils par défaut, une seule simulation
+            prm = dict(C.DEFAULT_PARAMS)
+            sh = sharpe(blocks, prm)
+        else:
+            sh, prm = best_thresholds(blocks)
         if sh > best[0]:
             best, since = (sh, n, prm), 0
         else:

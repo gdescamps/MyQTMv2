@@ -31,6 +31,7 @@ le label (tendance ex post) déborde d'un bloc sur l'autre. Ici :
                             # réglages XGBoost : profondeur, min_child_weight, learning_rate, patience
     … --hourly     # version horaire (myqtm/hourly.py : barres de 1 h, news horodatées, tendances en barres)
     … --stop=sharpe   # arrêt anticipé A/B au Sharpe max (seuils CMA-ES sur l'autre moitié, sharpe_stop.py)
+    … --stop=sharpe-fixed   # idem avec les seuils par défaut, sans CMA-ES
     … --save-val   # + val_all*.parquet : prédictions croisées A↔B de toutes les lignes avant chaque coupe
 """
 import json
@@ -426,6 +427,10 @@ if __name__ == "__main__":
     if "--stop=sharpe" in sys.argv:
         STOP = "sharpe"
         XGB_TAG += "_ss"
+    if "--stop=sharpe-fixed" in sys.argv:        # arrêt au Sharpe des seuils par défaut (sans CMA-ES)
+        STOP = "sharpe"
+        SS.FIXED = True
+        XGB_TAG += "_ssf"
     C.TAIL_SAMPLE_SEED = next((int(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--sample-seed=")),
                               C.TAIL_SAMPLE_SEED)
     main(variant=args[0] if args else "all", ab="--no-ab" not in sys.argv, severe="--severe" in sys.argv, first=first,

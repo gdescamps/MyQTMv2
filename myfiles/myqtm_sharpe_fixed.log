@@ -1,0 +1,91 @@
+    2024-01-01 top 60 : Sharpe A→B 0.86 (50 arbres), B→A -1.51 (200 arbres)
+    2024-01-01 top 80 : Sharpe A→B 1.00 (50 arbres), B→A -1.16 (300 arbres)
+    2024-04-01 top 60 : Sharpe A→B 0.74 (50 arbres), B→A -0.67 (250 arbres)
+    2024-04-01 top 80 : Sharpe A→B 0.92 (50 arbres), B→A -0.39 (150 arbres)
+    2024-07-01 top 60 : Sharpe A→B 1.00 (150 arbres), B→A -0.57 (200 arbres)
+    2024-07-01 top 80 : Sharpe A→B 1.23 (150 arbres), B→A -0.44 (400 arbres)
+    2024-10-01 top 60 : Sharpe A→B 0.35 (50 arbres), B→A -0.76 (50 arbres)
+    2024-10-01 top 80 : Sharpe A→B 0.94 (50 arbres), B→A -0.53 (600 arbres)
+    2025-01-01 top 60 : Sharpe A→B 1.17 (250 arbres), B→A -0.92 (150 arbres)
+    2025-01-01 top 80 : Sharpe A→B 1.39 (150 arbres), B→A -0.75 (100 arbres)
+    2025-04-01 top 60 : Sharpe A→B 0.94 (150 arbres), B→A -0.70 (150 arbres)
+    2025-04-01 top 80 : Sharpe A→B 0.88 (150 arbres), B→A -0.77 (350 arbres)
+    2025-07-01 top 60 : Sharpe A→B 1.02 (300 arbres), B→A -0.55 (150 arbres)
+    2025-07-01 top 80 : Sharpe A→B 0.88 (150 arbres), B→A -0.16 (50 arbres)
+    2025-10-01 top 60 : Sharpe A→B 0.62 (50 arbres), B→A 0.17 (50 arbres)
+    2025-10-01 top 80 : Sharpe A→B 0.71 (50 arbres), B→A -0.42 (50 arbres)
+    2026-01-01 top 60 : Sharpe A→B 0.96 (50 arbres), B→A -0.14 (100 arbres)
+    2026-01-01 top 80 : Sharpe A→B 0.74 (50 arbres), B→A -0.22 (50 arbres)
+    2026-04-01 top 60 : Sharpe A→B 0.76 (50 arbres), B→A -0.27 (200 arbres)
+    2026-04-01 top 80 : Sharpe A→B 0.52 (50 arbres), B→A 0.05 (500 arbres)
+    2026-07-01 top 60 : Sharpe A→B 1.11 (50 arbres), B→A -0.16 (100 arbres)
+    2026-07-01 top 80 : Sharpe A→B 1.35 (150 arbres), B→A -0.42 (50 arbres)
+    2026-10-01 top 60 : Sharpe A→B 1.36 (250 arbres), B→A -0.27 (200 arbres)
+    2026-10-01 top 80 : Sharpe A→B 1.15 (300 arbres), B→A -0.29 (100 arbres)
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.415 (tous les jours 0.677), exactitude 0.580 ; couverture sentiment 95.2%
+graine 42 ok
+    2024-01-01 top 60 : Sharpe A→B 0.93 (50 arbres), B→A -0.85 (100 arbres)
+    2024-01-01 top 80 : Sharpe A→B 0.88 (100 arbres), B→A -0.63 (50 arbres)
+    2024-04-01 top 60 : Sharpe A→B 1.17 (50 arbres), B→A -0.48 (200 arbres)
+    2024-04-01 top 80 : Sharpe A→B 0.91 (100 arbres), B→A -0.47 (250 arbres)
+    2024-07-01 top 60 : Sharpe A→B 0.62 (50 arbres), B→A -0.42 (50 arbres)
+    2024-07-01 top 80 : Sharpe A→B 1.05 (350 arbres), B→A -0.85 (50 arbres)
+    2024-10-01 top 60 : Sharpe A→B 1.28 (150 arbres), B→A -0.76 (150 arbres)
+    2024-10-01 top 80 : Sharpe A→B 1.15 (150 arbres), B→A -1.07 (200 arbres)
+    2025-01-01 top 60 : Sharpe A→B 1.05 (150 arbres), B→A -0.19 (200 arbres)
+    2025-01-01 top 80 : Sharpe A→B 1.12 (300 arbres), B→A -0.35 (450 arbres)
+    2025-04-01 top 60 : Sharpe A→B 1.20 (200 arbres), B→A -0.32 (150 arbres)
+    2025-04-01 top 80 : Sharpe A→B 1.47 (50 arbres), B→A -0.35 (450 arbres)
+    2025-07-01 top 60 : Sharpe A→B 0.98 (50 arbres), B→A -0.61 (350 arbres)
+    2025-07-01 top 80 : Sharpe A→B 0.67 (50 arbres), B→A -0.78 (150 arbres)
+    2025-10-01 top 60 : Sharpe A→B 0.75 (100 arbres), B→A -0.54 (150 arbres)
+    2025-10-01 top 80 : Sharpe A→B 0.81 (250 arbres), B→A -0.16 (50 arbres)
+    2026-01-01 top 60 : Sharpe A→B 1.10 (50 arbres), B→A -0.18 (50 arbres)
+    2026-01-01 top 80 : Sharpe A→B 0.62 (50 arbres), B→A -0.25 (100 arbres)
+    2026-04-01 top 60 : Sharpe A→B 0.73 (100 arbres), B→A 0.11 (400 arbres)
+    2026-04-01 top 80 : Sharpe A→B 0.56 (150 arbres), B→A -0.62 (150 arbres)
+    2026-07-01 top 60 : Sharpe A→B 1.29 (200 arbres), B→A -0.05 (250 arbres)
+    2026-07-01 top 80 : Sharpe A→B 1.15 (150 arbres), B→A -0.17 (100 arbres)
+    2026-10-01 top 60 : Sharpe A→B 1.16 (100 arbres), B→A -0.24 (150 arbres)
+    2026-10-01 top 80 : Sharpe A→B 1.31 (250 arbres), B→A -0.09 (50 arbres)
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.411 (tous les jours 0.672), exactitude 0.578 ; couverture sentiment 95.2%
+graine 7 ok
+    2024-01-01 top 60 : Sharpe A→B 0.92 (150 arbres), B→A -1.04 (50 arbres)
+    2024-01-01 top 80 : Sharpe A→B 0.65 (150 arbres), B→A -1.11 (500 arbres)
+    2024-04-01 top 60 : Sharpe A→B 1.21 (100 arbres), B→A -0.04 (150 arbres)
+    2024-04-01 top 80 : Sharpe A→B 0.90 (250 arbres), B→A -0.41 (150 arbres)
+    2024-07-01 top 60 : Sharpe A→B 0.86 (50 arbres), B→A -0.87 (100 arbres)
+    2024-07-01 top 80 : Sharpe A→B 1.29 (400 arbres), B→A -0.27 (150 arbres)
+    2024-10-01 top 60 : Sharpe A→B 1.03 (150 arbres), B→A -0.73 (50 arbres)
+    2024-10-01 top 80 : Sharpe A→B 1.19 (50 arbres), B→A -0.65 (50 arbres)
+    2025-01-01 top 60 : Sharpe A→B 1.33 (100 arbres), B→A -0.24 (350 arbres)
+    2025-01-01 top 80 : Sharpe A→B 1.38 (150 arbres), B→A -0.76 (100 arbres)
+    2025-04-01 top 60 : Sharpe A→B 0.99 (150 arbres), B→A -0.44 (100 arbres)
+    2025-04-01 top 80 : Sharpe A→B 1.10 (100 arbres), B→A -0.53 (100 arbres)
+    2025-07-01 top 60 : Sharpe A→B 0.95 (50 arbres), B→A -0.26 (350 arbres)
+    2025-07-01 top 80 : Sharpe A→B 0.68 (50 arbres), B→A -0.28 (150 arbres)
+    2025-10-01 top 60 : Sharpe A→B 0.80 (50 arbres), B→A -0.32 (200 arbres)
+    2025-10-01 top 80 : Sharpe A→B 0.73 (100 arbres), B→A -0.26 (250 arbres)
+    2026-01-01 top 60 : Sharpe A→B 0.90 (50 arbres), B→A -0.16 (50 arbres)
+    2026-01-01 top 80 : Sharpe A→B 0.82 (300 arbres), B→A -0.17 (100 arbres)
+    2026-04-01 top 60 : Sharpe A→B 0.54 (50 arbres), B→A -0.05 (150 arbres)
+    2026-04-01 top 80 : Sharpe A→B 0.62 (450 arbres), B→A -0.15 (450 arbres)
+    2026-07-01 top 60 : Sharpe A→B 1.34 (200 arbres), B→A -0.12 (100 arbres)
+    2026-07-01 top 80 : Sharpe A→B 1.29 (300 arbres), B→A -0.25 (50 arbres)
+    2026-10-01 top 60 : Sharpe A→B 1.10 (100 arbres), B→A -0.31 (50 arbres)
+    2026-10-01 top 80 : Sharpe A→B 1.39 (150 arbres), B→A -0.34 (200 arbres)
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.415 (tous les jours 0.671), exactitude 0.583 ; couverture sentiment 95.2%
+graine 123 ok
+ts0_ssf : P(haussier) quantiles [0.5, 0.9, 0.99] — ligne croisée [0.272 0.86  0.969], hors échantillon [0.241 0.849 0.959]
+
+hors échantillon 2024-01-02 → 2026-11-09
+  cma_ab  : {'cagr_pct': 25.19, 'max_dd_pct': -26.31, 'sharpe': 1.037, 'trades': 387, 'gagnants_pct': 40.1, 'gain_moy_pct': 1.6, 'positions_moy': 6.87, 'cash_moy_pct': 8.9, 'annuel': {2024: 39.46, 2025: -10.85, 2026: 51.87}}
+  defaut  : {'cagr_pct': 25.19, 'max_dd_pct': -26.31, 'sharpe': 1.037, 'trades': 387, 'gagnants_pct': 40.1, 'gain_moy_pct': 1.6, 'positions_moy': 6.87, 'cash_moy_pct': 8.9, 'annuel': {2024: 39.46, 2025: -10.85, 2026: 51.87}}
+  indice  : {'cagr_pct': 24.510274577006808, 'max_drawdown_pct': -23.63608732819374, 'sharpe': 1.1249822833893188, 'annual_roi_pct': {2024: 37.97, 2025: 26.71, 2026: 7.16}}
+ts0_ssf_avg : P(haussier) quantiles [0.5, 0.9, 0.99] — ligne croisée [0.275 0.858 0.958], hors échantillon [0.241 0.842 0.946]
+
+hors échantillon 2024-01-02 → 2026-11-09
+  cma_ab  : {'cagr_pct': 29.76, 'max_dd_pct': -24.41, 'sharpe': 1.192, 'trades': 350, 'gagnants_pct': 39.7, 'gain_moy_pct': 2.07, 'positions_moy': 6.41, 'cash_moy_pct': 11.3, 'annuel': {2024: 16.43, 2025: 4.29, 2026: 73.07}}
+  defaut  : {'cagr_pct': 29.76, 'max_dd_pct': -24.41, 'sharpe': 1.192, 'trades': 350, 'gagnants_pct': 39.7, 'gain_moy_pct': 2.07, 'positions_moy': 6.41, 'cash_moy_pct': 11.3, 'annuel': {2024: 16.43, 2025: 4.29, 2026: 73.07}}
+  indice  : {'cagr_pct': 24.510274577006808, 'max_drawdown_pct': -23.63608732819374, 'sharpe': 1.1249822833893188, 'annual_roi_pct': {2024: 37.97, 2025: 26.71, 2026: 7.16}}
+TERMINÉ

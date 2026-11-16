@@ -13,6 +13,7 @@ Comparaison : mêmes prédictions avec les seuils par défaut (C.DEFAULT_PARAMS)
 
     python -m src.portefolio_strategy.myqtm.cma_ab [--pred=ts0] [--avg] [--sfx=_ss] [--objective=perf]
         # --avg : moyenne des graines 42 / 7 / 123 ; --sfx=_ss : modèles arrêtés au Sharpe (train.py --stop=sharpe)
+        # --no-cma : pas de réglage, seuils par défaut seulement (ex. --sfx=_ssf, train.py --stop=sharpe-fixed)
 """
 import json
 import sys
@@ -68,7 +69,7 @@ def main():
     print(f"{tag} : P(haussier) quantiles {q} — ligne croisée {np.round(val['ybull'].quantile(q).values, 3)}, "
           f"hors échantillon {np.round(oos['ybull'].quantile(q).values, 3)}", flush=True)
     params, t0 = {}, time.time()
-    for c in cuts:
+    for c in (cuts if "--no-cma" not in sys.argv else cuts[:0]):   # --no-cma : seuils par défaut seulement
         td = T.build_trade_data(val[val["cutoff"] == c])
         if objective == "sharpe":                           # Sharpe max de la ligne croisée (simulation continue)
             score, prm = SS.best_thresholds([td])
@@ -85,6 +86,8 @@ def main():
     keys = sorted(params)
 
     def params_for(d):
+        if not keys:
+            return dict(C.DEFAULT_PARAMS)
         return params[max([k for k in keys if k <= d] or keys[:1])]["params"]
 
     td = T.build_trade_data(oos)
