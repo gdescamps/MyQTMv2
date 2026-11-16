@@ -4,9 +4,9 @@ Top k (rang trimestriel ≥ 1 − k), lots dynamiques, sortie EMA 3 < EMA 10 ; f
 du signal (jours calendaires avant la prochaine réaction aux résultats, plafonné à 30 = aucune connue) :
 aucun filtre / résultats ≤ 20 j / < 30 j / aucun résultat dans les 30 j.
 
-Aussi top 2 … 5 du jour (sans filtre de rang) avec les mêmes filtres, pour avoir plus de trades.
+Aussi top 2 … max-k (5 par défaut) du jour (sans filtre de rang) avec les mêmes filtres, pour avoir plus de trades.
 
-    PYTHONPATH=.:myfiles python myfiles/myqtm_earn_filter.py [--sample-seed=7]
+    PYTHONPATH=.:myfiles python myfiles/myqtm_earn_filter.py [--sample-seed=7] [--max-k=10] [--pred=rank_from2024]
 """
 import sys
 
@@ -28,7 +28,9 @@ FILTERS = {"aucun filtre": lambda d: d >= 0, "résultats ≤ 20 j": lambda d: d 
 def main():
     seed = next((int(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--sample-seed=")), 42)
     T.C.TAIL_SAMPLE_SEED = seed
-    T.PREDICTIONS = T.predictions_path(first=S.FIRST, ts=0.0)
+    kmax = next((int(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--max-k=")), 5)
+    pred = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--pred=")), None)
+    T.PREDICTIONS = T.C.DATA / f"predictions_{pred}.parquet" if pred else T.predictions_path(first=S.FIRST, ts=0.0)
     p = B.load()
     p = p.merge(pd.read_parquet(T.PREDICTIONS, columns=["date", "symbol", "ybear"]), on=["date", "symbol"])
     p = p[p["date"] >= S.FIRST].sort_values(["symbol", "date"]).reset_index(drop=True)
@@ -53,7 +55,7 @@ def main():
             ret = [opens.at[x, s] / opens.at[e, s] - 1 for e, x, s in zip(c["entry"], c["exit"], c["symbol"])]
             rows.append(dict(filtre=name, top=k, trades=len(c), gain_moy_pct=100 * pd.Series(ret).mean(),
                              gain_med_pct=100 * pd.Series(ret).median(), **stats(v)))
-    for k in (2, 3, 4, 5):
+    for k in range(2, kmax + 1):
         ck = signals(p, k)
         ck = ck[ck["exit"] <= end].merge(allf[["date", "symbol", "earn_days_to_next"]], left_on=["signal", "symbol"],
                                          right_on=["date", "symbol"])
@@ -64,7 +66,8 @@ def main():
             rows.append(dict(filtre=name, top=float(k), trades=len(c), gain_moy_pct=100 * pd.Series(ret).mean(),
                              gain_med_pct=100 * pd.Series(ret).median(), **stats(v)))
     out = pd.DataFrame(rows)
-    out.to_csv("myfiles/myqtm_earn_filter" + ("" if seed == 42 else f"_s{seed}") + ".csv", index=False)
+    out.to_csv("myfiles/myqtm_earn_filter" + ("" if seed == 42 else f"_s{seed}") + (f"_{pred}" if pred else "") + ".csv",
+               index=False)
     pd.set_option("display.width", 220, "display.float_format", "{:.2f}".format)
     for v in ("trades", "gain_med_pct", "rendement_an_pct", "max_drawdown_pct", "sharpe"):
         print(f"\n{v}")

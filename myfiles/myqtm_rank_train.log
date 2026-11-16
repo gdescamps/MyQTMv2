@@ -1,0 +1,18 @@
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train_rank.py:45: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  exit_open = np.full(len(df), np.datetime64("NaT"), dtype="datetime64[ns]")
+classement par jour sur le gain du trade : 284 features, 277321 trades étiquetés
+  {'cutoff': '2024-01-01', 'train_rows': 98590, 'test_rows': 6039, 'train_until': '2023-12-27', 'ndcg3_cv': 0.1679, 'top_features': 34, 'rounds': [29, 12], 'gain_mean_pct': 0.021}  [4 s]
+  {'cutoff': '2024-04-01', 'train_rows': 105314, 'test_rows': 6237, 'train_until': '2024-03-26', 'ndcg3_cv': 0.197, 'top_features': 31, 'rounds': [56, 11], 'gain_mean_pct': 0.06}  [6 s]
+  {'cutoff': '2024-07-01', 'train_rows': 111472, 'test_rows': 6399, 'train_until': '2024-06-26', 'ndcg3_cv': 0.1791, 'top_features': 40, 'rounds': [80, 95], 'gain_mean_pct': 0.059}  [9 s]
+  {'cutoff': '2024-10-01', 'train_rows': 117785, 'test_rows': 6400, 'train_until': '2024-09-26', 'ndcg3_cv': 0.1939, 'top_features': 51, 'rounds': [72, 16], 'gain_mean_pct': 0.037}  [13 s]
+  {'cutoff': '2025-01-01', 'train_rows': 124846, 'test_rows': 6000, 'train_until': '2024-12-27', 'ndcg3_cv': 0.175, 'top_features': 49, 'rounds': [4, 117], 'gain_mean_pct': 0.058}  [16 s]
+  {'cutoff': '2025-04-01', 'train_rows': 130816, 'test_rows': 6200, 'train_until': '2025-03-27', 'ndcg3_cv': 0.1693, 'top_features': 50, 'rounds': [25, 228], 'gain_mean_pct': 0.033}  [20 s]
+  {'cutoff': '2025-07-01', 'train_rows': 136321, 'test_rows': 6400, 'train_until': '2025-06-26', 'ndcg3_cv': 0.185, 'top_features': 58, 'rounds': [132, 228], 'gain_mean_pct': 0.025}  [25 s]
+  {'cutoff': '2025-10-01', 'train_rows': 143052, 'test_rows': 6400, 'train_until': '2025-09-26', 'ndcg3_cv': 0.2255, 'top_features': 60, 'rounds': [44, 52], 'gain_mean_pct': 0.082}  [29 s]
+  {'cutoff': '2026-01-01', 'train_rows': 149423, 'test_rows': 6081, 'train_until': '2025-12-29', 'ndcg3_cv': 0.1945, 'top_features': 60, 'rounds': [138, 21], 'gain_mean_pct': 0.083}  [33 s]
+  {'cutoff': '2026-04-01', 'train_rows': 156012, 'test_rows': 6200, 'train_until': '2026-03-27', 'ndcg3_cv': 0.1973, 'top_features': 65, 'rounds': [82, 14], 'gain_mean_pct': 0.072}  [38 s]
+  {'cutoff': '2026-07-01', 'train_rows': 161887, 'test_rows': 6360, 'train_until': '2026-06-26', 'ndcg3_cv': 0.2101, 'top_features': 59, 'rounds': [45, 131], 'gain_mean_pct': 0.181}  [42 s]
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train_rank.py:168: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  nxt = cuts[i + 1] if i + 1 < len(cuts) else last + pd.Timedelta(days=1)
+  {'cutoff': '2026-10-01', 'train_rows': 168251, 'test_rows': 2747, 'train_until': '2026-09-28', 'ndcg3_cv': 0.2008, 'top_features': 60, 'rounds': [27, 57], 'gain_mean_pct': 0.168}  [47 s]
+prédictions hors échantillon : 71463 lignes → /home/greg/data_local/code/MyQTMv2_dev/data/portefolio_strategy/myqtm/predictions_rank_from2024.parquet

@@ -1,0 +1,33 @@
+classement par jour sur le gain du trade : 284 features, 277321 trades étiquetés
+  {'cutoff': '2024-01-01', 'train_rows': 98373, 'test_rows': 6039, 'train_until': '2023-12-27', 'ndcg3_cv': 0.4572, 'top_features': 35, 'rounds': [171, 148], 'target_mean': 0.64283}  [6 s]
+  {'cutoff': '2024-04-01', 'train_rows': 105086, 'test_rows': 6237, 'train_until': '2024-03-26', 'ndcg3_cv': 0.4586, 'top_features': 33, 'rounds': [14, 151], 'target_mean': 0.65673}  [10 s]
+  {'cutoff': '2024-07-01', 'train_rows': 111151, 'test_rows': 6399, 'train_until': '2024-06-26', 'ndcg3_cv': 0.4611, 'top_features': 35, 'rounds': [35, 43], 'target_mean': 0.65234}  [15 s]
+  {'cutoff': '2024-10-01', 'train_rows': 117556, 'test_rows': 6400, 'train_until': '2024-09-26', 'ndcg3_cv': 0.4689, 'top_features': 33, 'rounds': [145, 157], 'target_mean': 0.65286}  [20 s]
+  {'cutoff': '2025-01-01', 'train_rows': 124017, 'test_rows': 6000, 'train_until': '2024-12-27', 'ndcg3_cv': 0.4784, 'top_features': 33, 'rounds': [91, 199], 'target_mean': 0.65906}  [25 s]
+  {'cutoff': '2025-04-01', 'train_rows': 130348, 'test_rows': 6200, 'train_until': '2025-03-27', 'ndcg3_cv': 0.4677, 'top_features': 37, 'rounds': [34, 42], 'target_mean': 0.65146}  [30 s]
+  {'cutoff': '2025-07-01', 'train_rows': 135997, 'test_rows': 6400, 'train_until': '2025-06-26', 'ndcg3_cv': 0.466, 'top_features': 40, 'rounds': [131, 163], 'target_mean': 0.65017}  [36 s]
+  {'cutoff': '2025-10-01', 'train_rows': 142682, 'test_rows': 6400, 'train_until': '2025-09-26', 'ndcg3_cv': 0.4733, 'top_features': 34, 'rounds': [135, 125], 'target_mean': 0.65146}  [41 s]
+  {'cutoff': '2026-01-01', 'train_rows': 149217, 'test_rows': 6081, 'train_until': '2025-12-29', 'ndcg3_cv': 0.4795, 'top_features': 35, 'rounds': [103, 120], 'target_mean': 0.64981}  [47 s]
+  {'cutoff': '2026-04-01', 'train_rows': 155197, 'test_rows': 6200, 'train_until': '2026-03-27', 'ndcg3_cv': 0.4703, 'top_features': 42, 'rounds': [123, 84], 'target_mean': 0.64682}  [54 s]
+  {'cutoff': '2026-07-01', 'train_rows': 161240, 'test_rows': 6360, 'train_until': '2026-06-26', 'ndcg3_cv': 0.4678, 'top_features': 43, 'rounds': [138, 75], 'target_mean': 0.64403}  [60 s]
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train_rank.py:189: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  nxt = cuts[i + 1] if i + 1 < len(cuts) else last + pd.Timedelta(days=1)
+  {'cutoff': '2026-10-01', 'train_rows': 167461, 'test_rows': 2747, 'train_until': '2026-09-28', 'ndcg3_cv': 0.4646, 'top_features': 50, 'rounds': [20, 232], 'target_mean': 0.64368}  [67 s]
+prédictions hors échantillon : 71463 lignes → /home/greg/data_local/code/MyQTMv2_dev/data/portefolio_strategy/myqtm/predictions_rank_trend3_from2024.parquet
+classement par jour sur le gain du trade : 284 features, 277321 trades étiquetés
+  {'cutoff': '2024-01-01', 'train_rows': 98373, 'test_rows': 6039, 'train_until': '2023-12-27', 'ndcg3_cv': 0.47, 'top_features': 37, 'rounds': [181, 205], 'target_mean': 0.64283}  [7 s]
+  {'cutoff': '2024-04-01', 'train_rows': 105086, 'test_rows': 6237, 'train_until': '2024-03-26', 'ndcg3_cv': 0.4648, 'top_features': 37, 'rounds': [247, 144], 'target_mean': 0.65673}  [13 s]
+  {'cutoff': '2024-07-01', 'train_rows': 111151, 'test_rows': 6399, 'train_until': '2024-06-26', 'ndcg3_cv': 0.4676, 'top_features': 38, 'rounds': [146, 255], 'target_mean': 0.65234}  [19 s]
+  {'cutoff': '2024-10-01', 'train_rows': 117556, 'test_rows': 6400, 'train_until': '2024-09-26', 'ndcg3_cv': 0.4683, 'top_features': 36, 'rounds': [132, 124], 'target_mean': 0.65286}  [25 s]
+  {'cutoff': '2025-01-01', 'train_rows': 124017, 'test_rows': 6000, 'train_until': '2024-12-27', 'ndcg3_cv': 0.4702, 'top_features': 38, 'rounds': [380, 148], 'target_mean': 0.65906}  [32 s]
+  {'cutoff': '2025-04-01', 'train_rows': 130348, 'test_rows': 6200, 'train_until': '2025-03-27', 'ndcg3_cv': 0.4665, 'top_features': 39, 'rounds': [175, 411], 'target_mean': 0.65146}  [39 s]
+  {'cutoff': '2025-07-01', 'train_rows': 135997, 'test_rows': 6400, 'train_until': '2025-06-26', 'ndcg3_cv': 0.4661, 'top_features': 41, 'rounds': [511, 250], 'target_mean': 0.65017}  [48 s]
+  {'cutoff': '2025-10-01', 'train_rows': 142682, 'test_rows': 6400, 'train_until': '2025-09-26', 'ndcg3_cv': 0.4642, 'top_features': 38, 'rounds': [182, 514], 'target_mean': 0.65146}  [56 s]
+  {'cutoff': '2026-01-01', 'train_rows': 149217, 'test_rows': 6081, 'train_until': '2025-12-29', 'ndcg3_cv': 0.4636, 'top_features': 37, 'rounds': [188, 162], 'target_mean': 0.64981}  [63 s]
+  {'cutoff': '2026-04-01', 'train_rows': 155197, 'test_rows': 6200, 'train_until': '2026-03-27', 'ndcg3_cv': 0.4623, 'top_features': 50, 'rounds': [190, 208], 'target_mean': 0.64682}  [72 s]
+  {'cutoff': '2026-07-01', 'train_rows': 161240, 'test_rows': 6360, 'train_until': '2026-06-26', 'ndcg3_cv': 0.4617, 'top_features': 46, 'rounds': [319, 247], 'target_mean': 0.64403}  [80 s]
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train_rank.py:189: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  nxt = cuts[i + 1] if i + 1 < len(cuts) else last + pd.Timedelta(days=1)
+  {'cutoff': '2026-10-01', 'train_rows': 167461, 'test_rows': 2747, 'train_until': '2026-09-28', 'ndcg3_cv': 0.4614, 'top_features': 50, 'rounds': [230, 311], 'target_mean': 0.64368}  [90 s]
+prédictions hors échantillon : 71463 lignes → /home/greg/data_local/code/MyQTMv2_dev/data/portefolio_strategy/myqtm/predictions_rank_trend10_from2024.parquet
+TERMINÉ

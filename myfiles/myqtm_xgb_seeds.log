@@ -1,0 +1,15 @@
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:309: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  nxt = cuts[i + 1] if i + 1 < len(cuts) else last + pd.Timedelta(days=1)
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:323: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  y_full, keep_full = labels_before(df, last + pd.Timedelta(days=1))
+variante « all » (sentiment PIT + volume de news EODHD par catégorie) : 284 features — fins de tendance sous-échantillonnées (1 → 0.0 après 30%)
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.419 (tous les jours 0.677), exactitude 0.575 ; couverture sentiment 95.2%
+graine 7 ok
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:309: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  nxt = cuts[i + 1] if i + 1 < len(cuts) else last + pd.Timedelta(days=1)
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:323: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  y_full, keep_full = labels_before(df, last + pd.Timedelta(days=1))
+variante « all » (sentiment PIT + volume de news EODHD par catégorie) : 284 features — fins de tendance sous-échantillonnées (1 → 0.0 après 30%)
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.417 (tous les jours 0.676), exactitude 0.575 ; couverture sentiment 95.2%
+graine 123 ok
+TERMINÉ
