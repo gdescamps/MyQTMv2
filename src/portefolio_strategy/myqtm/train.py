@@ -29,6 +29,8 @@ le label (tendance ex post) déborde d'un bloc sur l'autre. Ici :
                             # sous-échantillonnées : P(garder) = 1 jusqu'à 30 %, puis linéaire jusqu'à 0,1
     python -m src.portefolio_strategy.myqtm.train all --tail-sample=0 --xgb=4,100,0.02,100 --first=2024-01-01
                             # réglages XGBoost : profondeur, min_child_weight, learning_rate, patience
+    … --trend=mid|long   # horizon plus long : tendances EMA 3/10/30 (≥ 30 j) ou 5/20/60 (≥ 60 j), sortie EMA assortie
+    … --feat=132   # fichier features_132.parquet du dossier (comparaison avant / après ajout de features)
     … --sp         # univers S&P 500 reconstitué (myqtm/sp.py : 500 titres, sans features LLM)
     … --hourly     # version horaire (myqtm/hourly.py : barres de 1 h, news horodatées, tendances en barres)
     … --stop=sharpe   # arrêt anticipé A/B au Sharpe max (seuils CMA-ES sur l'autre moitié, sharpe_stop.py)
@@ -60,6 +62,18 @@ SAVE_VAL = None                # liste remplie par train_cutoff si --save-val (p
 XGB_TAG = ""                   # suffixe des réglages XGBoost non standard (option --xgb=profondeur,mcw,lr,patience)
 
 
+TRENDS = {"mid": dict(ma_short=3, ma_mid=10, ma_long=30, min_days=30, avg_daily_percent_thr=0.10),
+          "long": dict(ma_short=5, ma_mid=20, ma_long=60, min_days=60, avg_daily_percent_thr=0.07)}
+
+
+def set_trend(name):
+    """--trend=mid|long : tendances plus longues (EMA 3/10/30 ≥ 30 j, ou 5/20/60 ≥ 60 j) ; la sortie EMA des trades
+    suit (trade.ema_exit lit C.TREND). Suffixe _tmid / _tlong dans les noms de fichiers."""
+    global XGB_TAG
+    C.TREND = dict(TRENDS[name])
+    XGB_TAG += f"_t{name}"
+
+
 def set_xgb(spec):
     """--xgb=profondeur,min_child_weight,learning_rate,patience → C.XGB_PARAMS / C.XGB_PATIENCE modifiés et
     suffixe _x{d}m{mcw}l{lr×1000}p{patience} dans les noms de fichiers. Tours max portés à 1500 si lr < 0,05."""
@@ -69,7 +83,7 @@ def set_xgb(spec):
     C.XGB_PATIENCE = int(pat)
     if float(lr) < 0.05:
         C.XGB_ROUNDS = 1500
-    XGB_TAG = f"_x{int(d)}m{int(float(m))}l{round(1000 * float(lr))}p{int(pat)}"
+    XGB_TAG += f"_x{int(d)}m{int(float(m))}l{round(1000 * float(lr))}p{int(pat)}"
 
 
 def _first_sfx(first):
@@ -417,9 +431,16 @@ if __name__ == "__main__":
         C.F1_TREND_HEAD = sel                    # même fraction pour le classement des features et le F1 d'arrêt
     tw = next((float(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--tail-weight=")), None)
     ts = next((float(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--tail-sample=")), None)
+    trend = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--trend=")), None)
+    if trend:                                    # horizon des tendances (étiquettes et sortie EMA)
+        set_trend(trend)
     if "--sp" in sys.argv:                       # univers S&P 500 reconstitué (sp.py), sans features LLM
         from .sp import use_sp
         use_sp()
+    feat = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--feat=")), None)
+    if feat:                                     # autre fichier de features du même dossier (ex. --feat=132)
+        F.FEATURES = C.DATA / f"features_{feat}.parquet"
+        XGB_TAG += f"_f{feat}"
     if "--hourly" in sys.argv:                   # barres de 1 h (hourly.py) : features, étiquettes, dossiers
         from .hourly import use_hourly
         use_hourly()
