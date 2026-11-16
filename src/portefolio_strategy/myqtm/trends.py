@@ -14,9 +14,15 @@ def _crosses(a, b):
     return sign, a.index[sign.ne(sign.shift())]
 
 
-def detect_trends(close, ma_short=4, ma_mid=8, ma_long=30, min_days=8, avg_daily_percent_thr=0.15):
-    """close : Series indexée par date croissante → (segments, final_until)."""
+def detect_trends(close, ma_short=4, ma_mid=8, ma_long=30, min_days=8, avg_daily_percent_thr=0.15, bars=False):
+    """close : Series indexée par date croissante → (segments, final_until).
+    bars=True (version horaire) : durées comptées en nombre de lignes (barres) au lieu de jours calendaires ;
+    min_days = barres minimum, avg_daily_percent_thr = % moyen par barre."""
     close = close.sort_index()
+    pos_of = pd.Series(np.arange(len(close)), index=close.index)
+
+    def span(a, b):
+        return int(pos_of[b] - pos_of[a]) if bars else (b - a).days
     e_s = close.ewm(span=ma_short, adjust=False).mean()
     e_m = close.ewm(span=ma_mid, adjust=False).mean()
     e_l = close.ewm(span=ma_long, adjust=False).mean()
@@ -25,7 +31,7 @@ def detect_trends(close, ma_short=4, ma_mid=8, ma_long=30, min_days=8, avg_daily
     trends, last_end = [], None
     for i in range(1, len(cross_ml)):
         start_ml, end_ml = cross_ml[i - 1], cross_ml[i]
-        if (end_ml - start_ml).days < min_days:
+        if span(start_ml, end_ml) < min_days:
             continue
         before = cross_sm[cross_sm < start_ml]
         adj_start = before[-1] if len(before) else start_ml
@@ -38,7 +44,7 @@ def detect_trends(close, ma_short=4, ma_mid=8, ma_long=30, min_days=8, avg_daily
             adj_start = close.index[pos + 1]
             if adj_start > adj_end:
                 continue
-        days = int((adj_end - adj_start).days or 1)
+        days = int(span(adj_start, adj_end) or 1)
         ret = float(close.loc[adj_end] / close.loc[adj_start] - 1)
         kind = "bullish" if sign_ml.loc[start_ml] > 0 else "bearish"
         if (kind == "bullish" and ret / days >= avg_daily_percent_thr / 100) or \

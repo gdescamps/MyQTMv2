@@ -29,6 +29,7 @@ le label (tendance ex post) déborde d'un bloc sur l'autre. Ici :
                             # sous-échantillonnées : P(garder) = 1 jusqu'à 30 %, puis linéaire jusqu'à 0,1
     python -m src.portefolio_strategy.myqtm.train all --tail-sample=0 --xgb=4,100,0.02,100 --first=2024-01-01
                             # réglages XGBoost : profondeur, min_child_weight, learning_rate, patience
+    … --hourly     # version horaire (myqtm/hourly.py : barres de 1 h, news horodatées, tendances en barres)
     … --save-val   # + val_all*.parquet : prédictions croisées A↔B de toutes les lignes avant chaque coupe
 """
 import json
@@ -358,7 +359,8 @@ def main(df=None, variant="all", ab=True, severe=False, first=None, tops=None, h
     imp = pd.concat(ranks, axis=1)
     imp["mean_rank_score"] = imp.mean(axis=1)
     imp.sort_values("mean_rank_score", ascending=False).to_csv(out / "feature_importance.csv")
-    sent_cov = float(df.loc[df["member"] & (df["date"] >= C.START_DATE), "ts_news_sentiment_company_0"].notna().mean())
+    sc = next((c for c in ("ts_news_sentiment_company_0", "d_ts_news_sentiment_company_0") if c in df), None)
+    sent_cov = float(df.loc[df["member"] & (df["date"] >= C.START_DATE), sc].notna().mean()) if sc else 0.0
     vend_cov = float(df.loc[df["member"] & (df["date"] >= C.START_DATE), "vs_n5"].notna().mean()) \
         if "vs_n5" in df else 0.0
     rep = dict(variant=variant, vendor_sentiment_coverage=round(vend_cov, 4), oos_macro_f1=round(float(f1), 4), oos_accuracy=round(acc, 4),
@@ -385,6 +387,9 @@ if __name__ == "__main__":
         C.F1_TREND_HEAD = sel                    # même fraction pour le classement des features et le F1 d'arrêt
     tw = next((float(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--tail-weight=")), None)
     ts = next((float(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--tail-sample=")), None)
+    if "--hourly" in sys.argv:                   # barres de 1 h (hourly.py) : features, étiquettes, dossiers
+        from .hourly import use_hourly
+        use_hourly()
     if "--save-val" in sys.argv:
         SAVE_VAL = []
     xgb_spec = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--xgb=")), None)
