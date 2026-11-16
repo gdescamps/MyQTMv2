@@ -30,6 +30,7 @@ le label (tendance ex post) déborde d'un bloc sur l'autre. Ici :
     python -m src.portefolio_strategy.myqtm.train all --tail-sample=0 --xgb=4,100,0.02,100 --first=2024-01-01
                             # réglages XGBoost : profondeur, min_child_weight, learning_rate, patience
     … --hourly     # version horaire (myqtm/hourly.py : barres de 1 h, news horodatées, tendances en barres)
+    … --stop=sharpe   # arrêt anticipé A/B au Sharpe max (seuils CMA-ES sur l'autre moitié, sharpe_stop.py)
     … --save-val   # + val_all*.parquet : prédictions croisées A↔B de toutes les lignes avant chaque coupe
 """
 import json
@@ -42,6 +43,8 @@ from sklearn.metrics import f1_score
 
 from . import config as C
 from . import features as F
+from . import sharpe_stop as SS
+from .trade import ema_exit
 from .trends import trend_labels
 
 PREDICTIONS = C.DATA / "predictions.parquet"
@@ -49,6 +52,8 @@ PREDICTIONS = C.DATA / "predictions.parquet"
 # antérieures à la coupe) : distribution de sortie propre à chaque modèle, pour des seuils relatifs causaux.
 VAL_PREDICTIONS = C.DATA / "val_predictions.parquet"
 SAVE_MODELS = None             # dossier où écrire les modèles de chaque coupe (option --save-models)
+STOP = "f1"                    # arrêt anticipé des modèles A/B finaux : "f1" ou "sharpe" (--stop=sharpe, sharpe_stop.py)
+X_EMA = None                   # règle de sortie EMA 3 < EMA 10 sur la série complète (alignée sur df), pour --stop=sharpe
 SAVE_VAL = None                # liste remplie par train_cutoff si --save-val (prédictions croisées A↔B < coupe)
 XGB_TAG = ""                   # suffixe des réglages XGBoost non standard (option --xgb=profondeur,mcw,lr,patience)
 
@@ -240,7 +245,26 @@ def train_cutoff(df, cols, y, cutoff, nxt, keep, tops=None, head=False, sel=Fals
     ww = None if w is None else np.asarray(w)[tr]
     rank = select_features(X[kk], yy[kk], idx[kk], cols, kk[kk]) if sel else select_features(X, yy, idx, cols, kk, ww)
     best = None
-    for top in (tops or C.TOP_FEATURES):
+    if STOP == "sharpe":
+        # lignes de trading : toutes les lignes membres < coupe (journées complètes), EMA sur la série complète
+        al = (df["member"] & (df["date"] >= C.START_DATE) & (df["date"] < cutoff)).to_numpy()
+        rows = df.loc[al, ["date", "symbol", "o"]].assign(ema_exit=X_EMA[al],
+                                                           blk=interval_index(df.loc[al, "date"], C.START_DATE))
+        Xall = df.loc[al, cols].to_numpy(np.float32)
+        ra, rb = (rows["blk"] % 2 == 0).to_numpy(), (rows["blk"] % 2 == 1).to_numpy()
+        for top in (tops or C.TOP_FEATURES):
+            sel = [cols.index(c) for c in rank.index[:top]]
+            ma, na, sa, pa_ = SS.fit_sharpe(_params(), X[a][:, sel], yy[a], Xall[rb][:, sel], rows[rb],
+                                            w=None if ww is None else ww[a])
+            mb, nb, sb, pb_ = SS.fit_sharpe(_params(), X[b][:, sel], yy[b], Xall[ra][:, sel], rows[ra],
+                                            w=None if ww is None else ww[b])
+            s_ = (sa + sb) / 2
+            print(f"    {cutoff:%Y-%m-%d} top {top} : Sharpe A→B {sa:.2f} ({na} arbres), B→A {sb:.2f} ({nb} arbres)",
+                  flush=True)
+            if best is None or s_ > best["f1"]:
+                best = dict(f1=s_, f1a=sa, f1b=sb, sel=sel, ma=ma, mb=mb, na=na, nb=nb, top=len(sel),
+                            params_a=pa_, params_b=pb_)
+    for top in ((tops or C.TOP_FEATURES) if STOP != "sharpe" else ()):
         sel = [cols.index(c) for c in rank.index[:top]]
         ma, na, f1a = fit(X[a][:, sel], yy[a], X[vb][:, sel], yy[vb], w=None if ww is None else ww[a])
         mb, nb, f1b = fit(X[b][:, sel], yy[b], X[va][:, sel], yy[va], w=None if ww is None else ww[b])
@@ -274,6 +298,8 @@ def train_cutoff(df, cols, y, cutoff, nxt, keep, tops=None, head=False, sel=Fals
     info = dict(cutoff=f"{cutoff:%Y-%m-%d}", train_rows=int(tr.sum()), test_rows=int(te.sum()),
                 train_until=f"{df.loc[tr, 'date'].max():%Y-%m-%d}", f1_cv=round(best["f1"], 4),
                 top_features=best["top"], rounds=[best["na"], best["nb"]],
+                **({"sharpe_ab": [round(best["f1a"], 3), round(best["f1b"], 3)],
+                    "params_a": best["params_a"], "params_b": best["params_b"]} if STOP == "sharpe" else {}),
                 class_share=[round(float((yy == k).mean()), 3) for k in range(3)])
     if SAVE_MODELS is not None:                  # modèles A/B + features + nb d'arbres, pour les SHAP par trade
         d = SAVE_MODELS / f"{cutoff:%Y-%m-%d}"
@@ -309,7 +335,9 @@ def main(df=None, variant="all", ab=True, severe=False, first=None, tops=None, h
     df = pd.read_parquet(F.FEATURES) if df is None else df
     df = df.sort_values(["symbol", "date"]).reset_index(drop=True)
     cols = F.feature_columns(df, variant)
-    global SAVE_MODELS
+    global SAVE_MODELS, X_EMA
+    if STOP == "sharpe":
+        X_EMA = df.groupby("symbol")["c"].transform(ema_exit).astype(bool).to_numpy()
     out = out_dir(variant, ab, severe, first, tops, head, sel, tw, ts)
     if save_models:
         SAVE_MODELS = out / "models"
@@ -395,6 +423,9 @@ if __name__ == "__main__":
     xgb_spec = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--xgb=")), None)
     if xgb_spec:
         set_xgb(xgb_spec)
+    if "--stop=sharpe" in sys.argv:
+        STOP = "sharpe"
+        XGB_TAG += "_ss"
     C.TAIL_SAMPLE_SEED = next((int(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--sample-seed=")),
                               C.TAIL_SAMPLE_SEED)
     main(variant=args[0] if args else "all", ab="--no-ab" not in sys.argv, severe="--severe" in sys.argv, first=first,

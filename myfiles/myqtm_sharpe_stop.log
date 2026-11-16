@@ -1,0 +1,151 @@
+    2024-01-01 top 60 : Sharpe A→B 1.57 (100 arbres), B→A 0.55 (150 arbres)
+    2024-01-01 top 80 : Sharpe A→B 1.56 (250 arbres), B→A 0.88 (50 arbres)
+    2024-04-01 top 60 : Sharpe A→B 1.68 (200 arbres), B→A 1.14 (100 arbres)
+    2024-04-01 top 80 : Sharpe A→B 1.62 (200 arbres), B→A 1.08 (100 arbres)
+    2024-07-01 top 60 : Sharpe A→B 1.55 (50 arbres), B→A 1.51 (100 arbres)
+    2024-07-01 top 80 : Sharpe A→B 2.15 (300 arbres), B→A 1.70 (200 arbres)
+    2024-10-01 top 60 : Sharpe A→B 1.38 (150 arbres), B→A 1.08 (200 arbres)
+    2024-10-01 top 80 : Sharpe A→B 1.61 (150 arbres), B→A 1.34 (100 arbres)
+    2025-01-01 top 60 : Sharpe A→B 1.83 (50 arbres), B→A 1.97 (350 arbres)
+    2025-01-01 top 80 : Sharpe A→B 1.99 (100 arbres), B→A 1.68 (150 arbres)
+    2025-04-01 top 60 : Sharpe A→B 1.68 (150 arbres), B→A 1.10 (200 arbres)
+    2025-04-01 top 80 : Sharpe A→B 1.52 (50 arbres), B→A 0.99 (50 arbres)
+    2025-07-01 top 60 : Sharpe A→B 1.60 (150 arbres), B→A 1.26 (50 arbres)
+    2025-07-01 top 80 : Sharpe A→B 1.51 (150 arbres), B→A 0.77 (150 arbres)
+    2025-10-01 top 60 : Sharpe A→B 1.56 (100 arbres), B→A 1.02 (100 arbres)
+    2025-10-01 top 80 : Sharpe A→B 1.45 (100 arbres), B→A 1.45 (400 arbres)
+    2026-01-01 top 60 : Sharpe A→B 1.40 (50 arbres), B→A 1.17 (350 arbres)
+    2026-01-01 top 80 : Sharpe A→B 1.43 (50 arbres), B→A 0.97 (100 arbres)
+    2026-04-01 top 60 : Sharpe A→B 1.68 (250 arbres), B→A 0.81 (150 arbres)
+    2026-04-01 top 80 : Sharpe A→B 1.41 (50 arbres), B→A 0.74 (150 arbres)
+    2026-07-01 top 60 : Sharpe A→B 1.67 (100 arbres), B→A 0.77 (150 arbres)
+    2026-07-01 top 80 : Sharpe A→B 1.79 (200 arbres), B→A 1.01 (300 arbres)
+    2026-10-01 top 60 : Sharpe A→B 1.77 (250 arbres), B→A 0.54 (300 arbres)
+    2026-10-01 top 80 : Sharpe A→B 1.93 (150 arbres), B→A 0.71 (150 arbres)
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.416 (tous les jours 0.678), exactitude 0.576 ; couverture sentiment 95.2%
+graine 42 ok
+    2024-01-01 top 60 : Sharpe A→B 1.52 (200 arbres), B→A 0.00 (50 arbres)
+    2024-01-01 top 80 : Sharpe A→B 1.52 (100 arbres), B→A 0.33 (50 arbres)
+    2024-04-01 top 60 : Sharpe A→B 1.57 (100 arbres), B→A 1.09 (200 arbres)
+    2024-04-01 top 80 : Sharpe A→B 1.40 (200 arbres), B→A 1.23 (50 arbres)
+    2024-07-01 top 60 : Sharpe A→B 1.43 (50 arbres), B→A 2.09 (150 arbres)
+    2024-07-01 top 80 : Sharpe A→B 2.16 (200 arbres), B→A 1.05 (150 arbres)
+    2024-10-01 top 60 : Sharpe A→B 1.94 (100 arbres), B→A 1.87 (50 arbres)
+    2024-10-01 top 80 : Sharpe A→B 1.74 (100 arbres), B→A 1.48 (100 arbres)
+    2025-01-01 top 60 : Sharpe A→B 1.72 (150 arbres), B→A 1.10 (300 arbres)
+    2025-01-01 top 80 : Sharpe A→B 1.70 (250 arbres), B→A 1.04 (150 arbres)
+    2025-04-01 top 60 : Sharpe A→B 1.62 (100 arbres), B→A 0.79 (100 arbres)
+    2025-04-01 top 80 : Sharpe A→B 1.74 (50 arbres), B→A 1.24 (50 arbres)
+    2025-07-01 top 60 : Sharpe A→B 1.54 (250 arbres), B→A 0.97 (300 arbres)
+    2025-07-01 top 80 : Sharpe A→B 1.60 (350 arbres), B→A 0.82 (50 arbres)
+    2025-10-01 top 60 : Sharpe A→B 1.51 (200 arbres), B→A 0.79 (200 arbres)
+    2025-10-01 top 80 : Sharpe A→B 1.54 (100 arbres), B→A 0.62 (100 arbres)
+    2026-01-01 top 60 : Sharpe A→B 1.68 (100 arbres), B→A 0.79 (150 arbres)
+    2026-01-01 top 80 : Sharpe A→B 1.28 (50 arbres), B→A 1.10 (100 arbres)
+    2026-04-01 top 60 : Sharpe A→B 1.29 (100 arbres), B→A 0.92 (50 arbres)
+    2026-04-01 top 80 : Sharpe A→B 1.24 (100 arbres), B→A 1.03 (50 arbres)
+    2026-07-01 top 60 : Sharpe A→B 1.80 (300 arbres), B→A 0.63 (450 arbres)
+    2026-07-01 top 80 : Sharpe A→B 1.77 (50 arbres), B→A 0.31 (100 arbres)
+    2026-10-01 top 60 : Sharpe A→B 1.91 (300 arbres), B→A 0.34 (50 arbres)
+    2026-10-01 top 80 : Sharpe A→B 1.78 (200 arbres), B→A 0.44 (250 arbres)
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.414 (tous les jours 0.676), exactitude 0.576 ; couverture sentiment 95.2%
+graine 7 ok
+    2024-01-01 top 60 : Sharpe A→B 1.75 (250 arbres), B→A 0.15 (150 arbres)
+    2024-01-01 top 80 : Sharpe A→B 1.77 (350 arbres), B→A 0.30 (100 arbres)
+    2024-04-01 top 60 : Sharpe A→B 1.47 (100 arbres), B→A 1.24 (100 arbres)
+    2024-04-01 top 80 : Sharpe A→B 1.50 (50 arbres), B→A 1.23 (50 arbres)
+    2024-07-01 top 60 : Sharpe A→B 1.47 (100 arbres), B→A 1.42 (150 arbres)
+    2024-07-01 top 80 : Sharpe A→B 1.69 (400 arbres), B→A 0.95 (100 arbres)
+    2024-10-01 top 60 : Sharpe A→B 1.63 (50 arbres), B→A 1.59 (200 arbres)
+    2024-10-01 top 80 : Sharpe A→B 1.70 (50 arbres), B→A 1.91 (300 arbres)
+    2025-01-01 top 60 : Sharpe A→B 1.65 (100 arbres), B→A 0.90 (100 arbres)
+    2025-01-01 top 80 : Sharpe A→B 2.16 (500 arbres), B→A 0.92 (100 arbres)
+    2025-04-01 top 60 : Sharpe A→B 1.47 (300 arbres), B→A 1.58 (150 arbres)
+    2025-04-01 top 80 : Sharpe A→B 1.43 (50 arbres), B→A 1.00 (50 arbres)
+    2025-07-01 top 60 : Sharpe A→B 1.61 (50 arbres), B→A 0.83 (150 arbres)
+    2025-07-01 top 80 : Sharpe A→B 1.60 (50 arbres), B→A 1.24 (250 arbres)
+    2025-10-01 top 60 : Sharpe A→B 1.43 (400 arbres), B→A 1.09 (150 arbres)
+    2025-10-01 top 80 : Sharpe A→B 1.24 (200 arbres), B→A 0.92 (300 arbres)
+    2026-01-01 top 60 : Sharpe A→B 1.29 (150 arbres), B→A 0.88 (100 arbres)
+    2026-01-01 top 80 : Sharpe A→B 1.34 (100 arbres), B→A 0.97 (300 arbres)
+    2026-04-01 top 60 : Sharpe A→B 1.23 (150 arbres), B→A 0.59 (150 arbres)
+    2026-04-01 top 80 : Sharpe A→B 1.39 (250 arbres), B→A 0.81 (150 arbres)
+    2026-07-01 top 60 : Sharpe A→B 1.90 (50 arbres), B→A 1.30 (250 arbres)
+    2026-07-01 top 80 : Sharpe A→B 1.92 (550 arbres), B→A 1.01 (350 arbres)
+    2026-10-01 top 60 : Sharpe A→B 1.54 (100 arbres), B→A 0.62 (200 arbres)
+    2026-10-01 top 80 : Sharpe A→B 1.85 (300 arbres), B→A 0.76 (100 arbres)
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.412 (tous les jours 0.669), exactitude 0.577 ; couverture sentiment 95.2%
+graine 123 ok
+ts0 : P(haussier) quantiles [0.5, 0.9, 0.99] — ligne croisée [0.269 0.876 0.97 ], hors échantillon [0.233 0.864 0.967]
+  coupe 2024-01-01 : {'long_open': 0.848, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.675}  sur la ligne croisée : CAGR 10.38 %, Sharpe 0.846, 133 trades  [1 s]
+  coupe 2024-04-01 : {'long_open': 0.143, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.296}  sur la ligne croisée : CAGR 17.63 %, Sharpe 0.762, 294 trades  [2 s]
+  coupe 2024-07-01 : {'long_open': 0.472, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.222}  sur la ligne croisée : CAGR 33.2 %, Sharpe 1.203, 286 trades  [4 s]
+  coupe 2024-10-01 : {'long_open': 0.901, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.585}  sur la ligne croisée : CAGR 3.53 %, Sharpe 0.994, 11 trades  [5 s]
+  coupe 2025-01-01 : {'long_open': 0.5, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.377}  sur la ligne croisée : CAGR 24.27 %, Sharpe 0.962, 433 trades  [6 s]
+  coupe 2025-04-01 : {'long_open': 0.534, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.584}  sur la ligne croisée : CAGR 14.79 %, Sharpe 0.722, 547 trades  [8 s]
+  coupe 2025-07-01 : {'long_open': 0.911, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.377}  sur la ligne croisée : CAGR 13.33 %, Sharpe 1.026, 45 trades  [9 s]
+  coupe 2025-10-01 : {'long_open': 0.819, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.715}  sur la ligne croisée : CAGR 9.51 %, Sharpe 0.698, 296 trades  [11 s]
+  coupe 2026-01-01 : {'long_open': 0.129, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.671}  sur la ligne croisée : CAGR 10.11 %, Sharpe 0.561, 873 trades  [12 s]
+  coupe 2026-04-01 : {'long_open': 0.881, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.728}  sur la ligne croisée : CAGR 6.58 %, Sharpe 0.842, 102 trades  [14 s]
+  coupe 2026-07-01 : {'long_open': 0.438, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.013}  sur la ligne croisée : CAGR 24.76 %, Sharpe 0.829, 414 trades  [16 s]
+  coupe 2026-10-01 : {'long_open': 0.908, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.678}  sur la ligne croisée : CAGR 3.94 %, Sharpe 0.795, 37 trades  [18 s]
+
+hors échantillon 2024-01-02 → 2026-11-09
+  cma_ab  : {'cagr_pct': 5.2, 'max_dd_pct': -27.59, 'sharpe': 0.335, 'trades': 176, 'gagnants_pct': 38.1, 'gain_moy_pct': 1.1, 'positions_moy': 3.05, 'cash_moy_pct': 33.8, 'annuel': {2024: 10.4, 2025: -4.06, 2026: 9.03}}
+  defaut  : {'cagr_pct': 26.67, 'max_dd_pct': -22.89, 'sharpe': 1.11, 'trades': 368, 'gagnants_pct': 42.1, 'gain_moy_pct': 1.9, 'positions_moy': 6.81, 'cash_moy_pct': 9.1, 'annuel': {2024: 29.48, 2025: 4.32, 2026: 44.63}}
+  indice  : {'cagr_pct': 24.510274577006808, 'max_drawdown_pct': -23.63608732819374, 'sharpe': 1.1249822833893188, 'annual_roi_pct': {2024: 37.97, 2025: 26.71, 2026: 7.16}}
+ts0_avg : P(haussier) quantiles [0.5, 0.9, 0.99] — ligne croisée [0.271 0.879 0.967], hors échantillon [0.233 0.862 0.962]
+  coupe 2024-01-01 : {'long_open': 0.933, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.913}  sur la ligne croisée : CAGR 0.44 %, Sharpe 0.701, 2 trades  [1 s]
+  coupe 2024-04-01 : {'long_open': 0.01, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.341}  sur la ligne croisée : CAGR 12.26 %, Sharpe 0.597, 338 trades  [2 s]
+  coupe 2024-07-01 : {'long_open': 0.025, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.715}  sur la ligne croisée : CAGR 14.34 %, Sharpe 0.724, 688 trades  [3 s]
+  coupe 2024-10-01 : {'long_open': 0.526, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.611}  sur la ligne croisée : CAGR 15.28 %, Sharpe 0.754, 543 trades  [5 s]
+  coupe 2025-01-01 : {'long_open': 0.424, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.611}  sur la ligne croisée : CAGR 11.92 %, Sharpe 0.628, 619 trades  [6 s]
+  coupe 2025-04-01 : {'long_open': 0.572, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.537}  sur la ligne croisée : CAGR 16.09 %, Sharpe 0.739, 518 trades  [8 s]
+  coupe 2025-07-01 : {'long_open': 0.664, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.695}  sur la ligne croisée : CAGR 6.34 %, Sharpe 0.427, 581 trades  [9 s]
+  coupe 2025-10-01 : {'long_open': 0.831, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.869}  sur la ligne croisée : CAGR 5.52 %, Sharpe 0.744, 243 trades  [11 s]
+  coupe 2026-01-01 : {'long_open': 0.892, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.706}  sur la ligne croisée : CAGR 5.32 %, Sharpe 0.73, 89 trades  [12 s]
+  coupe 2026-04-01 : {'long_open': 0.916, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.853}  sur la ligne croisée : CAGR 1.33 %, Sharpe 0.779, 18 trades  [14 s]
+  coupe 2026-07-01 : {'long_open': 0.619, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.504}  sur la ligne croisée : CAGR 20.14 %, Sharpe 0.846, 515 trades  [16 s]
+  coupe 2026-10-01 : {'long_open': 0.409, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.756}  sur la ligne croisée : CAGR 11.48 %, Sharpe 0.595, 1226 trades  [18 s]
+
+hors échantillon 2024-01-02 → 2026-11-09
+  cma_ab  : {'cagr_pct': 0.84, 'max_dd_pct': -23.24, 'sharpe': 0.141, 'trades': 252, 'gagnants_pct': 34.9, 'gain_moy_pct': 0.18, 'positions_moy': 4.09, 'cash_moy_pct': 35.1, 'annuel': {2024: 17.26, 2025: -6.45, 2026: -6.19}}
+  defaut  : {'cagr_pct': 24.13, 'max_dd_pct': -25.7, 'sharpe': 1.003, 'trades': 358, 'gagnants_pct': 38.0, 'gain_moy_pct': 1.76, 'positions_moy': 6.57, 'cash_moy_pct': 10.4, 'annuel': {2024: 16.96, 2025: -0.33, 2026: 58.04}}
+  indice  : {'cagr_pct': 24.510274577006808, 'max_drawdown_pct': -23.63608732819374, 'sharpe': 1.1249822833893188, 'annual_roi_pct': {2024: 37.97, 2025: 26.71, 2026: 7.16}}
+ts0_ss : P(haussier) quantiles [0.5, 0.9, 0.99] — ligne croisée [0.268 0.878 0.972], hors échantillon [0.237 0.871 0.969]
+  coupe 2024-01-01 : {'long_open': 0.952, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.697}  sur la ligne croisée : CAGR 1.07 %, Sharpe 0.918, 3 trades  [1 s]
+  coupe 2024-04-01 : {'long_open': 0.916, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.853}  sur la ligne croisée : CAGR 1.02 %, Sharpe 0.589, 15 trades  [2 s]
+  coupe 2024-07-01 : {'long_open': 0.21, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.351}  sur la ligne croisée : CAGR 17.95 %, Sharpe 0.788, 386 trades  [3 s]
+  coupe 2024-10-01 : {'long_open': 0.567, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.136}  sur la ligne croisée : CAGR 27.19 %, Sharpe 1.08, 269 trades  [5 s]
+  coupe 2025-01-01 : {'long_open': 0.356, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.01}  sur la ligne croisée : CAGR 13.0 %, Sharpe 0.569, 303 trades  [6 s]
+  coupe 2025-04-01 : {'long_open': 0.923, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.742}  sur la ligne croisée : CAGR 3.29 %, Sharpe 0.746, 32 trades  [8 s]
+  coupe 2025-07-01 : {'long_open': 0.894, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.757}  sur la ligne croisée : CAGR 5.17 %, Sharpe 1.034, 28 trades  [9 s]
+  coupe 2025-10-01 : {'long_open': 0.91, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.932}  sur la ligne croisée : CAGR 2.59 %, Sharpe 0.725, 62 trades  [11 s]
+  coupe 2026-01-01 : {'long_open': 0.066, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.334}  sur la ligne croisée : CAGR 20.66 %, Sharpe 0.832, 450 trades  [12 s]
+  coupe 2026-04-01 : {'long_open': 0.82, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.767}  sur la ligne croisée : CAGR 9.88 %, Sharpe 0.893, 291 trades  [14 s]
+  coupe 2026-07-01 : {'long_open': 0.38, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.01}  sur la ligne croisée : CAGR 24.68 %, Sharpe 0.831, 393 trades  [16 s]
+  coupe 2026-10-01 : {'long_open': 0.709, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.676}  sur la ligne croisée : CAGR 16.53 %, Sharpe 0.858, 657 trades  [18 s]
+
+hors échantillon 2024-01-02 → 2026-11-09
+  cma_ab  : {'cagr_pct': -5.44, 'max_dd_pct': -42.53, 'sharpe': -0.138, 'trades': 138, 'gagnants_pct': 35.5, 'gain_moy_pct': -0.09, 'positions_moy': 2.29, 'cash_moy_pct': 46.6, 'annuel': {2024: 8.56, 2025: -10.72, 2026: -11.04}}
+  defaut  : {'cagr_pct': 17.01, 'max_dd_pct': -28.91, 'sharpe': 0.745, 'trades': 379, 'gagnants_pct': 39.8, 'gain_moy_pct': 1.39, 'positions_moy': 6.66, 'cash_moy_pct': 8.5, 'annuel': {2024: 23.57, 2025: -6.91, 2026: 36.27}}
+  indice  : {'cagr_pct': 24.510274577006808, 'max_drawdown_pct': -23.63608732819374, 'sharpe': 1.1249822833893188, 'annual_roi_pct': {2024: 37.97, 2025: 26.71, 2026: 7.16}}
+ts0_ss_avg : P(haussier) quantiles [0.5, 0.9, 0.99] — ligne croisée [0.272 0.871 0.963], hors échantillon [0.236 0.856 0.956]
+  coupe 2024-01-01 : {'long_open': 0.232, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.616}  sur la ligne croisée : CAGR 12.58 %, Sharpe 0.635, 495 trades  [1 s]
+  coupe 2024-04-01 : {'long_open': 0.239, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.332}  sur la ligne croisée : CAGR 15.15 %, Sharpe 0.683, 318 trades  [2 s]
+  coupe 2024-07-01 : {'long_open': 0.166, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.01}  sur la ligne croisée : CAGR 31.92 %, Sharpe 1.039, 286 trades  [4 s]
+  coupe 2024-10-01 : {'long_open': 0.463, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.366}  sur la ligne croisée : CAGR 15.41 %, Sharpe 0.691, 396 trades  [5 s]
+  coupe 2025-01-01 : {'long_open': 0.281, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.511}  sur la ligne croisée : CAGR 12.42 %, Sharpe 0.62, 509 trades  [6 s]
+  coupe 2025-04-01 : {'long_open': 0.385, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.789}  sur la ligne croisée : CAGR 9.04 %, Sharpe 0.534, 1094 trades  [8 s]
+  coupe 2025-07-01 : {'long_open': 0.523, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.49}  sur la ligne croisée : CAGR 15.37 %, Sharpe 0.724, 464 trades  [9 s]
+  coupe 2025-10-01 : {'long_open': 0.916, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.853}  sur la ligne croisée : CAGR 1.68 %, Sharpe 0.72, 32 trades  [11 s]
+  coupe 2026-01-01 : {'long_open': 0.888, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.665}  sur la ligne croisée : CAGR 4.26 %, Sharpe 0.642, 73 trades  [13 s]
+  coupe 2026-04-01 : {'long_open': 0.791, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.351}  sur la ligne croisée : CAGR 17.38 %, Sharpe 0.875, 235 trades  [14 s]
+  coupe 2026-07-01 : {'long_open': 0.145, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.508}  sur la ligne croisée : CAGR 14.16 %, Sharpe 0.639, 663 trades  [16 s]
+  coupe 2026-10-01 : {'long_open': 0.529, 'long_close': 0.37, 'short_open': 0.6, 'short_close': 0.37, 'increase': 0.607}  sur la ligne croisée : CAGR 23.64 %, Sharpe 0.979, 750 trades  [18 s]
+
+hors échantillon 2024-01-02 → 2026-11-09
+  cma_ab  : {'cagr_pct': 8.47, 'max_dd_pct': -29.84, 'sharpe': 0.461, 'trades': 253, 'gagnants_pct': 41.1, 'gain_moy_pct': 0.43, 'positions_moy': 4.33, 'cash_moy_pct': 19.8, 'annuel': {2024: 31.93, 2025: 6.7, 2026: -9.62}}
+  defaut  : {'cagr_pct': 29.81, 'max_dd_pct': -24.2, 'sharpe': 1.167, 'trades': 365, 'gagnants_pct': 40.3, 'gain_moy_pct': 1.83, 'positions_moy': 6.58, 'cash_moy_pct': 9.8, 'annuel': {2024: 10.78, 2025: 13.79, 2026: 63.8}}
+  indice  : {'cagr_pct': 24.510274577006808, 'max_drawdown_pct': -23.63608732819374, 'sharpe': 1.1249822833893188, 'annual_roi_pct': {2024: 37.97, 2025: 26.71, 2026: 7.16}}
+TERMINÉ

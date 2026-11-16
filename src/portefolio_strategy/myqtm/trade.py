@@ -36,7 +36,8 @@ def build_trade_data(preds):
     (règle EMA de fin de hausse, False si les clôtures « c » manquent)."""
     p = preds.sort_values(["symbol", "date"]).copy()
     p["cls"] = p[["ybear", "yrange", "ybull"]].to_numpy().argmax(axis=1)
-    p["ema_exit"] = p.groupby("symbol")["c"].transform(ema_exit).astype(bool) if "c" in p else False
+    if "ema_exit" not in p:                       # déjà calculée sur la série complète (sharpe_stop) : gardée
+        p["ema_exit"] = p.groupby("symbol")["c"].transform(ema_exit).astype(bool) if "c" in p else False
     data = {}
     for sym, g in p.groupby("symbol", sort=False):
         pc, il, ish = None, -1, -1
