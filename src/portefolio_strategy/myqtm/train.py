@@ -27,6 +27,8 @@ le label (tendance ex post) déborde d'un bloc sur l'autre. Ici :
                                                     # pondérées : 1 jusqu'à 30 %, puis linéaire jusqu'à 0,1
     python -m src.portefolio_strategy.myqtm.train all --tail-sample=0.1 --first=2024-01-01  # fins de tendance
                             # sous-échantillonnées : P(garder) = 1 jusqu'à 30 %, puis linéaire jusqu'à 0,1
+    python -m src.portefolio_strategy.myqtm.train all --tail-sample=0 --xgb=4,100,0.02,100 --first=2024-01-01
+                            # réglages XGBoost : profondeur, min_child_weight, learning_rate, patience
 """
 import json
 import time
@@ -45,6 +47,19 @@ PREDICTIONS = C.DATA / "predictions.parquet"
 # antérieures à la coupe) : distribution de sortie propre à chaque modèle, pour des seuils relatifs causaux.
 VAL_PREDICTIONS = C.DATA / "val_predictions.parquet"
 SAVE_MODELS = None             # dossier où écrire les modèles de chaque coupe (option --save-models)
+XGB_TAG = ""                   # suffixe des réglages XGBoost non standard (option --xgb=profondeur,mcw,lr,patience)
+
+
+def set_xgb(spec):
+    """--xgb=profondeur,min_child_weight,learning_rate,patience → C.XGB_PARAMS / C.XGB_PATIENCE modifiés et
+    suffixe _x{d}m{mcw}l{lr×1000}p{patience} dans les noms de fichiers. Tours max portés à 1500 si lr < 0,05."""
+    global XGB_TAG
+    d, m, lr, pat = spec.split(",")
+    C.XGB_PARAMS.update(max_depth=int(d), min_child_weight=float(m), learning_rate=float(lr))
+    C.XGB_PATIENCE = int(pat)
+    if float(lr) < 0.05:
+        C.XGB_ROUNDS = 1500
+    XGB_TAG = f"_x{int(d)}m{int(float(m))}l{round(1000 * float(lr))}p{int(pat)}"
 
 
 def _first_sfx(first):
@@ -102,7 +117,7 @@ def predictions_path(variant="all", ab=True, severe=False, first=None, tops=None
     tw=p (fins de tendance pondérées, poids 1 → p après C.TAIL_RAMP_START) → _tw{p} ;
     ts=p (fins de tendance sous-échantillonnées, P(garder) 1 → p après C.TAIL_RAMP_START) → _ts{p}."""
     sfx = ("" if ab else "_noab") + ("_severe" if severe else "") + _top_sfx(tops) + _head_sfx(head) + _sel_sfx(sel) + _tw_sfx(tw) + _ts_sfx(ts) \
-        + _first_sfx(first)
+        + XGB_TAG + _first_sfx(first)
     return C.DATA / f"predictions{sfx}.parquet" if variant == "all" else C.DATA / f"predictions_{variant}{sfx}.parquet"
 
 
@@ -115,6 +130,7 @@ def out_dir(variant="all", ab=True, severe=False, first=None, tops=None, head=Fa
     base = base / _sel_sfx(sel).lstrip("_") if sel else base
     base = base / _tw_sfx(tw).lstrip("_") if tw is not None else base
     base = base / _ts_sfx(ts).lstrip("_") if ts is not None else base
+    base = base / XGB_TAG.lstrip("_") if XGB_TAG else base
     return base / _first_sfx(first).lstrip("_") if _first_sfx(first) else base
 
 
@@ -163,7 +179,8 @@ def _params():
     return p
 
 
-def fit(X, y, Xv, yv, rounds=C.XGB_ROUNDS, w=None):
+def fit(X, y, Xv, yv, rounds=None, w=None):
+    rounds = C.XGB_ROUNDS if rounds is None else rounds
     dtr, dva = xgb.DMatrix(X, label=y, weight=w), xgb.DMatrix(Xv, label=yv)
     m = xgb.train(_params(), dtr, num_boost_round=rounds, evals=[(dva, "eval")], custom_metric=_f1,
                   maximize=True, early_stopping_rounds=C.XGB_PATIENCE, verbose_eval=False)
@@ -346,6 +363,9 @@ if __name__ == "__main__":
         C.F1_TREND_HEAD = sel                    # même fraction pour le classement des features et le F1 d'arrêt
     tw = next((float(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--tail-weight=")), None)
     ts = next((float(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--tail-sample=")), None)
+    xgb_spec = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--xgb=")), None)
+    if xgb_spec:
+        set_xgb(xgb_spec)
     C.TAIL_SAMPLE_SEED = next((int(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--sample-seed=")),
                               C.TAIL_SAMPLE_SEED)
     main(variant=args[0] if args else "all", ab="--no-ab" not in sys.argv, severe="--severe" in sys.argv, first=first,
