@@ -1,0 +1,6 @@
+prédictions hors échantillon : 357557 lignes 2024-01-01 → 2026-11-09 ; F1 macro début de tendance 0.417 (tous les jours 0.683), exactitude 0.599 ; couverture sentiment 0.0%
+graine 42 court ok : 771 s
+prédictions hors échantillon : 357557 lignes 2024-01-01 → 2026-11-09 ; F1 macro début de tendance 0.473 (tous les jours 0.669), exactitude 0.672 ; couverture sentiment 0.0%
+graine 42 --trend=mid ok : 840 s
+prédictions hors échantillon : 357557 lignes 2024-01-01 → 2026-11-09 ; F1 macro début de tendance 0.480 (tous les jours 0.653), exactitude 0.672 ; couverture sentiment 0.0%
+graine 42 --trend=long ok : 720 s

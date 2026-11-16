@@ -1,0 +1,31 @@
+prédictions hors échantillon : 357557 lignes 2024-01-01 → 2026-11-09 ; F1 macro début de tendance 0.478 (tous les jours 0.669), exactitude 0.665 ; couverture sentiment 0.0%
+graine 7 mid ok : 881 s
+prédictions hors échantillon : 357557 lignes 2024-01-01 → 2026-11-09 ; F1 macro début de tendance 0.474 (tous les jours 0.673), exactitude 0.658 ; couverture sentiment 0.0%
+graine 123 mid ok : 885 s
+  h=21 coupe 2024-01-01 : 98899 lignes d'apprentissage, 30386 à prédire
+  h=21 coupe 2024-04-01 : 104869 lignes d'apprentissage, 31358 à prédire
+  h=21 coupe 2024-07-01 : 111338 lignes d'apprentissage, 31926 à prédire
+  h=21 coupe 2024-10-01 : 117814 lignes d'apprentissage, 31930 à prédire
+  h=21 coupe 2025-01-01 : 123797 lignes d'apprentissage, 29973 à prédire
+  h=21 coupe 2025-04-01 : 129784 lignes d'apprentissage, 30991 à prédire
+  h=21 coupe 2025-07-01 : 135778 lignes d'apprentissage, 31981 à prédire
+  h=21 coupe 2025-10-01 : 142265 lignes d'apprentissage, 31973 à prédire
+  h=21 coupe 2026-01-01 : 148754 lignes d'apprentissage, 30447 à prédire
+  h=21 coupe 2026-04-01 : 153741 lignes d'apprentissage, 30885 à prédire
+  h=21 coupe 2026-07-01 : 159705 lignes d'apprentissage, 31822 à prédire
+  h=21 coupe 2026-10-01 : 166661 lignes d'apprentissage, 13885 à prédire
+h=21 : 357557 prédictions ; 10 premières features : {'ts_ei_durableGoods_3': 0.036, 'ts_ei_durableGoods_1': 0.034, 'mkt_beat30': 0.033, 'vixp_ema_50': 0.029, 'ts_ei_durableGoods_0': 0.027, 'ts_ei_durableGoods_2': 0.025, 'ts_ei_retailSales_2': 0.024, 'ts_vixp_w_close_4': 0.024, 'ts_ei_retailSales_1': 0.023, 'ts_ei_retailSales_3': 0.022}
+  h=63 coupe 2024-01-01 : 94290 lignes d'apprentissage, 30386 à prédire
+  h=63 coupe 2024-04-01 : 100735 lignes d'apprentissage, 31358 à prédire
+  h=63 coupe 2024-07-01 : 107188 lignes d'apprentissage, 31926 à prédire
+  h=63 coupe 2024-10-01 : 113649 lignes d'apprentissage, 31930 à prédire
+  h=63 coupe 2025-01-01 : 119623 lignes d'apprentissage, 29973 à prédire
+  h=63 coupe 2025-04-01 : 125590 lignes d'apprentissage, 30991 à prédire
+  h=63 coupe 2025-07-01 : 131579 lignes d'apprentissage, 31981 à prédire
+  h=63 coupe 2025-10-01 : 138048 lignes d'apprentissage, 31973 à prédire
+  h=63 coupe 2026-01-01 : 144031 lignes d'apprentissage, 30447 à prédire
+  h=63 coupe 2026-04-01 : 150498 lignes d'apprentissage, 30885 à prédire
+  h=63 coupe 2026-07-01 : 155943 lignes d'apprentissage, 31822 à prédire
+  h=63 coupe 2026-10-01 : 161881 lignes d'apprentissage, 13885 à prédire
+h=63 : 357557 prédictions ; 10 premières features : {'ts_ei_federalFunds_3': 0.042, 'month': 0.03, 'fq_rd_rev': 0.024, 'ts_ei_durableGoods_2': 0.023, 'vol63': 0.023, 'fq_sbc_rev': 0.022, 'vixp_ema_50': 0.021, 'ts_ei_durableGoods_3': 0.021, 'fq_int_cov': 0.021, 'rel_mkt_r252': 0.019}
+FINI

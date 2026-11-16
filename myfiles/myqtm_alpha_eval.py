@@ -14,6 +14,7 @@ médiane et t de Student sur les moyennes hebdomadaires. (Une mesure « par jour
 même trade chaque jour où le titre reste en tête et gonflerait l'écart avec quelques très longs trades.)
 
     PYTHONPATH=.:myfiles python myfiles/myqtm_alpha_eval.py [--sp] [--pred=ts0] [--sfx=_x4m100l20p100] [--avg]
+                                                            [--trend=mid|long]   # modèles train.py --trend=…
 """
 import sys
 
@@ -83,6 +84,11 @@ def main():
         use_sp()
     pred = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--pred=")), "ts0")
     sfx = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--sfx=")), "")
+    trend = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--trend=")), None)
+    if trend:                                   # horizon long : mêmes EMA pour la sortie des trades (trade.ema_exit)
+        from src.portefolio_strategy.myqtm.train import TRENDS
+        C.TREND = dict(TRENDS[trend])
+        sfx += f"_t{trend}"
     avg = "--avg" in sys.argv
     tag = ("sp_" if "--sp" in sys.argv else "ndx_") + pred + sfx + ("_avg" if avg else "")
     p, f = load(pred, sfx, avg)
@@ -115,7 +121,8 @@ def main():
             if len(c) < 5:
                 continue
             v, _, _ = simulate(c, opens)
-            rows.append(dict(règle=name, trades=len(c), **rel_stats(v, ref)))
+            hold = (c["exit"] - c["entry"]).dt.days.median()
+            rows.append(dict(règle=name, trades=len(c), durée_méd_j=hold, **rel_stats(v, ref)))
             per_trade += trade_stats(name, c, opens_f, ew)
         print(f"top {k} ok", flush=True)
     out = pd.DataFrame(rows)
