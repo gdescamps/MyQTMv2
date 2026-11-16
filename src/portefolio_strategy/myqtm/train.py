@@ -29,6 +29,7 @@ le label (tendance ex post) déborde d'un bloc sur l'autre. Ici :
                             # sous-échantillonnées : P(garder) = 1 jusqu'à 30 %, puis linéaire jusqu'à 0,1
     python -m src.portefolio_strategy.myqtm.train all --tail-sample=0 --xgb=4,100,0.02,100 --first=2024-01-01
                             # réglages XGBoost : profondeur, min_child_weight, learning_rate, patience
+    … --save-val   # + val_all*.parquet : prédictions croisées A↔B de toutes les lignes avant chaque coupe
 """
 import json
 import time
@@ -47,6 +48,7 @@ PREDICTIONS = C.DATA / "predictions.parquet"
 # antérieures à la coupe) : distribution de sortie propre à chaque modèle, pour des seuils relatifs causaux.
 VAL_PREDICTIONS = C.DATA / "val_predictions.parquet"
 SAVE_MODELS = None             # dossier où écrire les modèles de chaque coupe (option --save-models)
+SAVE_VAL = None                # liste remplie par train_cutoff si --save-val (prédictions croisées A↔B < coupe)
 XGB_TAG = ""                   # suffixe des réglages XGBoost non standard (option --xgb=profondeur,mcw,lr,patience)
 
 
@@ -119,6 +121,11 @@ def predictions_path(variant="all", ab=True, severe=False, first=None, tops=None
     sfx = ("" if ab else "_noab") + ("_severe" if severe else "") + _top_sfx(tops) + _head_sfx(head) + _sel_sfx(sel) + _tw_sfx(tw) + _ts_sfx(ts) \
         + XGB_TAG + _first_sfx(first)
     return C.DATA / f"predictions{sfx}.parquet" if variant == "all" else C.DATA / f"predictions_{variant}{sfx}.parquet"
+
+
+def val_all_path(pred_path):
+    """Prédictions croisées A↔B de toutes les lignes avant chaque coupe (--save-val), à côté des prédictions."""
+    return pred_path.with_name(pred_path.name.replace("predictions", "val_all", 1))
 
 
 def out_dir(variant="all", ab=True, severe=False, first=None, tops=None, head=False, sel=None, tw=None, ts=None):
@@ -244,6 +251,19 @@ def train_cutoff(df, cols, y, cutoff, nxt, keep, tops=None, head=False, sel=Fals
     out = df.loc[te, ["date", "symbol", "o", "c"]].copy()
     out["ybear"], out["yrange"], out["ybull"] = p[:, 0], p[:, 1], p[:, 2]
     sel = best["sel"]
+    if SAVE_VAL is not None:
+        # toutes les lignes < coupe (même sans label ou écartées par le sous-échantillonnage), journées complètes :
+        # blocs A prédits par le modèle B, blocs B par le modèle A → hors échantillon par bloc
+        al = (df["member"] & (df["date"] >= C.START_DATE) & (df["date"] < cutoff)).to_numpy()
+        Xa = df.loc[al, cols].to_numpy(np.float32)[:, sel]
+        ia = interval_index(df.loc[al, "date"], C.START_DATE) % 2 == 0
+        pa = np.empty((len(Xa), 3), dtype=np.float32)
+        pa[ia] = best["mb"].predict(xgb.DMatrix(Xa[ia]), iteration_range=(0, best["nb"]))
+        pa[~ia] = best["ma"].predict(xgb.DMatrix(Xa[~ia]), iteration_range=(0, best["na"]))
+        va_all = df.loc[al, ["date", "symbol"]].copy()
+        va_all["cutoff"] = cutoff
+        va_all["ybear"], va_all["yrange"], va_all["ybull"] = pa[:, 0], pa[:, 1], pa[:, 2]
+        SAVE_VAL.append(va_all)
     pv = np.empty((len(yy), 3), dtype=np.float32)
     pv[b] = best["ma"].predict(xgb.DMatrix(X[b][:, sel]), iteration_range=(0, best["na"]))
     pv[a] = best["mb"].predict(xgb.DMatrix(X[a][:, sel]), iteration_range=(0, best["nb"]))
@@ -330,6 +350,8 @@ def main(df=None, variant="all", ab=True, severe=False, first=None, tops=None, h
     acc = float((p.loc[ok, "y"].astype(int) == p.loc[ok, "cls"]).mean())
     f1_all = f1_score(p.loc[lab, "y"].astype(int), p.loc[lab, "cls"], average="macro")
     p.to_parquet(path, index=False)
+    if SAVE_VAL:
+        pd.concat(SAVE_VAL, ignore_index=True).to_parquet(val_all_path(path), index=False)
     if variant == "all" and ab and not severe and not custom and not head and not sel and tw is None and ts is None and not _first_sfx(first):
         pd.concat(vals, ignore_index=True).to_parquet(VAL_PREDICTIONS, index=False)
     out.mkdir(parents=True, exist_ok=True)
@@ -363,6 +385,8 @@ if __name__ == "__main__":
         C.F1_TREND_HEAD = sel                    # même fraction pour le classement des features et le F1 d'arrêt
     tw = next((float(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--tail-weight=")), None)
     ts = next((float(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--tail-sample=")), None)
+    if "--save-val" in sys.argv:
+        SAVE_VAL = []
     xgb_spec = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--xgb=")), None)
     if xgb_spec:
         set_xgb(xgb_spec)

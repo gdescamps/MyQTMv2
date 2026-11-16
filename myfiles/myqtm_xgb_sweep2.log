@@ -1,0 +1,58 @@
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:329: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  nxt = cuts[i + 1] if i + 1 < len(cuts) else last + pd.Timedelta(days=1)
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:343: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  y_full, keep_full = labels_before(df, last + pd.Timedelta(days=1))
+variante « all » (sentiment PIT + volume de news EODHD par catégorie) : 284 features — fins de tendance sous-échantillonnées (1 → 0.0 après 30%)
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.412 (tous les jours 0.673), exactitude 0.572 ; couverture sentiment 95.2%
+référence graine 42 : 257 s
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:329: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  nxt = cuts[i + 1] if i + 1 < len(cuts) else last + pd.Timedelta(days=1)
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:343: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  y_full, keep_full = labels_before(df, last + pd.Timedelta(days=1))
+variante « all » (sentiment PIT + volume de news EODHD par catégorie) : 284 features — fins de tendance sous-échantillonnées (1 → 0.0 après 30%)
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.419 (tous les jours 0.677), exactitude 0.575 ; couverture sentiment 95.2%
+référence graine 7 : 260 s
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:329: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  nxt = cuts[i + 1] if i + 1 < len(cuts) else last + pd.Timedelta(days=1)
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:343: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  y_full, keep_full = labels_before(df, last + pd.Timedelta(days=1))
+variante « all » (sentiment PIT + volume de news EODHD par catégorie) : 284 features — fins de tendance sous-échantillonnées (1 → 0.0 après 30%)
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.417 (tous les jours 0.676), exactitude 0.575 ; couverture sentiment 95.2%
+référence graine 123 : 261 s
+RÉFÉRENCE OK
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:329: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  nxt = cuts[i + 1] if i + 1 < len(cuts) else last + pd.Timedelta(days=1)
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:343: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  y_full, keep_full = labels_before(df, last + pd.Timedelta(days=1))
+variante « all » (sentiment PIT + volume de news EODHD par catégorie) : 284 features — fins de tendance sous-échantillonnées (1 → 0.0 après 30%)
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.421 (tous les jours 0.671), exactitude 0.583 ; couverture sentiment 95.2%
+variante 3,100,0.02,100 : 211 s
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:329: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  nxt = cuts[i + 1] if i + 1 < len(cuts) else last + pd.Timedelta(days=1)
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:343: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  y_full, keep_full = labels_before(df, last + pd.Timedelta(days=1))
+variante « all » (sentiment PIT + volume de news EODHD par catégorie) : 284 features — fins de tendance sous-échantillonnées (1 → 0.0 après 30%)
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.425 (tous les jours 0.679), exactitude 0.584 ; couverture sentiment 95.2%
+variante 4,300,0.02,100 : 226 s
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:329: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  nxt = cuts[i + 1] if i + 1 < len(cuts) else last + pd.Timedelta(days=1)
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:343: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  y_full, keep_full = labels_before(df, last + pd.Timedelta(days=1))
+variante « all » (sentiment PIT + volume de news EODHD par catégorie) : 284 features — fins de tendance sous-échantillonnées (1 → 0.0 après 30%)
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.430 (tous les jours 0.679), exactitude 0.584 ; couverture sentiment 95.2%
+variante 3,300,0.02,100 : 220 s
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:329: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  nxt = cuts[i + 1] if i + 1 < len(cuts) else last + pd.Timedelta(days=1)
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:343: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  y_full, keep_full = labels_before(df, last + pd.Timedelta(days=1))
+variante « all » (sentiment PIT + volume de news EODHD par catégorie) : 284 features — fins de tendance sous-échantillonnées (1 → 0.0 après 30%)
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.425 (tous les jours 0.679), exactitude 0.580 ; couverture sentiment 95.2%
+variante 4,200,0.02,100 : 243 s
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:329: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  nxt = cuts[i + 1] if i + 1 < len(cuts) else last + pd.Timedelta(days=1)
+/home/greg/data_local/code/MyQTMv2_dev/src/portefolio_strategy/myqtm/train.py:343: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  y_full, keep_full = labels_before(df, last + pd.Timedelta(days=1))
+variante « all » (sentiment PIT + volume de news EODHD par catégorie) : 284 features — fins de tendance sous-échantillonnées (1 → 0.0 après 30%)
+prédictions hors échantillon : 71463 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.418 (tous les jours 0.675), exactitude 0.581 ; couverture sentiment 95.2%
+variante 4,100,0.01,150 : 341 s
+TERMINÉ

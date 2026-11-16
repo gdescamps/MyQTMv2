@@ -19,6 +19,7 @@ MODELS = {"ts0 graine 42": C.DATA / "predictions_ts0_from2024.parquet",
           "ts0 graine 7": C.DATA / "predictions_ts0s7_from2024.parquet",
           "ts0 graine 123": C.DATA / "predictions_ts0s123_from2024.parquet",
           "ts0 moyenne 3 graines": C.DATA / "predictions_ts0avg_from2024.parquet",
+          "ts0 ensemble 14 modèles": C.DATA / "predictions_ts0ens_from2024.parquet",
           **{"ts0 " + p.name.split("_")[2]: p for p in sorted(C.DATA.glob("predictions_ts0_x*_from2024.parquet"))},
           **{"ts0 moyenne 3 graines " + p.name.split("_")[2]: p
              for p in sorted(C.DATA.glob("predictions_ts0avg_x*_from2024.parquet"))}}
