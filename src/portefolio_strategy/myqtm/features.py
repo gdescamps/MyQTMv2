@@ -343,6 +343,53 @@ def add_context_features(df):
     return df
 
 
+EVENTS_FILE = C.LLM / "llama31" / "events.parquet"
+EVENT_WINDOWS = (5, 20)
+
+
+def add_event_features(df):
+    """News structurées (events.py, Llama 3.1 8B, citations vérifiées) → features par (titre, séance).
+
+    Un événement daté du jour de news d (déjà rattaché à la séance où il est disponible, news.news_day) compte à
+    partir de la première séance ≥ d. Pour chaque fenêtre de W séances (5, 20) :
+    - ev_co_<type>_<sens>_W  : nombre de jours de news du titre où l'événement de l'entreprise apparaît ;
+    - ev_cp_<type>_<sens>_W  : idem pour les événements de concurrents ;
+    - ev_mac_<type>_<dir>_W  : niveau marché, part des (titre, jour) de news de la séance qui citent l'événement
+      macro (moyenne sur la fenêtre), identique pour tous les titres d'une séance."""
+    if not EVENTS_FILE.exists():
+        return df
+    from ..events import COMPANY_TYPES, MACRO_TYPES
+    e = pd.read_parquet(EVENTS_FILE)
+    days = pd.DatetimeIndex(np.sort(df["date"].unique()))
+    e["date"] = days[np.minimum(days.searchsorted(pd.to_datetime(e["day"])), len(days) - 1)]
+    df = df.sort_values(["symbol", "date"]).reset_index(drop=True)
+    new = {}
+    for blk, pre in (("company", "ev_co"), ("competitors", "ev_cp")):
+        x = e[e["block"] == blk].assign(k=lambda d: pre + "_" + d["type"] + "_" + d["sign"].map({"+": "pos", "-": "neg"}))
+        cnt = x.groupby(["symbol", "date", "k"]).size().unstack("k", fill_value=0)
+        cols = [f"{pre}_{t}_{sg}" for t in COMPANY_TYPES for sg in ("pos", "neg")]
+        cnt = cnt.reindex(columns=cols, fill_value=0)
+        m = df[["symbol", "date"]].merge(cnt.reset_index(), on=["symbol", "date"], how="left").fillna(0)
+        g = m.groupby("symbol")
+        for w in EVENT_WINDOWS:
+            r = g[cols].rolling(w, min_periods=1).sum().reset_index(level=0, drop=True)
+            for c in cols:
+                new[f"{c}_{w}"] = r[c].to_numpy()
+    tx = pd.read_parquet(EVENTS_FILE.parent / "texts.parquet", columns=["day", "symbol"])
+    tx["date"] = days[np.minimum(days.searchsorted(pd.to_datetime(tx["day"])), len(days) - 1)]
+    n_news = tx.groupby("date").size().reindex(days, fill_value=0)
+    x = e[e["block"] == "macro"].assign(k=lambda d: "ev_mac_" + d["type"] + "_" + d["sign"])
+    mac = x.groupby(["date", "k"]).size().unstack("k", fill_value=0).reindex(days, fill_value=0)
+    cols = [f"ev_mac_{t}_{d}" for t in MACRO_TYPES for d in ("up", "down", "announced")]
+    mac = mac.reindex(columns=cols, fill_value=0)
+    for w in EVENT_WINDOWS:
+        frac = mac.rolling(w, min_periods=1).sum().div(n_news.rolling(w, min_periods=1).sum().replace(0, np.nan), axis=0)
+        mm = frac.reindex(df["date"]).to_numpy()
+        for j, c in enumerate(cols):
+            new[f"{c}_{w}"] = mm[:, j]
+    return pd.concat([df, pd.DataFrame(new, index=df.index)], axis=1)
+
+
 def load_sentiments():
     return pd.read_parquet(SENTIMENTS) if SENTIMENTS.exists() else None
 
@@ -368,7 +415,7 @@ def main():
     df = pd.concat(parts, ignore_index=True)
     if "vs_days" in df:
         df["vs_days"] = df["vs_days"].fillna(-1).astype(int)
-    df = add_context_features(df)
+    df = add_event_features(add_context_features(df))
     df.to_parquet(FEATURES, index=False)
     m = df[df["member"]]
     cov = m["ts_news_sentiment_company_0"].notna().mean()
@@ -383,8 +430,8 @@ if __name__ == "__main__":
     import sys
     if "--augment" in sys.argv:                  # ajoute les features de contexte au fichier existant
         d = pd.read_parquet(FEATURES)
-        d = add_context_features(d.drop(columns=[c for c in d.columns
-                                                 if c.startswith(("sect_r", "rel_sect_r", "rel_mkt_r", "earn_days_"))]))
+        d = add_event_features(add_context_features(d.drop(columns=[
+            c for c in d.columns if c.startswith(("sect_r", "rel_sect_r", "rel_mkt_r", "earn_days_", "ev_"))])))
         d.to_parquet(FEATURES, index=False)
         print(f"features de contexte ajoutées : {len(feature_columns(d))} colonnes")
     else:
