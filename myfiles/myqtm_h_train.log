@@ -1,0 +1,14 @@
+variante « all » (sentiment PIT + volume de news EODHD par catégorie) : 386 features — fins de tendance sous-échantillonnées (1 → 0.0 après 30%)
+  {'cutoff': '2024-01-01', 'train_rows': 429149, 'test_rows': 42273, 'train_until': '2023-12-29', 'f1_cv': 0.3731, 'top_features': 80, 'rounds': [260, 536], 'class_share': [0.247, 0.473, 0.28]}  [66 s]
+  {'cutoff': '2024-04-01', 'train_rows': 462683, 'test_rows': 43659, 'train_until': '2024-03-28', 'f1_cv': 0.3623, 'top_features': 80, 'rounds': [548, 257], 'class_share': [0.246, 0.472, 0.281]}  [145 s]
+  {'cutoff': '2024-07-01', 'train_rows': 497424, 'test_rows': 44493, 'train_until': '2024-06-28', 'f1_cv': 0.3403, 'top_features': 60, 'rounds': [600, 597], 'class_share': [0.247, 0.473, 0.28]}  [236 s]
+  {'cutoff': '2024-10-01', 'train_rows': 532920, 'test_rows': 44200, 'train_until': '2024-09-30', 'f1_cv': 0.3523, 'top_features': 80, 'rounds': [594, 588], 'class_share': [0.245, 0.473, 0.281]}  [332 s]
+  {'cutoff': '2025-01-01', 'train_rows': 567128, 'test_rows': 42000, 'train_until': '2024-12-31', 'f1_cv': 0.3785, 'top_features': 80, 'rounds': [367, 552], 'class_share': [0.247, 0.472, 0.281]}  [426 s]
+  {'cutoff': '2025-04-01', 'train_rows': 600358, 'test_rows': 43403, 'train_until': '2025-03-31', 'f1_cv': 0.3691, 'top_features': 80, 'rounds': [600, 489], 'class_share': [0.247, 0.471, 0.281]}  [528 s]
+  {'cutoff': '2025-07-01', 'train_rows': 634949, 'test_rows': 44500, 'train_until': '2025-06-30', 'f1_cv': 0.3706, 'top_features': 60, 'rounds': [560, 526], 'class_share': [0.246, 0.471, 0.283]}  [633 s]
+  {'cutoff': '2025-10-01', 'train_rows': 670670, 'test_rows': 41399, 'train_until': '2025-09-30', 'f1_cv': 0.3667, 'top_features': 80, 'rounds': [551, 466], 'class_share': [0.245, 0.472, 0.283]}  [749 s]
+  {'cutoff': '2026-01-01', 'train_rows': 703282, 'test_rows': 42567, 'train_until': '2025-12-31', 'f1_cv': 0.3676, 'top_features': 80, 'rounds': [573, 384], 'class_share': [0.245, 0.472, 0.283]}  [870 s]
+  {'cutoff': '2026-04-01', 'train_rows': 737252, 'test_rows': 43400, 'train_until': '2026-03-31', 'f1_cv': 0.3751, 'top_features': 60, 'rounds': [600, 595], 'class_share': [0.248, 0.471, 0.281]}  [1007 s]
+  {'cutoff': '2026-07-01', 'train_rows': 771208, 'test_rows': 44520, 'train_until': '2026-06-30', 'f1_cv': 0.382, 'top_features': 60, 'rounds': [599, 599], 'class_share': [0.247, 0.471, 0.282]}  [1137 s]
+  {'cutoff': '2026-10-01', 'train_rows': 806173, 'test_rows': 19229, 'train_until': '2026-09-30', 'f1_cv': 0.3666, 'top_features': 80, 'rounds': [327, 189], 'class_share': [0.249, 0.469, 0.282]}  [1242 s]
+prédictions hors échantillon : 495643 lignes 2024-01-02 → 2026-11-09 ; F1 macro début de tendance 0.365 (tous les jours 0.635), exactitude 0.622 ; couverture sentiment 99.7%
