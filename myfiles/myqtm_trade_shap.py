@@ -21,7 +21,9 @@ from src.portefolio_strategy.myqtm import train as T
 
 MODELS = T.out_dir(first="2024-01-01", ts=0.0) / "models"
 BIG = 15.0
-FAMILIES = [("sentiment news (LLM)", r"news_sentiment|sentiment_vs"), ("nombre de news", r"vs_|news_days"),
+FAMILIES = [("news structurées entreprise", r"^ev_co_"), ("news structurées concurrents", r"^ev_cp_"),
+            ("news structurées macro", r"^ev_mac_"), ("contexte secteur / résultats", r"sect_r|rel_mkt|earn_days"),
+            ("sentiment news (LLM)", r"news_sentiment|sentiment_vs"), ("nombre de news", r"vs_|news_days"),
             ("résultats (surprise)", r"es_surprise"), ("macro", r"ei_|vixp"), ("bilan", r"km_"),
             ("RSI", r"rsi"), ("momentum", r"momentum"), ("moyennes mobiles", r"ema"),
             ("volume", r"volume"), ("variation de cours", r"d_close|w_close")]
