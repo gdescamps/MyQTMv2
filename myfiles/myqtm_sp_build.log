@@ -1,0 +1,6 @@
+sentiment fournisseur : 1160343 articles → 434974 couples (titre, jour), 681 titres
+polarité moyenne 0.811 (écart-type 0.448) ; part d'articles par catégorie : {'earnings': 0.38, 'analyst': 0.22, 'legal': 0.03, 'mna': 0.04, 'capital': 0.09, 'product': 0.06, 'management': 0.03, 'macro': 0.12, 'press': 0.04} ; sans catégorie : 0.36
+couples par année : {2020: 6837, 2021: 63661, 2022: 66054, 2023: 71662, 2024: 51261, 2025: 87088, 2026: 88411}
+features : 1403764 lignes, 797 titres, 164 colonnes, 2019-06-03 → 2026-11-09
+lignes membres : 930679 ; couverture du sentiment PIT : 0.0% ; des news EODHD : 86.2%
+S&P 500 : 1403764 lignes (930679 membres), 797 titres, 132 features, membres par jour 498
