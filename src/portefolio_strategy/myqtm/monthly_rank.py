@@ -45,7 +45,8 @@ TARGETS = ("mom6n", "sharpe", "vol")
 LABELS = ["entry", "exit", "y_next", "y_mom6n", "y_sharpe", "y_vol", "mom6", "cap", "vol63_d"]
 
 
-def build():
+def daily_frame():
+    """Features quotidiennes du S&P 500 depuis mi-2015, sans LLM ni news (aussi utilisé par set_rank.py)."""
     S.use_sp()
     F.FEATURES, F.INDEX = DATA / "features_long.parquet", DATA / "index_long.parquet"
     F.ROWS_START, C.UNIVERSE_FIRST_YEAR = "2015-06-01", 2015
@@ -53,6 +54,11 @@ def build():
     df = df.drop(columns=[c for c in df.columns if F.is_pit_col(c) or F.is_vendor_col(c)])
     df = S.augment(df).sort_values(["symbol", "date"]).reset_index(drop=True)
     F.FEATURES.unlink(missing_ok=True)                      # fichier quotidien long : intermédiaire seulement
+    return df
+
+
+def build():
+    df = daily_frame()
     o = df.pivot(index="date", columns="symbol", values="o").sort_index()
     c = df.pivot(index="date", columns="symbol", values="c").sort_index().ffill()
     mem = df.pivot(index="date", columns="symbol", values="member").reindex(o.index).fillna(False).astype(bool)
