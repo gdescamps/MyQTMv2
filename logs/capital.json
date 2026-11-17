@@ -1,14 +1,14 @@
 {
   "1": {
-    "expected_cash": 2925.63,
-    "as_of": "2026-11-12",
-    "traded_notional": 51502.8,
+    "expected_cash": 3704.18,
+    "as_of": "2026-11-17",
+    "traded_notional": 0.0,
     "deposits": []
   },
   "2": {
-    "expected_cash": 2898.51,
-    "as_of": "2026-11-12",
-    "traded_notional": 50177.54,
+    "expected_cash": 1960.25,
+    "as_of": "2026-11-17",
+    "traded_notional": 1193.04,
     "deposits": [
       {
         "date": "2026-10-02",
@@ -31,9 +31,9 @@
     ]
   },
   "3": {
-    "expected_cash": 102.56,
-    "as_of": "2026-11-12",
-    "traded_notional": 712.32,
+    "expected_cash": 105.98,
+    "as_of": "2026-11-17",
+    "traded_notional": 0.0,
     "deposits": []
   }
 }

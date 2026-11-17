@@ -4514,3 +4514,232 @@ Decision: entree depuis le cash (force) : ACHAT 7 PUST (712 EUR, frais ~4 EUR)
 Email envoye a descamps.gregory@gmail.com: [MyQTM] LIVE 3 PEA — expo cible 102% -> 95% — expo reelle c1 95% | c2 95% | c3 87% — EXECUTION c1 c2 c3
 
 Termine.
+[INFO] TRADE_INSTRUMENT ignore : realisation PUST+LQQ, plafond d'expo x1.7
+============================================================
+PEA PUST+LQQ (PUST x1 + LQQ x2, plafond d'expo x1.7) — 2026-11-13
+Mode: LIVE
+Comptes geres: slot 1, slot 2, slot 3
+============================================================
+Signal du 2026-11-12 (status=ok, age: 10.6h)
+  Probabilite: 0.4629
+  Allocation:  46%  ->  exposition cible 93% (plafond x1.7)
+  RSI14 QQQ:   45.4
+
+------------------------------------------------------------
+  COMPTE 1 (PEA DESCAMPS)
+------------------------------------------------------------
+
+PEA DESCAMPS (compte 1):
+  Especes:     3704.18 EUR
+  Titres:     51302.40 EUR
+  Total:      55006.58 EUR
+  PUST     501 parts @ 102.400 EUR =     51302 EUR (Nasdaq x1)
+  LQQ        0 parts @ 8.940 EUR =         0 EUR (Nasdaq x2 (leverage))
+  Exposition reelle: 93%
+
+Exposition (equity geree 55007 EUR):
+  Reelle:  93.3%  (PUST 93% | LQQ 0% | cash 7%)
+  Cible:   92.6%
+  Delta:   -0.7%
+
+Decision: Vente ignoree: delta 0.7% < seuil 100%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+------------------------------------------------------------
+  COMPTE 2 (PEA DESCAMPS)
+------------------------------------------------------------
+
+PEA DESCAMPS (compte 2):
+  Especes:     3159.26 EUR
+  Titres:     50483.20 EUR
+  Total:      53642.46 EUR
+  PUST     493 parts @ 102.400 EUR =     50483 EUR (Nasdaq x1)
+  LQQ        0 parts @ 8.940 EUR =         0 EUR (Nasdaq x2 (leverage))
+  Exposition reelle: 94%
+
+Exposition (equity geree 53642 EUR):
+  Reelle:  94.1%  (PUST 94% | LQQ 0% | cash 6%)
+  Cible:   92.6%
+  Delta:   -1.5%
+
+Decision: Vente ignoree: delta 1.5% < seuil 100%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+------------------------------------------------------------
+  COMPTE 3 (PEA DESCAMPS)
+------------------------------------------------------------
+
+PEA DESCAMPS (compte 3):
+  Especes:      105.98 EUR
+  Titres:       716.80 EUR
+  Total:        822.78 EUR
+  PUST       7 parts @ 102.400 EUR =       717 EUR (Nasdaq x1)
+  LQQ        0 parts @ 8.940 EUR =         0 EUR (Nasdaq x2 (leverage))
+  Exposition reelle: 87%
+
+Exposition (equity geree 823 EUR):
+  Reelle:  87.1%  (PUST 87% | LQQ 0% | cash 13%)
+  Cible:   92.6%
+  Delta:   +5.5%
+
+Decision: Achat ignore: delta +5.5% < seuil 50%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+Email envoye a descamps.gregory@gmail.com: [MyQTM] LIVE 3 PEA — expo cible 93% — expo reelle c1 93% | c2 94% | c3 87% — aucune execution
+
+Termine.
+[INFO] TRADE_INSTRUMENT ignore : realisation PUST+LQQ, plafond d'expo x1.7
+============================================================
+PEA PUST+LQQ (PUST x1 + LQQ x2, plafond d'expo x1.7) — 2026-11-16
+Mode: LIVE
+Comptes geres: slot 1, slot 2, slot 3
+============================================================
+Signal du 2026-11-13 (status=ok, age: 58.6h)
+  Probabilite: 0.5101
+  Allocation:  51%  ->  exposition cible 102% (plafond x1.7)
+  RSI14 QQQ:   42.8
+
+------------------------------------------------------------
+  COMPTE 1 (PEA DESCAMPS)
+------------------------------------------------------------
+
+PEA DESCAMPS (compte 1):
+  Especes:     3704.18 EUR
+  Titres:     50580.96 EUR
+  Total:      54285.14 EUR
+  PUST     501 parts @ 100.960 EUR =     50581 EUR (Nasdaq x1)
+  LQQ        0 parts @ 8.640 EUR =         0 EUR (Nasdaq x2 (leverage))
+  Exposition reelle: 93%
+
+Exposition (equity geree 54285 EUR):
+  Reelle:  93.2%  (PUST 93% | LQQ 0% | cash 7%)
+  Cible:   102.0%
+  Delta:   +8.8%
+
+Decision: Achat ignore: delta +8.8% < seuil 50%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+------------------------------------------------------------
+  COMPTE 2 (PEA DESCAMPS)
+------------------------------------------------------------
+
+PEA DESCAMPS (compte 2):
+  Especes:     3159.26 EUR
+  Titres:     49773.28 EUR
+  Total:      52932.54 EUR
+  PUST     493 parts @ 100.960 EUR =     49773 EUR (Nasdaq x1)
+  LQQ        0 parts @ 8.640 EUR =         0 EUR (Nasdaq x2 (leverage))
+  Exposition reelle: 94%
+
+Exposition (equity geree 52933 EUR):
+  Reelle:  94.0%  (PUST 94% | LQQ 0% | cash 6%)
+  Cible:   102.0%
+  Delta:   +8.0%
+
+Decision: Achat ignore: delta +8.0% < seuil 50%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+------------------------------------------------------------
+  COMPTE 3 (PEA DESCAMPS)
+------------------------------------------------------------
+
+PEA DESCAMPS (compte 3):
+  Especes:      105.98 EUR
+  Titres:       706.72 EUR
+  Total:        812.70 EUR
+  PUST       7 parts @ 100.960 EUR =       707 EUR (Nasdaq x1)
+  LQQ        0 parts @ 8.640 EUR =         0 EUR (Nasdaq x2 (leverage))
+  Exposition reelle: 87%
+
+Exposition (equity geree 813 EUR):
+  Reelle:  87.0%  (PUST 87% | LQQ 0% | cash 13%)
+  Cible:   102.0%
+  Delta:   +15.1%
+
+Decision: Achat ignore: delta +15.1% < seuil 50%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+Email envoye a descamps.gregory@gmail.com: [MyQTM] LIVE 3 PEA — expo cible 93% -> 102% — expo reelle c1 93% | c2 94% | c3 87% — aucune execution
+
+Termine.
+[INFO] TRADE_INSTRUMENT ignore : realisation PUST+LQQ, plafond d'expo x1.7
+============================================================
+PEA PUST+LQQ (PUST x1 + LQQ x2, plafond d'expo x1.7) — 2026-11-17
+Mode: LIVE
+Comptes geres: slot 1, slot 2, slot 3
+============================================================
+Signal du 2026-11-16 (status=ok, age: 10.6h)
+  Probabilite: 0.1996
+  Allocation:  20%  ->  exposition cible 40% (plafond x1.7)
+  RSI14 QQQ:   37.8
+
+------------------------------------------------------------
+  COMPTE 1 (PEA DESCAMPS)
+------------------------------------------------------------
+
+PEA DESCAMPS (compte 1):
+  Especes:     3704.18 EUR
+  Titres:     49794.39 EUR
+  Total:      53498.57 EUR
+  PUST     501 parts @ 99.390 EUR =     49794 EUR (Nasdaq x1)
+  LQQ        0 parts @ 8.360 EUR =         0 EUR (Nasdaq x2 (leverage))
+  Exposition reelle: 93%
+
+Exposition (equity geree 53499 EUR):
+  Reelle:  93.1%  (PUST 93% | LQQ 0% | cash 7%)
+  Cible:   39.9%
+  Delta:   -53.2%
+
+Decision: Vente ignoree: delta 53.2% < seuil 100%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+------------------------------------------------------------
+  COMPTE 2 (PEA DESCAMPS)
+------------------------------------------------------------
+
+PEA DESCAMPS (compte 2):
+  Especes:     3159.26 EUR
+  Titres:     48999.27 EUR
+  Total:      52158.53 EUR
+  PUST       0 parts @ 99.420 EUR =         0 EUR (Nasdaq x1)
+  LQQ        0 parts @ 8.360 EUR =         0 EUR (Nasdaq x2 (leverage))
+  [INFO] autres titres hors strategie: 48999 EUR (ignores)
+  Exposition reelle: 0%
+
+Exposition (equity geree 3159 EUR):
+  Reelle:  0.0%  (PUST 0% | LQQ 0% | cash 100%)
+  Cible:   39.9%
+  Delta:   +39.9%
+
+Decision: entree depuis le cash (force) : ACHAT 12 PUST (1193 EUR, frais ~6 EUR)
+  [EXECUTE] ACHAT 12x PUST (limite ±3.0%) — compte 2 (PEA DESCAMPS)
+  [OK] INFO bourso_cli: Welcome to BoursoBank CLI 👋
+ INFO bourso_cli: ℹ️ - Version 0.5.4. Make sure you're running the latest version: https://github.com/azerpas/bourso-api
+ INFO bourso_cli: We'll try to log you in with your customer id: 70974800
+ INFO bourso_cli: If you want to change it, run `bourso config --username <customer_id>`
+ INFO bourso_cli: We'll need your password to log you in. It will not be stored anywhere and will be asked everytime you run a command. The password will be hidden while typing.
+ INFO bourso_api::client: 🔓 You are now logged in with user: 8c8193cd184aed1
+ INFO bourso_cli: Login successful ✅
+ INFO bourso_api::client::trade::order: Order for 12 1rTPUST (Limit) successfully passed with ID F26K17005298 at price Some(102.3717) ✅
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+
+------------------------------------------------------------
+  COMPTE 3 (PEA DESCAMPS)
+------------------------------------------------------------
+
+PEA DESCAMPS (compte 3):
+  Especes:      105.98 EUR
+  Titres:       695.73 EUR
+  Total:        801.71 EUR
+  PUST       7 parts @ 99.390 EUR =       696 EUR (Nasdaq x1)
+  LQQ        0 parts @ 8.370 EUR =         0 EUR (Nasdaq x2 (leverage))
+  Exposition reelle: 87%
+
+Exposition (equity geree 802 EUR):
+  Reelle:  86.8%  (PUST 87% | LQQ 0% | cash 13%)
+  Cible:   39.9%
+  Delta:   -46.9%
+
+Decision: Vente ignoree: delta 46.9% < seuil 100%
+  Log → /home/greg/data_local/code/MyQTMv2/logs/trades.jsonl
+Email envoye a descamps.gregory@gmail.com: [MyQTM] LIVE 3 PEA — expo cible 102% -> 40% — expo reelle c1 93% | c2 38% | c3 87% — EXECUTION c2
+
+Termine.
