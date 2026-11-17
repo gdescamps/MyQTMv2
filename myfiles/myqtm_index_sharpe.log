@@ -1,0 +1,129 @@
+fréquence mensuelle : 93 décisions
+fréquence hebdomadaire : 406 décisions
+
+univers équipondéré : Sharpe 2019-23 0.80, 2024-26 1.30, ensemble 0.93 ; rendement 17.7 %/an, DD -36.6 %
+
+sharpe_2019_23 — parts égales, par classement, taille et fréquence
+fréquence                                   hebdomadaire                mensuelle               
+top                                                   10   20   30   40        10   20   30   40
+classement                                                                                      
+leaders parmi les 50 plus grosses                   0.86 0.82 0.78 0.85      0.95 0.89 0.89 0.90
+leaders parmi les 100 plus grosses                  0.80 0.77 0.73 0.76      1.08 0.98 0.87 0.88
+momentum parmi les 100 plus grosses                 0.67 0.70 0.79 0.77      0.88 1.00 0.93 0.94
+modèle Sharpe                                       0.35 0.44 0.48 0.41      0.91 0.80 0.74 0.62
+modèle futurs leaders                               0.73 0.55 0.57 0.56      0.89 0.84 0.74 0.79
+modèle faible volatilité                            0.64 0.70 0.69 0.72      0.85 0.79 0.78 0.78
+modèle leaders + faible volatilité                  0.39 0.46 0.43 0.44      0.54 0.58 0.64 0.69
+modèle Sharpe + leaders + faible volatilité         0.44 0.40 0.54 0.47      0.79 0.73 0.85 0.78
+momentum 6 mois                                     0.71 0.63 0.66 0.63      0.77 0.87 0.86 0.84
+faible volatilité 63 j                              0.77 0.80 0.88 0.84      0.60 0.74 0.76 0.77
+momentum / volatilité                               0.61 0.62 0.63 0.60      0.60 0.72 0.92 0.90
+grosses capitalisations                             0.94 0.89 0.89 0.81      0.91 0.97 0.89 0.85
+
+sharpe_2024_26 — parts égales, par classement, taille et fréquence
+fréquence                                   hebdomadaire                mensuelle               
+top                                                   10   20   30   40        10   20   30   40
+classement                                                                                      
+leaders parmi les 50 plus grosses                   1.07 1.08 1.04 1.10      1.06 1.17 1.20 1.26
+leaders parmi les 100 plus grosses                  0.82 1.04 1.13 1.05      0.80 1.03 1.02 1.07
+momentum parmi les 100 plus grosses                 0.89 0.93 0.99 0.95      0.83 0.96 1.06 1.04
+modèle Sharpe                                       0.21 0.71 0.75 0.93      0.73 0.80 0.96 0.98
+modèle futurs leaders                               1.37 1.00 1.01 0.91      1.21 1.06 0.94 0.94
+modèle faible volatilité                            0.65 0.54 0.64 0.66      0.69 1.05 1.05 0.90
+modèle leaders + faible volatilité                  0.35 0.47 0.46 0.49      0.62 0.71 0.68 0.85
+modèle Sharpe + leaders + faible volatilité         0.94 0.76 0.88 0.89      1.09 1.26 1.20 1.14
+momentum 6 mois                                     1.10 1.08 1.05 0.95      1.25 0.98 0.95 0.88
+faible volatilité 63 j                              0.85 0.75 0.93 0.92      0.92 0.96 0.93 1.06
+momentum / volatilité                               0.74 0.92 0.96 0.96      0.69 0.93 0.94 0.90
+grosses capitalisations                             0.86 1.39 1.28 1.24      0.98 1.42 1.38 1.38
+
+sharpe — parts égales, par classement, taille et fréquence
+fréquence                                   hebdomadaire                mensuelle               
+top                                                   10   20   30   40        10   20   30   40
+classement                                                                                      
+leaders parmi les 50 plus grosses                   0.94 0.92 0.87 0.93      0.99 1.00 1.00 1.02
+leaders parmi les 100 plus grosses                  0.80 0.88 0.88 0.86      0.94 0.99 0.93 0.95
+momentum parmi les 100 plus grosses                 0.76 0.79 0.87 0.84      0.84 0.97 0.98 0.98
+modèle Sharpe                                       0.30 0.50 0.54 0.54      0.85 0.79 0.79 0.71
+modèle futurs leaders                               1.00 0.74 0.75 0.70      1.02 0.93 0.82 0.85
+modèle faible volatilité                            0.64 0.64 0.67 0.70      0.80 0.87 0.86 0.81
+modèle leaders + faible volatilité                  0.38 0.46 0.43 0.45      0.56 0.61 0.64 0.72
+modèle Sharpe + leaders + faible volatilité         0.59 0.50 0.63 0.58      0.87 0.87 0.94 0.87
+momentum 6 mois                                     0.87 0.82 0.82 0.76      0.98 0.91 0.89 0.85
+faible volatilité 63 j                              0.79 0.78 0.89 0.86      0.69 0.80 0.81 0.85
+momentum / volatilité                               0.66 0.73 0.75 0.73      0.63 0.80 0.93 0.90
+grosses capitalisations                             0.91 1.05 1.01 0.94      0.94 1.12 1.05 1.01
+
+Sharpe (ensemble) moyen par allocation et classement (moyenne des tailles et des fréquences)
+allocation                                   égal  inverse volatilité  score  score × inverse volatilité  capitalisation
+classement                                                                                                              
+leaders parmi les 50 plus grosses            0.96                0.90   0.98                        0.92            0.92
+leaders parmi les 100 plus grosses           0.90                0.85   0.92                        0.87            0.93
+momentum parmi les 100 plus grosses          0.88                0.85   0.87                        0.84            0.92
+modèle Sharpe                                0.63                0.60   0.60                        0.54            0.62
+modèle futurs leaders                        0.85                0.83   0.92                        0.92            0.88
+modèle faible volatilité                     0.75                0.76   0.74                        0.75            0.69
+modèle leaders + faible volatilité           0.53                0.51   0.50                        0.47            0.55
+modèle Sharpe + leaders + faible volatilité  0.73                0.68   0.71                        0.65            0.63
+momentum 6 mois                              0.86                0.82   0.91                        0.88            0.90
+faible volatilité 63 j                       0.81                0.82   0.73                        0.74            0.78
+momentum / volatilité                        0.77                0.71   0.73                        0.67            0.83
+grosses capitalisations                      1.00                1.01   1.02                        1.03            0.97
+
+Sharpe moyen par fréquence et classement (moyenne des tailles et allocations) ; rotation annuelle moyenne
+                                            rotation_an_x                 sharpe          
+fréquence                                    hebdomadaire mensuelle hebdomadaire mensuelle
+classement                                                                                
+leaders parmi les 50 plus grosses                    7.35      3.21         0.89      0.98
+leaders parmi les 100 plus grosses                  10.08      4.37         0.84      0.95
+momentum parmi les 100 plus grosses                  9.87      4.22         0.82      0.93
+modèle Sharpe                                       37.38     10.28         0.46      0.74
+modèle futurs leaders                               14.29      6.17         0.81      0.95
+modèle faible volatilité                            15.24      6.78         0.67      0.80
+modèle leaders + faible volatilité                  19.10      7.96         0.39      0.63
+modèle Sharpe + leaders + faible volatilité         28.35      8.90         0.52      0.84
+momentum 6 mois                                     12.19      5.38         0.83      0.91
+faible volatilité 63 j                               8.67      4.46         0.81      0.74
+momentum / volatilité                               15.10      6.65         0.71      0.77
+grosses capitalisations                              1.49      0.67         0.99      1.02
+
+15 meilleures configurations sur 2019-2023 (choix), avec leur vérification 2024-26 — 480 configurations
+                         classement  top                 allocation fréquence  sharpe_2019_23  sharpe_2024_26  sharpe  rendement_an_pct  max_dd_pct  volatilité_pct  rotation_an_x
+ leaders parmi les 100 plus grosses   10                      score mensuelle            1.16            0.93    1.03             34.01      -35.21           33.44           5.43
+ leaders parmi les 100 plus grosses   10 score × inverse volatilité mensuelle            1.12            0.83    0.97             28.32      -33.57           30.19           5.79
+              momentum / volatilité   30             capitalisation mensuelle            1.11            0.67    0.92             24.12      -30.40           27.44           6.22
+ leaders parmi les 100 plus grosses   10             capitalisation mensuelle            1.10            0.92    1.00             32.77      -32.98           33.49           5.26
+momentum parmi les 100 plus grosses   20             capitalisation mensuelle            1.09            0.82    0.96             25.49      -29.57           27.09           4.17
+ leaders parmi les 100 plus grosses   10                       égal mensuelle            1.08            0.80    0.94             27.03      -34.22           30.11           5.09
+                    momentum 6 mois   10             capitalisation mensuelle            1.07            1.47    1.23             61.05      -46.45           47.47           5.59
+ leaders parmi les 100 plus grosses   10         inverse volatilité mensuelle            1.05            0.64    0.85             21.81      -35.56           27.34           5.73
+              momentum / volatilité   40             capitalisation mensuelle            1.05            0.55    0.84             20.32      -30.69           25.82           5.85
+ leaders parmi les 100 plus grosses   20                      score mensuelle            1.04            0.93    0.98             26.54      -32.33           27.77           4.53
+  leaders parmi les 50 plus grosses   10                      score mensuelle            1.03            1.00    1.01             29.20      -31.85           29.44           4.62
+momentum parmi les 100 plus grosses   40             capitalisation mensuelle            1.03            0.97    1.01             21.57      -29.20           21.49           3.03
+ leaders parmi les 100 plus grosses   20 score × inverse volatilité mensuelle            1.03            0.84    0.94             22.40      -29.80           24.59           4.81
+momentum parmi les 100 plus grosses   20         inverse volatilité mensuelle            1.03            0.88    0.96             21.10      -29.56           22.22           4.55
+  leaders parmi les 50 plus grosses   10             capitalisation mensuelle            1.03            0.91    0.96             26.51      -28.97           28.30           4.57
+
+configurations qui battent l'univers sur les deux périodes : 20 / 480 (par classement : {'grosses capitalisations': 16, 'modèle futurs leaders': 3, 'momentum 6 mois': 1})
+             classement  top                 allocation    fréquence  sharpe_2019_23  sharpe_2024_26  sharpe  rendement_an_pct  max_dd_pct  volatilité_pct  rotation_an_x  marge_min
+        momentum 6 mois   10             capitalisation    mensuelle            1.07            1.47    1.23             61.05      -46.45           47.47           5.59       0.17
+grosses capitalisations   20         inverse volatilité    mensuelle            0.95            1.57    1.14             19.80      -28.09           16.90           0.97       0.15
+  modèle futurs leaders   10 score × inverse volatilité    mensuelle            0.93            1.42    1.13             42.66      -36.65           37.12           7.09       0.12
+grosses capitalisations   30 score × inverse volatilité    mensuelle            0.92            1.42    1.07             18.82      -27.96           17.24           0.81       0.12
+grosses capitalisations   20                       égal    mensuelle            0.97            1.42    1.12             22.09      -29.28           19.26           0.73       0.12
+grosses capitalisations   40 score × inverse volatilité    mensuelle            0.89            1.45    1.06             17.65      -28.52           16.44           0.79       0.09
+grosses capitalisations   20                       égal hebdomadaire            0.89            1.39    1.05             20.57      -29.06           19.29           1.72       0.09
+grosses capitalisations   30                       égal    mensuelle            0.89            1.38    1.05             18.72      -30.10           17.71           0.75       0.08
+  modèle futurs leaders   10                      score    mensuelle            0.88            1.42    1.11             43.84      -36.40           39.50           6.92       0.08
+grosses capitalisations   20         inverse volatilité hebdomadaire            0.87            1.47    1.06             18.19      -27.89           16.93           2.13       0.07
+grosses capitalisations   40                      score    mensuelle            0.90            1.37    1.05             19.73      -29.64           18.56           0.51       0.07
+grosses capitalisations   30         inverse volatilité    mensuelle            0.86            1.49    1.04             16.67      -28.96           15.79           1.02       0.06
+grosses capitalisations   40 score × inverse volatilité hebdomadaire            0.87            1.35    1.02             16.81      -28.31           16.39           1.62       0.05
+grosses capitalisations   40                       égal    mensuelle            0.85            1.38    1.01             17.68      -30.91           17.44           0.73       0.05
+grosses capitalisations   30         inverse volatilité hebdomadaire            0.85            1.34    0.99             15.76      -28.67           15.75           2.11       0.05
+grosses capitalisations   30 score × inverse volatilité hebdomadaire            0.91            1.33    1.04             18.07      -27.86           17.17           1.69       0.04
+grosses capitalisations   40         inverse volatilité    mensuelle            0.83            1.41    0.99             15.68      -29.78           15.72           0.98       0.03
+grosses capitalisations   30                      score    mensuelle            0.92            1.32    1.06             20.91      -29.03           19.59           0.53       0.03
+  modèle futurs leaders   10         inverse volatilité hebdomadaire            0.82            1.35    1.04             33.53      -35.07           32.53          16.84       0.02
+grosses capitalisations   20 score × inverse volatilité    mensuelle            0.96            1.31    1.08             20.86      -27.32           19.04           0.81       0.01
