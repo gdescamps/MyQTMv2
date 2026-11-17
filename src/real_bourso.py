@@ -246,6 +246,33 @@ def exposure_of(positions, equity):
                for k in INSTRUMENTS) / equity
 
 
+# Lecture INCOMPLETE du PEA : la valorisation "titres" du compte n'est pas couverte par
+# les lignes de positions renvoyees (2026-11-17, compte 2 : titres 48 999 EUR mais AUCUNE
+# ligne PUST dans `trade summary` -> le script a cru le PEA vide et a "re-entre" depuis
+# le cash). Tolerance = arrondis / decalage de cours entre valorisation et lignes.
+SUMMARY_GAP_TOL_EUR = 100.0
+SUMMARY_GAP_TOL_PCT = 0.01
+
+
+class IncompleteSummary(RuntimeError):
+    """`trade summary` incoherent (ligne de position manquante) : ne pas trader sur cette lecture."""
+
+
+def check_summary_consistency(stocks, positions, equity):
+    """Leve IncompleteSummary si la valorisation titres du compte depasse la somme des
+    lignes de positions listees (toutes lignes, y compris hors strategie) au-dela de la
+    tolerance. L'appelant (retry / relance horaire) relit le compte ; a defaut, le compte
+    n'est pas trade ce jour-la (mail CONNEXION KO avec la raison)."""
+    listed = sum(float(p.get("amount") or 0.0) for p in (positions or {}).values())
+    gap = stocks - listed
+    tol = max(SUMMARY_GAP_TOL_EUR, SUMMARY_GAP_TOL_PCT * equity)
+    if gap > tol:
+        raise IncompleteSummary(
+            f"lecture PEA incomplete : titres {stocks:.0f} EUR mais lignes de positions "
+            f"{listed:.0f} EUR (ecart {gap:.0f} EUR > {tol:.0f}) — ligne manquante dans "
+            f"trade summary, aucun ordre sur cette lecture")
+
+
 def get_pea_state(account=None, quiet=False):
     """Etat du PEA (cash + positions PUST et LQQ) via `bourso-cli trade summary`
     (position=INSTANT : temps reel, les ordres executes sont deja refletes).
@@ -275,6 +302,7 @@ def get_pea_state(account=None, quiet=False):
 
     cash = float(acct.get("cash") or 0.0)
     stocks = float(acct.get("stocks") or 0.0)
+    check_summary_consistency(stocks, summary["positions"], cash + stocks)
     managed = sum(p["value"] for p in positions.values())
     state = {
         "cash": cash,
